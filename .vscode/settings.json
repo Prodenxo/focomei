@@ -1,0 +1,5 @@
+{
+  "git.repositoryScanMaxDepth": 1,
+  "git.confirmSync": false,
+  "git.showPushSuccessNotification": true
+}
