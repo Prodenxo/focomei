@@ -1,6 +1,10 @@
 {
   "git.repositoryScanMaxDepth": 1,
   "git.openRepositoryInParentFolders": "never",
+  "git.ignoredRepositories": [
+    "C:\\Users\\Usuário\\Documents\\Dev\\FOCOMEI\\App",
+    "C:\\Users\\Usuário\\Documents\\Dev\\FOCOMEI\\Site"
+  ],
   "git.confirmSync": false,
   "git.showPushSuccessNotification": true
 }
