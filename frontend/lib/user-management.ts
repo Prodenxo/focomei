@@ -14,6 +14,7 @@ export interface ManagedUser {
   status?: boolean | null;
   mei?: boolean | null;
   expiresAt?: string | null;
+  productLine?: string | null;
 }
 
 export interface EmpresaOption {

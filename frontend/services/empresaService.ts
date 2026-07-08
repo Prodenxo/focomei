@@ -30,6 +30,7 @@ export interface EmpresaOption {
   nome_fantasia?: string;
   max_mei?: number | null;
   max_usuarios_nao_mei?: number | null;
+  product_line?: string | null;
 }
 
 export interface EmpresaLimitsPayload {

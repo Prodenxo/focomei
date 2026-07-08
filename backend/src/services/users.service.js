@@ -8,6 +8,13 @@ import {
 } from '../utils/passwordPolicy.js';
 import * as authService from './auth.service.js';
 import { assignN8nPhoneToUser } from './n8n-link-phone.service.js';
+import {
+  deriveEmpresaProductLine,
+  deriveUserProductLine,
+  isEmpresaMeiModuleActive,
+  isFocoMeiApiDeploy,
+  isMeiSlotUserLink,
+} from '../utils/product-line.js';
 
 const ROLE_CREATE_ALLOWED = new Set(['superadmin', 'admin']);
 const ROLE_TARGET_ALLOWED = new Set(['admin', 'usuario', 'outsider']);
@@ -806,23 +813,26 @@ export const listUsers = async (accessToken, queryParams = {}) => {
 
   const [{ data: rolesData }, { data: empresasData }] = await Promise.all([
     adminClient.from('roles').select('id, roles').in('id', roleIds.length ? roleIds : ['none']),
-    adminClient.from('empresas').select('id, empresa, nome_fantasia').in('id', empresaIds.length ? empresaIds : ['none'])
+    adminClient
+      .from('empresas')
+      .select('id, empresa, nome_fantasia, max_mei')
+      .in('id', empresaIds.length ? empresaIds : ['none'])
   ]);
 
   const roleMap = new Map((rolesData || []).map(r => [r.id, r.roles]));
   const empresaMap = new Map((empresasData || []).map(e => [e.id, e]));
 
   // 6. Montar lista final
-  const resultUsers = (links || [])
+  let resultUsers = (links || [])
     .map((link) => {
       const user = userMap.get(link.user_id);
       if (!user) return null;
 
       const roleLabel = normalizeRoleValue(roleMap.get(link.roles_id) || (link.isOrphan ? 'N/A' : 'usuario'));
-      const empresaName = (() => {
-        const e = empresaMap.get(link.empresas_id);
-        return e ? (e.nome_fantasia || e.empresa) : (link.isOrphan ? 'SEM VÍNCULO' : null);
-      })();
+      const empresaRecord = empresaMap.get(link.empresas_id);
+      const empresaName = empresaRecord
+        ? (empresaRecord.nome_fantasia || empresaRecord.empresa)
+        : (link.isOrphan ? 'SEM VÍNCULO' : null);
 
       if (searchTerm && !matchesUserSearch(user, { empresaName, roleLabel }, searchTerm)) {
         return null;
@@ -835,10 +845,24 @@ export const listUsers = async (accessToken, queryParams = {}) => {
         empresaName,
         status: link.status ?? true,
         mei: typeof link.mei === 'boolean' ? link.mei : null,
-        expiresAt: link.expires_at ? new Date(link.expires_at).toISOString() : null
+        expiresAt: link.expires_at ? new Date(link.expires_at).toISOString() : null,
+        productLine: deriveUserProductLine(link.mei),
       };
     })
     .filter(Boolean);
+
+  if (isFocoMeiApiDeploy()) {
+    const meiEmpresaIds = new Set(
+      [...empresaMap.values()]
+        .filter((empresa) => isEmpresaMeiModuleActive(empresa.max_mei))
+        .map((empresa) => empresa.id),
+    );
+    resultUsers = resultUsers.filter(
+      (user) =>
+        isMeiSlotUserLink(user.mei)
+        || (user.empresaId && meiEmpresaIds.has(user.empresaId)),
+    );
+  }
 
   return { users: resultUsers };
 };
@@ -902,6 +926,15 @@ export const listEmpresas = async (accessToken) => {
   if (role === 'superadmin') {
     empresas = await mergeStripeContractedMeiIntoEmpresaLimits(adminClient, empresas);
   }
+
+  if (isFocoMeiApiDeploy()) {
+    empresas = empresas.filter((empresa) => isEmpresaMeiModuleActive(empresa.max_mei));
+  }
+
+  empresas = empresas.map((empresa) => ({
+    ...empresa,
+    product_line: deriveEmpresaProductLine(empresa.max_mei),
+  }));
 
   console.log('[Users] listEmpresas role:', role, 'empresaId:', empresaId, 'count:', data?.length || 0);
   return { empresas };
@@ -970,7 +1003,7 @@ export const updateEmpresa = async (accessToken, empresaId, input) => {
   if (error) throw badRequest(error.message || 'Erro ao atualizar empresa');
   if (!data?.id) throw badRequest('Empresa nao encontrada');
 
-  return { empresa: data };
+  return { empresa: { ...data, product_line: deriveEmpresaProductLine(data.max_mei) } };
 };
 
 export const createUser = async (accessToken, input, deps = {}) => {

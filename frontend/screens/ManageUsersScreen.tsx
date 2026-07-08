@@ -23,6 +23,8 @@ import { getTheme, mfSpacing, type Theme } from '../lib/theme';
 import { getTechTokens, mfTechInsetSurface } from '../lib/techDesign';
 import { cleanPhone, hasRole } from '../lib/auth-roles';
 import { getMeiUserStatusShort, getMeiUserTypeLabel, isMeiSlotUser } from '../lib/meiUserSlot';
+import { filterFocoMeiAdminEmpresas, filterFocoMeiAdminUsers, listEmpresaMembersForMeiAdmin } from '../lib/focomeiAdminFilters';
+import { isFocoMeiProductLine, productLineLabel, resolveEmpresaProductLine, resolveUserProductLine } from '../lib/productLine';
 import { getManagedUserActions } from '../lib/managedUserActions';
 import { formatPhoneBrCell } from '../lib/numberFormat';
 import {
@@ -503,6 +505,9 @@ const UserCard = React.memo(function UserCard({
             />
           )}
           <Badge label={ROLE_LABEL[user.role] || user.role} bg={roleTone.bg} fg={roleTone.fg} styles={styles} />
+          {isFocoMeiProductLine(resolveUserProductLine(user.mei, user.productLine)) ? (
+            <Badge label="FocoMEI" bg={theme.primaryLight} fg={theme.primary} styles={styles} />
+          ) : null}
         </View>
       </View>
 
@@ -699,6 +704,11 @@ const EmpresaCard = React.memo(function EmpresaCard({
             <Text style={styles.empresaName} numberOfLines={1}>
               {empresa.nome_fantasia || empresa.empresa}
             </Text>
+            {isFocoMeiProductLine(resolveEmpresaProductLine(empresa.max_mei, empresa.product_line)) ? (
+              <Text style={[styles.empresaProductTag, { color: theme.primary }]}>
+                {productLineLabel(resolveEmpresaProductLine(empresa.max_mei, empresa.product_line))}
+              </Text>
+            ) : null}
             <View style={styles.empresaLimitsRow}>
               <View style={styles.empresaLimitChip}>
                 <Text style={styles.empresaLimitChipLabel}>MEI</Text>
@@ -930,7 +940,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
   const [currentPage, setCurrentPage] = useState(1);
   const [empresaSearch, setEmpresaSearch] = useState('');
   const [empresaTabSearch, setEmpresaTabSearch] = useState('');
-  const [empresaMeiFilter, setEmpresaMeiFilter] = useState<EmpresaMeiFilter>('all');
+  const [empresaMeiFilter, setEmpresaMeiFilter] = useState<EmpresaMeiFilter>('active');
   const [clipboardAvailable, setClipboardAvailable] = useState(true);
   const clipboardRef = useRef<ClipboardModule | null>(null);
 
@@ -1128,10 +1138,13 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
     }
   };
 
+  const focomeiUsers = useMemo(() => filterFocoMeiAdminUsers(users), [users]);
+  const focomeiEmpresas = useMemo(() => filterFocoMeiAdminEmpresas(empresas), [empresas]);
+
   const empresaMembersList = useMemo(() => {
     if (!membersEmpresa) return [];
-    return users.filter((u) => u.empresaId === membersEmpresa.id);
-  }, [users, membersEmpresa]);
+    return listEmpresaMembersForMeiAdmin(users, membersEmpresa.id, role);
+  }, [users, membersEmpresa, role]);
 
   const empresaMembersMeiCount = useMemo(
     () => empresaMembersList.filter((u) => isMeiSlotUser(u.mei)).length,
@@ -1145,7 +1158,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
   const resolveEmpresaForUser = (user: ManagedUser): EmpresaOption | null => {
     if (!user.empresaId) return null;
     return (
-      empresas.find((item) => item.id === user.empresaId) || {
+      focomeiEmpresas.find((item) => item.id === user.empresaId) || {
         id: user.empresaId,
         empresa: user.empresaName || 'Empresa',
       }
@@ -1192,7 +1205,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
         : 'usuario',
     );
     const empresa =
-      empresas.find((item) => item.id === user.empresaId) ||
+      focomeiEmpresas.find((item) => item.id === user.empresaId) ||
       (user.empresaId
         ? { id: user.empresaId, empresa: user.empresaName || 'Empresa atual' }
         : null);
@@ -1484,10 +1497,11 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
   // ----------------------------------------------------------------------
 
   const filteredUsers = useMemo(() => {
+    const base = focomeiUsers;
     return role === 'admin'
-      ? users.filter((user) => user.role !== 'superadmin' && user.role !== 'outsider')
-      : users;
-  }, [role, users]);
+      ? base.filter((user) => user.role !== 'superadmin' && user.role !== 'outsider')
+      : base;
+  }, [role, focomeiUsers]);
 
   const searchedUsers = useMemo(() => {
     if (!searchTerm.trim()) return filteredUsers;
@@ -1522,7 +1536,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
   const filteredEmpresasList = useMemo(() => {
     const term = empresaTabSearch.trim().toLowerCase();
     const displayName = (e: EmpresaOption) => e.nome_fantasia || e.empresa;
-    const sorted = [...empresas].sort((a, b) =>
+    const sorted = [...focomeiEmpresas].sort((a, b) =>
       displayName(a).localeCompare(displayName(b), 'pt-BR', { sensitivity: 'base' }),
     );
     return sorted.filter((e) => {
@@ -1537,16 +1551,11 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
 
       return empresaMeiFilter === 'active' ? meiAtivo : !meiAtivo;
     });
-  }, [empresas, empresaTabSearch, empresaMeiFilter, users]);
+  }, [focomeiEmpresas, empresaTabSearch, empresaMeiFilter]);
 
   const totalEmpresasMeiAtivo = useMemo(
-    () =>
-      empresas.filter((e) => {
-        const limiteMei =
-          e.max_mei === null || e.max_mei === undefined ? 0 : Number(e.max_mei) || 0;
-        return limiteMei > 0;
-      }).length,
-    [empresas, users],
+    () => focomeiEmpresas.length,
+    [focomeiEmpresas],
   );
 
   const blockedCount = useMemo(
@@ -1557,19 +1566,21 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
   const showEmpresasTab = role === 'superadmin';
 
   const pageStats = useMemo(() => {
-    const activeCount = users.filter((u) => u.status !== false).length;
-    const adminCount = users.filter((u) => u.role === 'admin' || u.role === 'superadmin').length;
+    const activeCount = focomeiUsers.filter((u) => u.status !== false).length;
+    const adminCount = focomeiUsers.filter(
+      (u) => u.role === 'admin' || u.role === 'superadmin',
+    ).length;
     const items = [
-      { label: 'Usuários', value: users.length },
+      { label: 'Usuários MEI', value: focomeiUsers.length },
       { label: 'Ativos', value: activeCount },
       { label: 'Bloqueados', value: blockedCount },
       { label: 'Admins', value: adminCount },
     ];
     if (showEmpresasTab) {
-      items.splice(1, 0, { label: 'Empresas', value: empresas.length });
+      items.splice(1, 0, { label: 'Empresas MEI', value: focomeiEmpresas.length });
     }
     return items;
-  }, [users, blockedCount, empresas.length, showEmpresasTab]);
+  }, [focomeiUsers, focomeiEmpresas, blockedCount, showEmpresasTab]);
 
   // ----------------------------------------------------------------------
   // Render
@@ -1644,6 +1655,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
             isDesktop={isDesktop}
             role={role}
             stats={pageStats}
+            subtitle="Somente empresas e usuários com MEI ativo no FocoMEI."
             loading={initialUsersLoading || (showEmpresasTab && initialEmpresasLoading)}
             rightAction={
               isDesktop && activeTab !== 'invites'
@@ -1734,7 +1746,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
                       activeTab === 'empresas' && styles.tabCountTextActive,
                     ]}
                   >
-                    {initialEmpresasLoading ? '…' : empresas.length}
+                    {initialEmpresasLoading ? '…' : focomeiEmpresas.length}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -1898,8 +1910,8 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
             <View style={styles.tabPanel}>
             <InvitesTab
               role={role}
-              empresas={empresas}
-              users={users}
+              empresas={focomeiEmpresas}
+              users={focomeiUsers}
               theme={theme}
               isDesktop={isDesktop}
               onFeedback={({ type, message }) => {
@@ -1940,51 +1952,9 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
               </View>
 
               <View style={styles.empresaMeiFilterBlock}>
-                <Text style={styles.empresaMeiFilterLabel}>Filtro MEI</Text>
-                <View style={styles.empresaMeiFilterChips}>
-                  {(
-                    [
-                      { key: 'all' as const, label: 'Todos' },
-                      { key: 'active' as const, label: 'Ativos' },
-                      { key: 'inactive' as const, label: 'Inativos' },
-                    ] as const
-                  ).map(({ key, label }) => {
-                    const active = empresaMeiFilter === key;
-                    return (
-                      <TouchableOpacity
-                        key={key}
-                        style={[
-                          styles.meiFilterChip,
-                          { borderColor: theme.border, backgroundColor: theme.surface },
-                          active && {
-                            borderColor: theme.primary,
-                            backgroundColor: theme.primaryLight,
-                          },
-                        ]}
-                        onPress={() => setEmpresaMeiFilter(key)}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected: active }}
-                        accessibilityLabel={
-                          key === 'all'
-                            ? 'Mostrar todas as empresas'
-                            : key === 'active'
-                              ? 'Mostrar só empresas com MEI ativo'
-                              : 'Mostrar só empresas com MEI inativo'
-                        }
-                      >
-                        <Text
-                          style={[
-                            styles.meiFilterChipText,
-                            { color: theme.textSecondary },
-                            active && { color: theme.primary, fontWeight: '700' },
-                          ]}
-                        >
-                          {label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
+                <Text style={styles.empresaMeiFilterHint}>
+                  Exibindo apenas empresas com MEI ativo e usuários com vaga MEI liberada.
+                </Text>
                 <View style={[styles.meiStatBadge, { borderColor: theme.success + '55', backgroundColor: theme.successLight }]}>
                   <Text style={[styles.meiStatBadgeText, { color: theme.success }]}>
                     MEI ativo: {totalEmpresasMeiAtivo}
@@ -2020,17 +1990,17 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
                       <Text style={styles.emptyTitle}>
                         {initialEmpresasLoading
                           ? ''
-                          : empresas.length === 0
-                            ? 'Sem empresas ainda'
+                          : focomeiEmpresas.length === 0
+                            ? 'Sem empresas MEI ainda'
                             : 'Nenhuma empresa encontrada'}
                       </Text>
                       <Text style={styles.emptyDescription}>
                         {initialEmpresasLoading
                           ? ''
-                          : empresas.length === 0
-                            ? 'Cadastre a primeira empresa para começar.'
-                            : empresaTabSearch.trim() || empresaMeiFilter !== 'all'
-                              ? 'Ajuste a busca ou o filtro MEI (todas / só ativo / só inativo).'
+                          : focomeiEmpresas.length === 0
+                            ? 'Cadastre a primeira empresa com MEI ativo para começar.'
+                            : empresaTabSearch.trim()
+                              ? 'Ajuste a busca pelo nome da empresa.'
                               : ''}
                       </Text>
                     </View>
@@ -2456,7 +2426,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
                 />
               </View>
               <MfScrollView style={styles.pickerScroll} hideLegalFooter>
-                {[...empresas]
+                {[...focomeiEmpresas]
                   .sort((a, b) =>
                     (a.nome_fantasia || a.empresa).localeCompare(
                       b.nome_fantasia || b.empresa, 'pt-BR', { sensitivity: 'base' },
@@ -2538,7 +2508,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
                 />
               </View>
               <MfScrollView style={styles.pickerScroll} hideLegalFooter>
-                {[...empresas]
+                {[...focomeiEmpresas]
                   .sort((a, b) =>
                     (a.nome_fantasia || a.empresa).localeCompare(
                       b.nome_fantasia || b.empresa, 'pt-BR', { sensitivity: 'base' },
@@ -2793,7 +2763,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
         empresa={billingEmpresa}
         meiUsuariosEmUso={
           billingEmpresa
-            ? users.filter((u) => u.empresaId === billingEmpresa.id && u.mei === true).length
+            ? focomeiUsers.filter((u) => u.empresaId === billingEmpresa.id).length
             : null
         }
         onClose={() => setBillingEmpresa(null)}
@@ -3034,6 +3004,17 @@ const createStyles = (theme: Theme, isDesktop: boolean, isDarkMode: boolean) => 
     empresaMeiFilterBlock: {
       marginBottom: 12,
       gap: 8,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      flexWrap: 'wrap',
+    },
+    empresaMeiFilterHint: {
+      flex: 1,
+      minWidth: 220,
+      fontSize: 12,
+      lineHeight: 18,
+      color: theme.textSecondary,
     },
     empresaMeiFilterLabel: {
       fontSize: 12,
@@ -3289,6 +3270,7 @@ const createStyles = (theme: Theme, isDesktop: boolean, isDarkMode: boolean) => 
     },
     empresaInfo: { flex: 1, gap: 6 },
     empresaName: { fontSize: 15, fontWeight: '700', color: theme.text },
+    empresaProductTag: { fontSize: 11, fontWeight: '700', marginTop: 2 },
     empresaLimitsRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
     empresaLimitChip: {
       flexDirection: 'row',

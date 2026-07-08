@@ -18,6 +18,7 @@ type Props = {
   role: string | null;
   stats: StatItem[];
   loading?: boolean;
+  subtitle?: string;
   rightAction?: {
     label: string;
     onPress: () => void;
@@ -31,6 +32,7 @@ export function ManageUsersPageChrome({
   role,
   stats,
   loading,
+  subtitle,
   rightAction,
 }: Props) {
   const { isDarkMode } = useMfTheme();
@@ -38,10 +40,11 @@ export function ManageUsersPageChrome({
   const panelStyle = useMemo(() => mfTechPanelChrome(isDarkMode, 'accent'), [isDarkMode]);
   const styles = useMemo(() => createStyles(theme, tokens, isDesktop), [theme, tokens, isDesktop]);
 
-  const subtitle =
-    role === 'superadmin'
+  const resolvedSubtitle =
+    subtitle
+    ?? (role === 'superadmin'
       ? 'Empresas, pessoas e convites em escopo global.'
-      : 'Membros, convites e lista da sua empresa.';
+      : 'Membros, convites e lista da sua empresa.');
 
   return (
     <View style={[styles.hero, panelStyle]}>
@@ -60,7 +63,7 @@ export function ManageUsersPageChrome({
             <Text style={[styles.eyebrow, { color: tokens.accent }]}>Administração</Text>
           </View>
           <Text style={styles.title}>Gerenciar acessos</Text>
-          <Text style={styles.subtitle}>{subtitle}</Text>
+          <Text style={styles.subtitle}>{resolvedSubtitle}</Text>
         </View>
         {rightAction && isDesktop ? (
           <TouchableOpacity style={styles.actionBtn} onPress={rightAction.onPress}>
