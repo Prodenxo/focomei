@@ -80,9 +80,6 @@ import {
   type NfseCatalogProduto,
 } from '../services/meiNotasService';
 import {
-  formatNfseStatus,
-  formatDateTimeShort,
-  getNfseStatusBadgeColor,
   getNfseStatusKey,
   isHiddenNfseE0014RejectedRecord,
   extractNfseFailureMessage,
@@ -93,6 +90,7 @@ import {
 import { confirmDialog } from '../lib/confirmDialog';
 import { NotaFiscalRowActions } from '../components/NotaFiscalRowActions';
 import { NotaFiscalFailureBanner } from '../components/NotaFiscalFailureBanner';
+import { getNotaCardAccentColor, NotaFiscalListRowHeader } from '../components/NotaFiscalListRowHeader';
 import {
   clearMeiOverviewCache,
   readMeiOverviewParcelamentos,
@@ -478,6 +476,7 @@ function MeiScreenContent() {
   // Notas
   const [notas, setNotas] = useState<NfseRecord[]>([]);
   const [notasLoading, setNotasLoading] = useState(false);
+  const [emitirNotaPending, setEmitirNotaPending] = useState(false);
   const [meiLimiteServidor, setMeiLimiteServidor] = useState<{
     totalUtilizadoReais: number;
     notasConsideradas: number;
@@ -518,6 +517,18 @@ function MeiScreenContent() {
   // Emitir nota
   const [emitirNotaVisible, setEmitirNotaVisible] = useState(false);
   const [emitirNotaType, setEmitirNotaType] = useState<NotaDocumentType>('NFSE');
+
+  const notasParaExibir = useMemo(() => {
+    if (!emitirNotaPending) return notas;
+    const pendente: NfseRecord = {
+      id: '__emit_pending__',
+      user_id: userId ?? '',
+      status: 'aguardando',
+      document_type: emitirNotaType,
+      created_at: new Date().toISOString(),
+    };
+    return [pendente, ...notas];
+  }, [emitirNotaPending, emitirNotaType, notas, userId]);
   const [documentosAtivosMirror, setDocumentosAtivosMirror] = useState<MeiDocumentosAtivosState | null>(null);
   const documentosPermitidos = useMemo(
     () => resolveMeiDocumentosPermitidos(documentosAtivosMirror, empresaFiscal),
@@ -1249,7 +1260,10 @@ function MeiScreenContent() {
     try {
       const synced = await loadNotas({ syncPending: true });
       void loadMeiLimiteServidor();
-      const pending = synced.filter((n) => getNfseStatusKey(n.status) === 'processando').length;
+      const pending = synced.filter((n) => {
+        const key = getNfseStatusKey(n.status);
+        return key === 'processando' || key === 'aguardando';
+      }).length;
       showToast(
         pending > 0
           ? `Lista atualizada. ${pending} nota(s) ainda em processamento no emissor.`
@@ -2153,6 +2167,7 @@ function MeiScreenContent() {
       }
       if (emitirNotaInFlightRef.current) return;
       emitirNotaInFlightRef.current = true;
+      setEmitirNotaPending(true);
       setEmitirNotaError(null);
       setEmitirNotaVisible(false);
       setEmitirNotaLoading(false);
@@ -2187,6 +2202,7 @@ function MeiScreenContent() {
           void loadNotas({ syncPending: true });
         } finally {
           emitirNotaInFlightRef.current = false;
+          setEmitirNotaPending(false);
         }
       })();
       return;
@@ -2211,6 +2227,7 @@ function MeiScreenContent() {
       return;
     }
     emitirNotaInFlightRef.current = true;
+    setEmitirNotaPending(true);
     setEmitirNotaError(null);
     setEmitirNotaVisible(false);
     setEmitirNotaLoading(false);
@@ -2250,6 +2267,7 @@ function MeiScreenContent() {
         void loadNotas({ syncPending: true });
       } finally {
         emitirNotaInFlightRef.current = false;
+        setEmitirNotaPending(false);
       }
     })();
   };
@@ -3106,32 +3124,26 @@ function MeiScreenContent() {
               <View style={styles.dasPanelCard}>
                 <View style={styles.dasPanelHeader}>
                   <Text style={styles.dasPanelHeaderText}>Documentos Emitidos</Text>
-                  <Text style={styles.dasPanelHeaderCount}>{notas.length} nota{notas.length !== 1 ? 's' : ''}</Text>
+                  <Text style={styles.dasPanelHeaderCount}>{notasParaExibir.length} nota{notasParaExibir.length !== 1 ? 's' : ''}</Text>
                 </View>
-                {notasLoading && notas.length === 0 ? (
+                {notasLoading && notasParaExibir.length === 0 ? (
                   <View style={[styles.emptyContainer, { padding: 24 }]}><ActivityIndicator size="small" color={theme.primary} /></View>
-                ) : notas.length === 0 ? (
+                ) : notasParaExibir.length === 0 ? (
                   <View style={[styles.emptyContainer, { padding: 32 }]}>
                     <Ionicons name="receipt-outline" size={40} color={theme.border} />
                     <Text style={[styles.emptyText, { marginTop: 12 }]}>Nenhuma nota emitida</Text>
                   </View>
                 ) : (
                   <View style={{ gap: 10, paddingBottom: 8 }}>
-                    {notas.map((n) => (
-                      <View key={n.id} style={[styles.dasNoteCard, { borderLeftColor: getNfseStatusBadgeColor(n.status) }]}>
-                        <View style={styles.dasNoteCardTop}>
-                          <View style={styles.dasNoteCardLeft}>
-                            <Text style={styles.dasNoteCardType}>{n.document_type || 'NFSe'}</Text>
-                            <Text style={[styles.dasNoteCardStatus, { color: getNfseStatusBadgeColor(n.status) }]}>
-                              {formatNfseStatus(n.status)}
-                            </Text>
-                          </View>
-                          <Text style={styles.dasNoteCardDate}>{formatDateTimeShort(n.created_at)}</Text>
-                        </View>
-                        <Text style={[styles.dasNoteCardId, { color: theme.textSecondary }]} numberOfLines={1}>
-                          {n.protocol || n.plugnotas_id || n.id}
-                        </Text>
+                    {notasParaExibir.map((n) => (
+                      <View key={n.id} style={[styles.dasNoteCard, { borderLeftColor: getNotaCardAccentColor(n) }]}>
+                        <NotaFiscalListRowHeader
+                          nota={n}
+                          textColor={theme.text}
+                          textSecondary={theme.textSecondary}
+                        />
                         <NotaFiscalFailureBanner nota={n} errorColor={theme.error} />
+                        {n.id !== '__emit_pending__' ? (
                         <NotaFiscalRowActions
                           nota={n}
                           notaActionId={notaActionId}
@@ -3144,6 +3156,7 @@ function MeiScreenContent() {
                           onCancel={() => void handleCancelarNota(n.id)}
                           onArchive={() => void handleArquivarNota(n.id)}
                         />
+                        ) : null}
                       </View>
                     ))}
                   </View>
@@ -3216,29 +3229,23 @@ function MeiScreenContent() {
               </View>
 
               {/* Lista de notas */}
-              {notasLoading && notas.length === 0 ? (
+              {notasLoading && notasParaExibir.length === 0 ? (
                 <View style={[styles.emptyContainer, { padding: 20 }]}><ActivityIndicator size="small" color={theme.primary} /></View>
-              ) : notas.length === 0 ? (
+              ) : notasParaExibir.length === 0 ? (
                 <View style={[styles.emptyContainer, { padding: 24 }]}>
                   <Ionicons name="receipt-outline" size={36} color={theme.border} />
                   <Text style={[styles.emptyText, { marginTop: 10 }]}>Nenhuma nota emitida</Text>
                 </View>
               ) : (
-                notas.map((n) => (
-                  <View key={n.id} style={[styles.dasNoteCard, { borderLeftColor: getNfseStatusBadgeColor(n.status) }]}>
-                    <View style={styles.dasNoteCardTop}>
-                      <View style={styles.dasNoteCardLeft}>
-                        <Text style={styles.dasNoteCardType}>{n.document_type || 'NFSe'}</Text>
-                        <Text style={[styles.dasNoteCardStatus, { color: getNfseStatusBadgeColor(n.status) }]}>
-                          {formatNfseStatus(n.status)}
-                        </Text>
-                      </View>
-                      <Text style={styles.dasNoteCardDate}>{formatDateTimeShort(n.created_at)}</Text>
-                    </View>
-                    <Text style={[styles.dasNoteCardId, { color: theme.textSecondary }]} numberOfLines={1}>
-                      {n.protocol || n.plugnotas_id || n.id}
-                    </Text>
+                notasParaExibir.map((n) => (
+                  <View key={n.id} style={[styles.dasNoteCard, { borderLeftColor: getNotaCardAccentColor(n) }]}>
+                    <NotaFiscalListRowHeader
+                      nota={n}
+                      textColor={theme.text}
+                      textSecondary={theme.textSecondary}
+                    />
                     <NotaFiscalFailureBanner nota={n} errorColor={theme.error} />
+                    {n.id !== '__emit_pending__' ? (
                     <NotaFiscalRowActions
                       nota={n}
                       notaActionId={notaActionId}
@@ -3251,6 +3258,7 @@ function MeiScreenContent() {
                       onCancel={() => void handleCancelarNota(n.id)}
                       onArchive={() => void handleArquivarNota(n.id)}
                     />
+                    ) : null}
                   </View>
                 ))
               )}
@@ -6212,25 +6220,8 @@ const createStyles = (
       paddingRight: 16,
       paddingBottom: 14,
       paddingLeft: 18,
-      gap: 6,
+      gap: 8,
     },
-    dasNoteCardTop: {
-      flexDirection: 'row' as const,
-      alignItems: 'flex-start' as const,
-      justifyContent: 'space-between' as const,
-      marginBottom: 2,
-    },
-    dasNoteCardLeft: { flex: 1 },
-    dasNoteCardType: {
-      fontSize: 11,
-      fontWeight: '800' as const,
-      color: theme.primary,
-      letterSpacing: 0.8,
-      textTransform: 'uppercase' as const,
-    },
-    dasNoteCardStatus: { fontSize: 13, fontWeight: '600' as const, marginTop: 3 },
-    dasNoteCardId: { fontSize: 12, lineHeight: 18, marginBottom: 2 },
-    dasNoteCardDate: { fontSize: 12, color: theme.textSecondary },
     dasNoteCardActions: {
       flexDirection: 'row' as const,
       borderTopWidth: 1,

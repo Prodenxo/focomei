@@ -5,9 +5,10 @@
 
 export function getNfseStatusKey(status?: string | null): string {
   const text = String(status || '').toLowerCase();
-  if (!text) return 'processando';
+  if (!text) return 'aguardando';
   if (text.includes('cancelamento_pendente')) return 'cancelamento_pendente';
-  if (text.includes('concluido') || text.includes('autoriz')) return 'concluido';
+  if (text.includes('aguardando')) return 'aguardando';
+  if (text.includes('concluido') || text.includes('concluida') || text.includes('autoriz')) return 'concluido';
   if (text.includes('process')) return 'processando';
   if (text.includes('rejeit')) return 'rejeitado';
   if (text.includes('cancel')) return 'cancelado';
@@ -18,28 +19,64 @@ export function getNfseStatusKey(status?: string | null): string {
 /** Status que devem ser reconsultados no emissor (sync automático / manual). */
 export function notaFiscalStatusPrecisaSyncAutomatico(status?: string | null): boolean {
   const key = getNfseStatusKey(status);
-  return key === 'processando' || key === 'cancelamento_pendente';
+  return key === 'aguardando' || key === 'processando' || key === 'cancelamento_pendente';
 }
 
 export function formatNfseStatus(status?: string | null): string {
   const key = getNfseStatusKey(status);
+  if (key === 'aguardando') return 'Aguardando';
   if (key === 'concluido') return 'Concluída';
   if (key === 'processando') return 'Processando';
   if (key === 'rejeitado') return 'Rejeitada';
   if (key === 'cancelado') return 'Cancelada';
   if (key === 'cancelamento_pendente') return 'Cancelamento pendente';
   if (key === 'interrompido') return 'Interrompida';
-  return status || 'Processando';
+  return status || 'Aguardando';
 }
 
 /** Cor sugerida para badge de status (React Native StyleSheet / theme). */
 export function getNfseStatusBadgeColor(status?: string | null): string {
   const key = getNfseStatusKey(status);
   if (key === 'concluido') return '#059669';
+  if (key === 'aguardando') return '#D97706';
   if (key === 'processando') return '#2563EB';
   if (key === 'cancelamento_pendente') return '#D97706';
   if (key === 'rejeitado' || key === 'cancelado' || key === 'interrompido') return '#DC2626';
   return '#6B7280';
+}
+
+/** Fundo do pill de status — contraste legível no tema claro e escuro. */
+export function getNfseStatusBadgeBackground(status?: string | null): string {
+  const key = getNfseStatusKey(status);
+  if (key === 'concluido') return 'rgba(5, 150, 105, 0.2)';
+  if (key === 'aguardando') return 'rgba(217, 119, 6, 0.2)';
+  if (key === 'processando') return 'rgba(37, 99, 235, 0.2)';
+  if (key === 'cancelamento_pendente') return 'rgba(217, 119, 6, 0.22)';
+  if (key === 'rejeitado' || key === 'cancelado' || key === 'interrompido') return 'rgba(220, 38, 38, 0.18)';
+  return 'rgba(107, 114, 128, 0.2)';
+}
+
+/** Usa `status` da linha ou tenta extrair do JSON do emissor (lista sem sync). */
+export function resolveNfseDisplayStatus(record: {
+  status?: string | null;
+  response_json?: Record<string, unknown> | unknown[] | null;
+} | null | undefined): string | null {
+  if (record?.status?.trim()) return record.status;
+  for (const row of asResponseRecords(record?.response_json)) {
+    const message = String(row.message ?? row.mensagem ?? '').toLowerCase();
+    if (message.includes('aguardando')) return 'aguardando';
+    const candidate = row.status ?? row.situacao ?? row.situacaoNfse ?? row.mensagem;
+    if (typeof candidate === 'string' && candidate.trim()) return candidate;
+  }
+  return null;
+}
+
+export function meiFiscalDocumentTypeShortLabel(documentType?: string | null): string {
+  const key = String(documentType || 'NFSE').trim().toUpperCase();
+  if (key === 'NFE') return 'NFe';
+  if (key === 'NFCE') return 'NFC-e';
+  if (key === 'NFSE') return 'NFSe';
+  return key || 'NFSe';
 }
 
 function asResponseRecords(

@@ -60,7 +60,7 @@ export function NotaFiscalRowActions ({
   const busy = notaActionId === nota.id
   const podeSync = notaFiscalPodeSincronizarEstadoEmissor(nota)
   const statusKey = getNfseStatusKey(nota.status)
-  const processando = statusKey === 'processando'
+  const processando = statusKey === 'processando' || statusKey === 'aguardando'
   const cancelDisabled = busy || statusKey === 'cancelado'
   const showFailureReason = notaFiscalExibeMotivoFalha(nota.status)
 
