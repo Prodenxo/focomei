@@ -1,5 +1,8 @@
 {
-  "git.repositoryScanMaxDepth": 1,
+  "git.repositoryScanMaxDepth": 0,
+  "git.autoRepositoryDetection": false,
+  "git.openRepositoryInParentFolders": "never",
+  "git.ignoredRepositories": [],
   "git.confirmSync": false,
   "git.showPushSuccessNotification": true
 }
