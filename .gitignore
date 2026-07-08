@@ -53,6 +53,7 @@ assets/
 
 # Sync temporário
 .focomei-sync/
+final_review_gate.mjs
 
 # Supabase local
 supabase/.temp/
