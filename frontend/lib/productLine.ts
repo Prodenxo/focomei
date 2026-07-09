@@ -23,8 +23,13 @@ export function deriveEmpresaProductLine (maxMei?: number | null): ProductLine {
 export function resolveUserProductLine (
   mei?: boolean | null,
   productLine?: string | null,
+  appOrigin?: string | null,
 ): ProductLine {
-  return normalizeProductLine(productLine) || deriveUserProductLine(mei)
+  return (
+    normalizeProductLine(productLine)
+    || normalizeProductLine(appOrigin)
+    || deriveUserProductLine(mei)
+  )
 }
 
 export function resolveEmpresaProductLine (

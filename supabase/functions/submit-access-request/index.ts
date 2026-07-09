@@ -82,6 +82,10 @@ async function submitInline(
   const user = (body.user || {}) as Record<string, unknown>
   const empresa = (body.empresa || {}) as Record<string, unknown>
   const observacao = normalizeText(body.observacao)
+  const appOrigin = normalizeText(body.appOrigin ?? body.app_origin)
+  const originMeta = appOrigin === 'focomei' || appOrigin === 'financeiro'
+    ? { app_origin: appOrigin, product_line: appOrigin }
+    : {}
 
   const email = normalizeText(user.email)?.toLowerCase()
   const password = String(user.password || '').trim()
@@ -123,6 +127,7 @@ async function submitInline(
       phone: phone || null,
       access_request_observacao: observacao,
       access_requested_at: requestedAt,
+      ...originMeta,
     },
   })
 

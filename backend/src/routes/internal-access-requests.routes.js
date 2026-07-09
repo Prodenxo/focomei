@@ -11,6 +11,7 @@ import {
 } from '../services/access-request-manage.service.js';
 import { notifySuperadminAccessRequestSubmitted } from '../services/access-request-whatsapp.service.js';
 import { canonicalizeBrazilWhatsappPhone } from '../utils/whatsapp-phone.js';
+import { buildSignupOriginMetadata, resolveAppOriginFromRequest } from '../utils/app-origin.js';
 
 const router = Router();
 
@@ -142,6 +143,8 @@ router.post('/submit', requireInternalSecret, async (req, res, next) => {
     const user = body.user ?? {};
     const empresaInput = body.empresa ?? {};
     const observacao = normalizeText(body.observacao);
+    const appOrigin = resolveAppOriginFromRequest(body, req.headers);
+    const originMeta = buildSignupOriginMetadata(appOrigin);
 
     const email = normalizeText(user.email)?.toLowerCase();
     const password = String(user.password || '').trim();
@@ -208,6 +211,7 @@ router.post('/submit', requireInternalSecret, async (req, res, next) => {
         phone: phone || null,
         access_request_observacao: observacao,
         access_requested_at: new Date().toISOString(),
+        ...originMeta,
       },
     });
 

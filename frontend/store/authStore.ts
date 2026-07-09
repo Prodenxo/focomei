@@ -18,6 +18,7 @@ import {
   readBackedUpAdminSession,
 } from '../lib/auth-session-backup';
 import { impersonateUser, updatePhone as updatePhoneApi } from '../services/authService';
+import { signupOriginMetadata } from '../lib/appOrigin';
 import {
   AUTH_BOOT_TIMEOUT_MS,
   applyMinimalSessionState,
@@ -217,6 +218,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         data: {
           phone: cleanedPhone,
           display_name: displayName || null,
+          ...signupOriginMetadata(),
         },
       },
     });

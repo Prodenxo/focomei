@@ -32,6 +32,7 @@ import {
   validateStrongPassword,
   strongPasswordRequirementBullets,
 } from '../../lib/passwordPolicy';
+import { resolveAppOrigin } from '../../lib/appOrigin';
 
 export type AccessRequestFormProps = {
   onGoToLogin: () => void;
@@ -197,6 +198,7 @@ export function AccessRequestForm({ onGoToLogin, onDone }: AccessRequestFormProp
             email: empresaEmail.trim(),
           },
           observacao: null,
+          appOrigin: resolveAppOrigin(),
         },
       });
 

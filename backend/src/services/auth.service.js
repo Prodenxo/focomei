@@ -17,6 +17,7 @@ import {
   sendPasswordResetEmail,
   sendPasswordResetViaSupabase,
 } from './password-reset-email.service.js';
+import { buildSignupOriginMetadata, resolveAppOriginFromRequest } from '../utils/app-origin.js';
 
 const assertValidWhatsappPhone = (phone) => {
   const digits = normalizeWhatsappPhoneDigits(phone);
@@ -256,7 +257,7 @@ const getResolvedRoleAndCompany = async ({ accessToken, userId }) => {
   return { role: profileRole, empresaId: linkResult.empresaId || null, mei };
 };
 
-export const signUp = async ({ email, password, phone, displayName, inviteToken }, deps = {}) => {
+export const signUp = async ({ email, password, phone, displayName, inviteToken, appOrigin }, deps = {}) => {
   if (!email || !password) {
     throw badRequest('Email e senha são obrigatórios');
   }
@@ -271,7 +272,10 @@ export const signUp = async ({ email, password, phone, displayName, inviteToken 
     options: {
       data: {
         phone: cleanedPhone || null,
-        display_name: displayName || null
+        display_name: displayName || null,
+        ...buildSignupOriginMetadata(
+          appOrigin ?? deps.appOrigin ?? resolveAppOriginFromRequest({}, deps.headers ?? {}),
+        ),
       }
     }
   });
