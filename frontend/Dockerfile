@@ -47,6 +47,12 @@ RUN set -e; \
     echo "BUILD: Supabase configurado."; \
   fi; \
   echo "BUILD: APP_PRODUCT=${EXPO_PUBLIC_APP_PRODUCT:-}"; \
+  if [ ! -f assets/brand-mark.jpg ]; then \
+    echo "BUILD ERROR: assets/brand-mark.jpg ausente no contexto Docker."; \
+    echo "BUILD ERROR: verifique .gitignore (nao ignore frontend/assets/)."; \
+    ls -la assets 2>/dev/null || echo "BUILD ERROR: pasta assets/ nao existe"; \
+    exit 1; \
+  fi; \
   echo "BUILD: iniciando expo export..."; \
   npx expo export --platform web --clear
 

@@ -48,9 +48,10 @@ Thumbs.db
 *.swp
 
 # Assets locais / marca (fora do app)
+# Âncora na raiz: sem a barra, o Git também ignora frontend/assets/ (ícones do Expo)
 marcaa/
 municipios.csv
-assets/
+/assets/
 
 # Sync temporário
 .focomei-sync/
