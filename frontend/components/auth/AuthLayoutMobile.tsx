@@ -50,6 +50,7 @@ export function AuthLayoutMobile ({
           <MfScrollView
             contentContainerStyle={styles.scroll}
             keyboardShouldPersistTaps="handled"
+            hideLegalFooter
           >
             <RevealSoft delay={120} offset={14}>
             <View

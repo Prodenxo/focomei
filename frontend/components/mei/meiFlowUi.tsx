@@ -150,6 +150,7 @@ export function MeiFlowModalShell ({
               style={flow.scroll}
               contentContainerStyle={flow.scrollContent}
               keyboardShouldPersistTaps="handled"
+              hideLegalFooter
               {...(Platform.OS === 'web'
                 ? { className: WEB_SCROLL_Y_CLASS, ...getWebScrollViewProps(theme) }
                 : {})}
@@ -886,6 +887,7 @@ export function MeiFormSheet ({
               keyboardShouldPersistTaps="handled"
               nestedScrollEnabled
               showsVerticalScrollIndicator
+              hideLegalFooter
               contentContainerStyle={flow.formModalBody}
               {...(Platform.OS === 'web'
                 ? { className: WEB_SCROLL_Y_CLASS, ...getWebScrollViewProps(theme) }

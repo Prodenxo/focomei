@@ -7,13 +7,16 @@ import { useMfTheme } from './useMfTheme'
 type Props = ScrollViewProps & {
   /** Esconde barra em scroll horizontal (tabs, chips) via CSS — não via prop RN. */
   hideHorizontalBar?: boolean
-  /** Oculta rodapé legal (modais, pickers, scrolls aninhados). */
+  /**
+   * Oculta rodapé legal no fim do scroll.
+   * Use em modais, pickers e scrolls aninhados (o scroll da página já tem o footer).
+   */
   hideLegalFooter?: boolean
 }
 
-export function MfScrollView({
+export function MfScrollView ({
   hideHorizontalBar,
-  hideLegalFooter,
+  hideLegalFooter = false,
   horizontal,
   style,
   contentContainerStyle,
@@ -24,7 +27,8 @@ export function MfScrollView({
 }: Props) {
   const { theme } = useMfTheme()
   const isHorizontal = Boolean(horizontal)
-  const showLegalFooter = Platform.OS === 'web' && !isHorizontal && !hideLegalFooter
+  const showLegalFooter =
+    Platform.OS === 'web' && !isHorizontal && !hideLegalFooter
   const webProps =
     Platform.OS === 'web'
       ? getWebScrollViewProps(theme, { horizontal: isHorizontal, hideHorizontalBar })
@@ -47,7 +51,9 @@ export function MfScrollView({
       contentContainerStyle={contentContainerStyle}
     >
       {children}
-      {showLegalFooter ? <AppLegalFooter /> : null}
+      {showLegalFooter ? (
+        <AppLegalFooter style={{ marginTop: 32 }} />
+      ) : null}
     </ScrollView>
   )
 }

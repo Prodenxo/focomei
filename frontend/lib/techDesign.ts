@@ -121,7 +121,7 @@ export function mfTechPanelChrome(
     borderColor: isInset ? t.insetBorder : isAccent ? t.panelBorder : t.insetBorder,
     backgroundColor: isChart
       ? isDarkMode
-        ? 'rgba(4, 8, 14, 0.92)'
+        ? 'rgba(10, 34, 72, 0.92)'
         : 'rgba(241, 245, 249, 0.95)'
       : isInset
         ? t.insetFill

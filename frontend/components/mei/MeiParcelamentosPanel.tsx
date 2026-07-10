@@ -237,6 +237,7 @@ export function MeiParcelamentosPanel ({
             ]}
             contentContainerStyle={styles.ledgerScrollContent}
             nestedScrollEnabled={filteredRows.length > 6}
+            hideLegalFooter
           >
             {filteredRows.map((row) => {
               const canDownload = parcelaRowPermiteDownload(row)

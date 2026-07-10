@@ -272,6 +272,7 @@ export function MeiMobileDasPanel ({
             ]}
             contentContainerStyle={styles.ledgerScrollContent}
             nestedScrollEnabled={filteredPeriods.length > 6}
+            hideLegalFooter
           >
             {filteredPeriods.map((p) => {
               const selected = periodMatchesSelection(

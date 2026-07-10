@@ -315,6 +315,7 @@ export function InvitesTab({ role, empresas, users, theme, isDesktop, onFeedback
     <MfScrollView
       style={styles.container}
       contentContainerStyle={styles.scrollContent}
+      hideLegalFooter
     >
       <InvitesTabChrome
         theme={theme}
@@ -525,7 +526,7 @@ export function InvitesTab({ role, empresas, users, theme, isDesktop, onFeedback
                 autoCapitalize="none"
               />
             </View>
-            <MfScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
+            <MfScrollView style={styles.modalList} keyboardShouldPersistTaps="handled" hideLegalFooter>
               {filteredEmpresas.map((empresa) => {
                 const active = inviteEmpresaId === empresa.id;
                 const label = empresa.nome_fantasia || empresa.empresa;

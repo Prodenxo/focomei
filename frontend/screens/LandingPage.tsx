@@ -8,8 +8,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { LegalWebLink } from '@/components/LegalWebLink';
 import { AppBrandLogo } from '@/components/shell/AppBrandLogo';
+import { AppLegalFooter } from '@/components/shell/AppLegalFooter';
 import {
   HeroMockupShell,
   LandingButton,
@@ -433,19 +433,7 @@ export default function LandingPage() {
       </View>
 
       {/* Footer */}
-      <View style={s.footer}>
-        <View style={[cx, s.footerInner]}>
-          <AppBrandLogo variant="wordmark" onDarkBackground height={44} />
-          <View style={s.footerLinks}>
-            <LegalWebLink href="/privacidade" label="Política de Privacidade" textStyle={s.footerLink} />
-            <Text style={s.footerLinkSep}>·</Text>
-            <LegalWebLink href="/termos" label="Termos de Uso" textStyle={s.footerLink} />
-          </View>
-        </View>
-        <View style={[cx, s.footerBottom]}>
-          <Text style={s.copyright}>© 2026 {APP_BRAND_NAME}. Todos os direitos reservados.</Text>
-        </View>
-      </View>
+      <AppLegalFooter />
     </ScrollView>
   );
 }
@@ -584,41 +572,4 @@ const s = StyleSheet.create({
   },
   ctaBtns: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   ctaBtnsMobile: { flexDirection: 'column', width: '100%', maxWidth: 320, alignItems: 'stretch' },
-
-  footer: {
-    backgroundColor: C.primary,
-    paddingTop: 48,
-    paddingBottom: 28,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.08)',
-  },
-  footerInner: {
-    alignItems: 'center',
-    gap: 24,
-  },
-  footerLinks: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  footerLink: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.62)',
-    fontWeight: '500',
-    textDecorationLine: 'underline',
-  },
-  footerLinkSep: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.28)',
-    fontWeight: '400',
-  },
-  footerBottom: {
-    marginTop: 28,
-    paddingTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
-  },
-  copyright: { fontSize: 12, color: 'rgba(255,255,255,0.35)', textAlign: 'center', fontWeight: '400' },
 });

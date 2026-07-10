@@ -1,6 +1,8 @@
-/** Fundo da área de conteúdo (referência Meu Assessor — canvas cinza claro). */
-export const SHELL_CANVAS_LIGHT = '#F1F5F9';
-export const SHELL_CANVAS_DARK = '#0a0f16';
+import { brandDarkColors } from '@/lib/brandTokens'
+
+/** Fundo da área de conteúdo — light: slate; dark: navy da marca (sem preto puro). */
+export const SHELL_CANVAS_LIGHT = '#F1F5F9'
+export const SHELL_CANVAS_DARK = brandDarkColors.background
 
 /** Alinhado ao AUTH_BREAKPOINT_MD — web estreito usa shell mobile. */
 export const SHELL_BREAKPOINT_MD = 768;

@@ -153,7 +153,6 @@ export default function ActivationSetupScreen () {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator
           nestedScrollEnabled
-          hideLegalFooter
         >
           <RevealSoft delay={0} offset={12}>
             <MfGlassCard padding="none" intensity="strong" techVariant="surface">

@@ -296,6 +296,7 @@ export function EmpresaStripeMeiBillingModal({
               ]}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator
+              hideLegalFooter
             >
               <View style={[mfTechPanelChrome(isDarkMode, 'accent'), styles.heroPanel]}>
                 <Text style={styles.heroName} numberOfLines={2}>
