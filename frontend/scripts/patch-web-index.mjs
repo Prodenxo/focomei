@@ -46,7 +46,7 @@ function patchIndexHtml(html, { styles, footer, boot }) {
   const bodyInject = `
     <div id="mf-boot-splash" aria-live="polite" aria-busy="true">
       <div style="width:36px;height:36px;border:3px solid #e2e8f0;border-top-color:#2563eb;border-radius:50%;animation:mf-spin 0.8s linear infinite"></div>
-      <span>Carregando Meu Financeiro…</span>
+      <span>Carregando FocoMEI…</span>
     </div>
     <div id="mf-portal-root"></div>`
 

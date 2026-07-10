@@ -21,8 +21,9 @@ shared/
 !.cursor/rules/**
 
 # Pastas legadas (cópia local do financeiro — não versionar)
-App/
-Site/
+# Âncora na raiz: sem a barra, no Windows (ignorecase) o Git também ignora frontend/app/
+/App/
+/Site/
 ~/
 
 # Dependências e build
