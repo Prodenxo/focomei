@@ -18,6 +18,7 @@ const ENV_KEYS = [
   'EXPO_PUBLIC_MEI_API_URL',
   'EXPO_PUBLIC_MEI_API_URL_DEV',
   'EXPO_PUBLIC_INVITE_APP_BASE_URL',
+  'EXPO_PUBLIC_APP_PRODUCT',
 ] as const;
 
 export type ExpoPublicEnvKey = (typeof ENV_KEYS)[number];
@@ -45,6 +46,8 @@ function readExpoPublicFromProcess(key: ExpoPublicEnvKey): string {
       return process.env.EXPO_PUBLIC_MEI_API_URL_DEV?.trim() ?? '';
     case 'EXPO_PUBLIC_INVITE_APP_BASE_URL':
       return process.env.EXPO_PUBLIC_INVITE_APP_BASE_URL?.trim() ?? '';
+    case 'EXPO_PUBLIC_APP_PRODUCT':
+      return process.env.EXPO_PUBLIC_APP_PRODUCT?.trim() ?? '';
     default:
       return '';
   }
