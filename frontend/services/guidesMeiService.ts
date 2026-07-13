@@ -23,6 +23,10 @@ export interface MeiPeriod {
   status: 'pago' | 'a_pagar' | 'erro' | 'indisponivel';
   guideId?: string | null;
   errorMessage?: string | null;
+  /** Após dia 20 do mês seguinte à competência e ainda a_pagar. */
+  vencida?: boolean;
+  /** Ex.: 20/07/2026 */
+  vencimento?: string | null;
 }
 
 /** Competências indisponíveis (antes da abertura MEI, futuro, etc.) não entram na lista da UI. */
@@ -170,15 +174,82 @@ export async function fetchMeiPeriodsByCnpj(
 export async function downloadMeiGuide(
   cnpj: string,
   periodoApuracao: string,
-  contribuinte: { numero: string; tipo: number }
+  contribuinte: { numero: string; tipo: number },
+  options?: { forceRefresh?: boolean }
 ) {
   const query = new URLSearchParams({
     cnpj,
     contribuinteNumero: contribuinte.numero,
     contribuinteTipo: String(contribuinte.tipo)
   });
+  if (options?.forceRefresh) query.set('forceRefresh', 'true');
   const path = `/mei-guide/${encodeURIComponent(periodoApuracao)}/download?${query.toString()}`;
   return downloadToFile(path, `guia-mei-${periodoApuracao}.pdf`);
+}
+
+/** True se competência YYYY-MM / AAAAMM já passou do vencimento (dia 20 do mês seguinte). */
+export function isMeiDasCompetenciaVencida(
+  competencia: string,
+  refDate: Date = new Date(),
+): boolean {
+  const text = String(competencia || '').trim();
+  let year = 0;
+  let month = 0;
+  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(text)) {
+    year = Number(text.slice(0, 4));
+    month = Number(text.slice(5, 7));
+  } else {
+    const digits = text.replace(/\D/g, '');
+    if (digits.length === 6) {
+      year = Number(digits.slice(0, 4));
+      month = Number(digits.slice(4, 6));
+    }
+  }
+  if (!year || month < 1 || month > 12) return false;
+  let vencMonth = month + 1;
+  let vencYear = year;
+  if (vencMonth > 12) {
+    vencMonth = 1;
+    vencYear += 1;
+  }
+  const vencIso = `${vencYear}-${String(vencMonth).padStart(2, '0')}-20`;
+  const todayIso = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(refDate);
+  return todayIso > vencIso;
+}
+
+export function formatMeiDasVencimento(competencia: string): string | null {
+  const text = String(competencia || '').trim();
+  let year = 0;
+  let month = 0;
+  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(text)) {
+    year = Number(text.slice(0, 4));
+    month = Number(text.slice(5, 7));
+  } else {
+    const digits = text.replace(/\D/g, '');
+    if (digits.length === 6) {
+      year = Number(digits.slice(0, 4));
+      month = Number(digits.slice(4, 6));
+    }
+  }
+  if (!year || month < 1 || month > 12) return null;
+  let vencMonth = month + 1;
+  let vencYear = year;
+  if (vencMonth > 12) {
+    vencMonth = 1;
+    vencYear += 1;
+  }
+  return `20/${String(vencMonth).padStart(2, '0')}/${vencYear}`;
+}
+
+export function isMeiPeriodVencida(period: MeiPeriod, refDate: Date = new Date()): boolean {
+  if (period.vencida === true) return true;
+  if (period.status !== 'a_pagar') return false;
+  return isMeiDasCompetenciaVencida(period.competencia, refDate);
 }
 
 export async function fetchMeiCertificateStatus(): Promise<MeiCertificateStatus> {

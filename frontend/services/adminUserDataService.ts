@@ -112,6 +112,8 @@ export interface AdminMeiPeriod {
   status: 'pago' | 'a_pagar' | 'erro';
   guideId?: string | null;
   errorMessage?: string | null;
+  vencida?: boolean;
+  vencimento?: string | null;
 }
 
 export interface AdminMeiWhatsappResult {

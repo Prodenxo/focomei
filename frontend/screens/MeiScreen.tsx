@@ -41,6 +41,7 @@ import {
   fetchMeiPeriods,
   fetchMeiPeriodsByCnpj,
   createMeiGuide,
+  regenerateMeiGuide,
   saveMeiGuidePdfFromBase64,
   validateMeiGuide,
   uploadMeiCertificate,
@@ -48,6 +49,7 @@ import {
   fetchParcelamentos,
   fetchParcelamentoParcelas,
   downloadParcelamentoPdf,
+  isMeiPeriodVencida,
   type MeiPeriod,
   type ParcelamentoItem,
   type ParcelamentoParcelaOption,
@@ -970,14 +972,51 @@ function MeiScreenContent() {
     }
 
     const contrib = { numero: normalizedCnpj, tipo: contribuinteTipo };
+    const vencida = period ? isMeiPeriodVencida(period) : false;
     setDownloadLoading(true);
     try {
-      const result = await downloadMeiGuide(normalizedCnpj, periodoApuracao, contrib);
-      await presentDownloadedFile(result, {
-        mimeType: 'application/pdf',
-        dialogTitle: 'Guia MEI',
-        successMessage: result.localUri ? `Guia salva em: ${result.localUri}` : undefined,
-      });
+      if (vencida) {
+        const guide = await regenerateMeiGuide(periodoApuracao, {
+          cnpj: normalizedCnpj,
+          periodoApuracao,
+          contribuinte: contrib,
+        });
+        if (guide?.pdfBase64) {
+          const saved = await saveMeiGuidePdfFromBase64(
+            guide.pdfBase64,
+            guide.filename || `guia-mei-${periodoApuracao}.pdf`,
+          );
+          await presentDownloadedFile(
+            { localUri: saved.localUri, filename: saved.filename },
+            {
+              mimeType: 'application/pdf',
+              dialogTitle: 'Guia MEI atualizada',
+              successMessage: saved.localUri
+                ? `Guia com valor atualizado salva em: ${saved.localUri}`
+                : 'Guia regenerada na Receita com valor atualizado.',
+            },
+          );
+        } else {
+          const result = await downloadMeiGuide(normalizedCnpj, periodoApuracao, contrib, {
+            forceRefresh: true,
+          });
+          await presentDownloadedFile(result, {
+            mimeType: 'application/pdf',
+            dialogTitle: 'Guia MEI atualizada',
+            successMessage: result.localUri
+              ? `Guia com valor atualizado salva em: ${result.localUri}`
+              : undefined,
+          });
+        }
+        showToast('Guia vencida regenerada na Receita com o valor atualizado.', 'success');
+      } else {
+        const result = await downloadMeiGuide(normalizedCnpj, periodoApuracao, contrib);
+        await presentDownloadedFile(result, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Guia MEI',
+          successMessage: result.localUri ? `Guia salva em: ${result.localUri}` : undefined,
+        });
+      }
       void loadMeiPeriods({ silent: true, refresh: true });
     } catch (error: any) {
       const code = String(error?.code || '');
@@ -998,7 +1037,7 @@ function MeiScreenContent() {
           period?.status === 'erro' && period.errorMessage
             ? period.errorMessage
             : error?.message || 'Não foi possível baixar a guia';
-        Alert.alert('Erro ao baixar DAS', hint);
+        Alert.alert(vencida ? 'Erro ao atualizar guia vencida' : 'Erro ao baixar DAS', hint);
       }
     } finally {
       setDownloadLoading(false);
@@ -1038,14 +1077,50 @@ function MeiScreenContent() {
           continue;
         }
         try {
-          const result = await downloadMeiGuide(normalizedCnpj, periodoApuracao, contrib);
-          await presentDownloadedFile(result, {
-            mimeType: 'application/pdf',
-            dialogTitle: `Guia MEI ${periodoApuracao}`,
-            successMessage: result.localUri
-              ? `Período ${p.competencia}: ${result.localUri}`
-              : undefined,
-          });
+          const vencida = isMeiPeriodVencida(p);
+          if (vencida) {
+            const guide = await regenerateMeiGuide(periodoApuracao, {
+              cnpj: normalizedCnpj,
+              periodoApuracao,
+              contribuinte: contrib,
+            });
+            if (guide?.pdfBase64) {
+              const saved = await saveMeiGuidePdfFromBase64(
+                guide.pdfBase64,
+                guide.filename || `guia-mei-${periodoApuracao}.pdf`,
+              );
+              await presentDownloadedFile(
+                { localUri: saved.localUri, filename: saved.filename },
+                {
+                  mimeType: 'application/pdf',
+                  dialogTitle: `Guia MEI ${periodoApuracao}`,
+                  successMessage: saved.localUri
+                    ? `Período ${p.competencia} (valor atualizado): ${saved.localUri}`
+                    : undefined,
+                },
+              );
+            } else {
+              const result = await downloadMeiGuide(normalizedCnpj, periodoApuracao, contrib, {
+                forceRefresh: true,
+              });
+              await presentDownloadedFile(result, {
+                mimeType: 'application/pdf',
+                dialogTitle: `Guia MEI ${periodoApuracao}`,
+                successMessage: result.localUri
+                  ? `Período ${p.competencia}: ${result.localUri}`
+                  : undefined,
+              });
+            }
+          } else {
+            const result = await downloadMeiGuide(normalizedCnpj, periodoApuracao, contrib);
+            await presentDownloadedFile(result, {
+              mimeType: 'application/pdf',
+              dialogTitle: `Guia MEI ${periodoApuracao}`,
+              successMessage: result.localUri
+                ? `Período ${p.competencia}: ${result.localUri}`
+                : undefined,
+            });
+          }
           sucesso += 1;
         } catch {
           falhas.push(p.competencia);
@@ -2945,7 +3020,9 @@ function MeiScreenContent() {
                     <Text style={[styles.dasTableHeaderCell, { flex: 1 }]}>Status</Text>
                     <Text style={[styles.dasTableHeaderCell, { width: 70, textAlign: 'center' }]}>Ação</Text>
                   </View>
-                  {meiPeriods.slice(0, 24).map((p, idx) => (
+                  {meiPeriods.slice(0, 24).map((p, idx) => {
+                    const vencida = isMeiPeriodVencida(p);
+                    return (
                     <View key={p.competencia} style={[styles.dasTableRow, idx % 2 === 1 && styles.dasTableRowAlt]}>
                       <Text style={[styles.dasTableCell, { flex: 1, fontWeight: '600' }]}>{p.competencia}</Text>
                       <View style={{ flex: 1, paddingRight: 8 }}>
@@ -2954,21 +3031,28 @@ function MeiScreenContent() {
                           p.status === 'pago' ? styles.dasStatusPago :
                           p.status === 'erro' ? styles.dasStatusErro :
                           p.status === 'indisponivel' ? styles.dasStatusIndisponivel :
+                          vencida ? styles.dasStatusVencida :
                           styles.dasStatusAPagar,
                         ]}>
                           <Text style={[styles.dasStatusBadgeText, {
                             color: p.status === 'pago' ? theme.success :
                               p.status === 'erro' ? theme.error :
                               p.status === 'indisponivel' ? theme.textSecondary :
+                              vencida ? theme.error :
                               theme.warning,
                           }]}>
                             {p.status === 'pago' ? 'Pago' :
                               p.status === 'erro' ? 'Erro' :
                               p.status === 'indisponivel' ? 'Indisponível' :
+                              vencida ? 'Vencida' :
                               'A pagar'}
                           </Text>
                         </View>
-                        {(p.status === 'erro' || p.status === 'indisponivel') ? (
+                        {vencida ? (
+                          <Text style={styles.dasPeriodReason} numberOfLines={2}>
+                            Venceu {p.vencimento || 'dia 20'} — baixar atualiza o valor
+                          </Text>
+                        ) : (p.status === 'erro' || p.status === 'indisponivel') ? (
                           <Text style={styles.dasPeriodReason} numberOfLines={2}>
                             Indisponível neste mês
                           </Text>
@@ -2979,12 +3063,22 @@ function MeiScreenContent() {
                           style={styles.dasTableAction}
                           onPress={() => void handleDownloadGuide(p)}
                           disabled={downloadLoading || p.status === 'indisponivel' || p.status === 'pago' || p.status === 'erro'}
+                          accessibilityLabel={
+                            vencida
+                              ? `Atualizar valor e baixar guia de ${p.competencia}`
+                              : `Baixar guia de ${p.competencia}`
+                          }
                         >
-                          <Ionicons name="download-outline" size={15} color={theme.primary} />
+                          <Ionicons
+                            name={vencida ? 'refresh-outline' : 'download-outline'}
+                            size={15}
+                            color={theme.primary}
+                          />
                         </TouchableOpacity>
                       </View>
                     </View>
-                  ))}
+                    );
+                  })}
                 </View>
                 )}
               </View>
@@ -6164,6 +6258,7 @@ const createStyles = (
     },
     dasStatusPago: { backgroundColor: theme.successLight, borderColor: theme.success + '40' },
     dasStatusAPagar: { backgroundColor: warningSoftBg, borderColor: warningSoftBorder },
+    dasStatusVencida: { backgroundColor: theme.errorLight, borderColor: theme.error + '40' },
     dasStatusErro: { backgroundColor: theme.errorLight, borderColor: theme.error + '40' },
     dasStatusIndisponivel: { backgroundColor: theme.backgroundMuted, borderColor: theme.border },
     dasStatusBadgeText: { fontSize: 11, fontWeight: '700' as const },

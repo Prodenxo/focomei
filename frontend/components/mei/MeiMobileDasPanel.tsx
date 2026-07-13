@@ -14,7 +14,7 @@ import { useMfTheme } from '../ui/useMfTheme'
 import { getTechTokens, mfTechInsetSurface, mfTechPanelChrome } from '../../lib/techDesign'
 import { mfRadius, mfSpacing } from '../../lib/theme'
 import { toMeiUserErrorMessage } from '../../utils/meiUserFacingMessage'
-import { filterMeiPeriodsForDisplay, type MeiPeriod } from '../../services/guidesMeiService'
+import { filterMeiPeriodsForDisplay, isMeiPeriodVencida, type MeiPeriod } from '../../services/guidesMeiService'
 
 const MONTH_PT = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -46,8 +46,9 @@ type Props = {
   onDownloadPeriod?: (period: MeiPeriod) => void
 }
 
-function statusLabel (status: MeiPeriod['status']): string {
+function statusLabel (status: MeiPeriod['status'], vencida = false): string {
   if (status === 'pago') return 'Pago'
+  if (status === 'a_pagar' && vencida) return 'Vencida'
   if (status === 'a_pagar') return 'A pagar'
   if (status === 'erro') return 'Erro'
   if (status === 'indisponivel') return 'Indisponível'
@@ -178,7 +179,8 @@ export function MeiMobileDasPanel ({
               {aPagarCount === 1 ? '1 guia para pagar' : `${aPagarCount} guias para pagar`}
             </Text>
             <Text style={styles.alertDesc}>
-              Toque em Baixar na linha do mês em aberto — o PDF será salvo no seu dispositivo.
+              Guias vencidas são regeneradas na Receita com o valor atualizado ao baixar.
+              Toque em Baixar na linha do mês — o PDF será salvo no seu dispositivo.
             </Text>
           </View>
         </View>
@@ -280,6 +282,7 @@ export function MeiMobileDasPanel ({
                 selectedMonth,
                 selectedYear,
               )
+              const vencida = isMeiPeriodVencida(p)
               const canDownload =
                 p.status === 'a_pagar' && Boolean(onDownloadPeriod)
               const statusColor =
@@ -289,7 +292,9 @@ export function MeiMobileDasPanel ({
                     ? theme.error
                     : p.status === 'indisponivel'
                       ? theme.textTertiary
-                      : theme.warning
+                      : vencida
+                        ? theme.error
+                        : theme.warning
 
               return (
                 <View
@@ -308,7 +313,7 @@ export function MeiMobileDasPanel ({
                     ]}
                     accessibilityRole="button"
                     accessibilityState={{ selected }}
-                    accessibilityLabel={`${formatCompetenciaLabel(p.competencia)}, ${statusLabel(p.status)}`}
+                    accessibilityLabel={`${formatCompetenciaLabel(p.competencia)}, ${statusLabel(p.status, vencida)}`}
                   >
                     <View
                       style={[
@@ -321,7 +326,8 @@ export function MeiMobileDasPanel ({
                         {formatCompetenciaLabel(p.competencia)}
                       </Text>
                       <Text style={[styles.ledgerStatus, { color: statusColor }]}>
-                        {statusLabel(p.status)}
+                        {statusLabel(p.status, vencida)}
+                        {vencida && p.vencimento ? ` · ${p.vencimento}` : ''}
                       </Text>
                     </View>
                   </Pressable>
@@ -336,18 +342,24 @@ export function MeiMobileDasPanel ({
                       onPress={() => onDownloadPeriod?.(p)}
                       disabled={downloadLoading && selected}
                       accessibilityRole="button"
-                      accessibilityLabel={`Baixar PDF de ${formatCompetenciaLabel(p.competencia)}`}
+                      accessibilityLabel={
+                        vencida
+                          ? `Atualizar valor e baixar PDF de ${formatCompetenciaLabel(p.competencia)}`
+                          : `Baixar PDF de ${formatCompetenciaLabel(p.competencia)}`
+                      }
                     >
                       {downloadLoading && selected ? (
                         <ActivityIndicator size="small" color={isDarkMode ? '#030508' : '#fff'} />
                       ) : (
                         <>
                           <Ionicons
-                            name="download-outline"
+                            name={vencida ? 'refresh-outline' : 'download-outline'}
                             size={16}
                             color={isDarkMode ? '#030508' : '#fff'}
                           />
-                          <Text style={styles.ledgerDownloadText}>Baixar</Text>
+                          <Text style={styles.ledgerDownloadText}>
+                            {vencida ? 'Atualizar' : 'Baixar'}
+                          </Text>
                         </>
                       )}
                     </Pressable>

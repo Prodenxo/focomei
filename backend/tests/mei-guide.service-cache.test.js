@@ -208,8 +208,8 @@ test('mei-guide classifica SERPRO indisponível como indisponivel após retentat
     markCompetenciaAsPaidFn: async () => {}
   });
 
-  assert.equal(items.length, 12);
-  assert.equal(items.every((item) => item.status === 'indisponivel'), true);
+  // Períodos indisponíveis não entram na lista pública (filtro em buildPeriodsFromPdf).
+  assert.equal(items.length, 0);
   assert.equal(calls, 12 * 3);
 });
 
@@ -265,19 +265,59 @@ test('downloadGuide busca na SERPRO quando pago sem PDF armazenado', async () =>
   const file = await downloadGuide({
     userId: 'user-4b',
     cnpj: '12345678000199',
-    periodoApuracao: '202601'
+    // Competência ainda no prazo (vence dia 20 do mês seguinte) — evita regenerate.
+    periodoApuracao: '202606'
   }, {
     isCompetenciaPaidFn: async () => true,
     getDasBase64Fn: async () => null,
+    regenerateDasPdfFn: async () => null,
     createGuideByCnpjFn: async () => {
       createCalls += 1;
-      return { pdfBase64: storedPdf, id: '202601' };
+      return {
+        pdfBase64: storedPdf,
+        id: '202606',
+        filename: 'das-mei-202606.pdf',
+      };
     }
   });
 
   assert.equal(createCalls, 1);
-  assert.equal(file.filename, 'das-mei-202601.pdf');
+  assert.equal(file.filename, 'das-mei-202606.pdf');
   assert.equal(file.buffer.toString(), '%PDF-new');
+});
+
+test('downloadGuide regenera PDF quando competência vencida e a pagar', async () => {
+  const { downloadGuide } = await import('../src/services/mei-guide.service.js');
+  const refreshedPdf = Buffer.from('%PDF-refreshed').toString('base64');
+  let regenerateCalls = 0;
+  let createCalls = 0;
+
+  const file = await downloadGuide({
+    userId: 'user-vencida',
+    cnpj: '12345678000199',
+    periodoApuracao: '202601',
+  }, {
+    isCompetenciaPaidFn: async () => false,
+    getDasBase64Fn: async () => Buffer.from('%PDF-old').toString('base64'),
+    regenerateDasPdfFn: async () => {
+      regenerateCalls += 1;
+      return {
+        pdfBase64: refreshedPdf,
+        filename: 'das-mei-202601.pdf',
+        id: '202601',
+      };
+    },
+    createGuideByCnpjFn: async () => {
+      createCalls += 1;
+      return null;
+    },
+  });
+
+  assert.equal(regenerateCalls, 1);
+  assert.equal(createCalls, 0);
+  assert.equal(file.refreshed, true);
+  assert.equal(file.vencida, true);
+  assert.equal(file.buffer.toString(), '%PDF-refreshed');
 });
 
 test('downloadGuide persiste pago quando SERPRO retorna período quitado', async () => {
@@ -288,9 +328,11 @@ test('downloadGuide persiste pago quando SERPRO retorna período quitado', async
     () => downloadGuide({
       userId: 'user-5',
       cnpj: '12345678000199',
-      periodoApuracao: '202602'
+      periodoApuracao: '202606'
     }, {
       isCompetenciaPaidFn: async () => false,
+      getDasBase64Fn: async () => null,
+      regenerateDasPdfFn: async () => null,
       createGuideByCnpjFn: async () => {
         throw new Error('Não há débitos para o período informado');
       },
@@ -298,7 +340,7 @@ test('downloadGuide persiste pago quando SERPRO retorna período quitado', async
         persistedPaid += 1;
       }
     }),
-    /Período já consta como pago/
+    /já está pago|Período já consta como pago/i
   );
 
   assert.equal(persistedPaid, 1);
@@ -312,9 +354,11 @@ test('downloadGuide persiste pago quando SERPRO responde sem PDF', async () => {
     () => downloadGuide({
       userId: 'user-6',
       cnpj: '12345678000199',
-      periodoApuracao: '202603'
+      periodoApuracao: '202606'
     }, {
       isCompetenciaPaidFn: async () => false,
+      getDasBase64Fn: async () => null,
+      regenerateDasPdfFn: async () => null,
       createGuideByCnpjFn: async () => {
         throw new Error('PDF do DAS não retornado');
       },
@@ -322,7 +366,7 @@ test('downloadGuide persiste pago quando SERPRO responde sem PDF', async () => {
         persistedPaid += 1;
       }
     }),
-    /Período já consta como pago/
+    /já está pago|Período já consta como pago/i
   );
 
   assert.equal(persistedPaid, 1);
