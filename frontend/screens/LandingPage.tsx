@@ -263,7 +263,7 @@ export default function LandingPage() {
               onPress={goLogin}
             />
             <LandingButton
-              label={isMobile ? 'Solicitar' : 'Solicitar acesso'}
+              label="Quero ser cliente"
               variant="primary"
               compact={isMobile}
               entranceDelay={160}
@@ -423,7 +423,7 @@ export default function LandingPage() {
               onPress={goLogin}
             />
             <LandingButton
-              label="Solicitar acesso"
+              label="Quero ser cliente"
               variant="ghost"
               entranceDelay={300}
               onPress={goRequestAccess}

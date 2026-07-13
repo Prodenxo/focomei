@@ -14,14 +14,25 @@ const normalizeText = (value) => {
   return s || null;
 };
 
+const normalizeSignupMode = (value) => {
+  const mode = String(value || '').trim().toLowerCase();
+  if (mode === 'manual_approval' || mode === 'manual' || mode === 'pending') {
+    return 'manual_approval';
+  }
+  return 'self_serve';
+};
+
 /**
- * Cadastro self-serve FocoMEI: empresa active + admin status=true, mei=false
- * (libera login; /planos exige pagamento).
+ * Cadastro FocoMEI.
+ * - self_serve: admin status=true, mei=false → fluxo /planos (Stripe).
+ * - manual_approval: status=false → “em análise”, sem checkout.
  */
 export const submitSelfServeEmpresaSignup = async (body = {}, originMeta = {}) => {
   const user = body.user ?? {};
   const empresaInput = body.empresa ?? {};
   const observacao = normalizeText(body.observacao);
+  const signupMode = normalizeSignupMode(body.signupMode ?? body.mode);
+  const isManualApproval = signupMode === 'manual_approval';
 
   const email = normalizeText(user.email)?.toLowerCase();
   const password = String(user.password || '').trim();
@@ -92,6 +103,7 @@ export const submitSelfServeEmpresaSignup = async (body = {}, originMeta = {}) =
       phone: phone || null,
       access_request_observacao: observacao,
       access_requested_at: new Date().toISOString(),
+      signup_mode: signupMode,
       ...originMeta,
     },
   });
@@ -119,7 +131,8 @@ export const submitSelfServeEmpresaSignup = async (body = {}, originMeta = {}) =
       user_id: userId,
       roles_id: adminRoleId,
       empresas_id: empresaRow.id,
-      status: true,
+      // Manual: fica pendente até superadmin aprovar. Self-serve: ativo aguardando plano.
+      status: isManualApproval ? false : true,
       mei: false,
     });
     if (linkErr) throw new Error(linkErr.message);
@@ -149,12 +162,19 @@ export const submitSelfServeEmpresaSignup = async (body = {}, originMeta = {}) =
     observacao,
   }).catch(() => {});
 
-  return { ok: true, userId, empresaId: empresaRow.id };
+  return {
+    ok: true,
+    userId,
+    empresaId: empresaRow.id,
+    signupMode,
+    pendingApproval: isManualApproval,
+  };
 };
 
 /**
  * Usuário autenticado com vínculo pendente (cadastro antigo / edge function antiga)
  * → promove a admin ativo aguardando pagamento do plano.
+ * Não libera pedidos manuais (signup_mode = manual_approval).
  */
 export const unlockPendingSelfServeSignup = async (userId) => {
   const id = String(userId || '').trim();
@@ -176,6 +196,18 @@ export const unlockPendingSelfServeSignup = async (userId) => {
 
   if (link.status === true) {
     return { unlocked: false, reason: 'already_active', empresaId: link.empresas_id };
+  }
+
+  const { data: authData } = await sb.auth.admin.getUserById(id);
+  const signupMode = normalizeSignupMode(
+    authData?.user?.user_metadata?.signup_mode,
+  );
+  if (signupMode === 'manual_approval') {
+    return {
+      unlocked: false,
+      reason: 'manual_approval',
+      empresaId: link.empresas_id,
+    };
   }
 
   const empresaId = link.empresas_id;

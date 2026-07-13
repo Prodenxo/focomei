@@ -112,8 +112,16 @@ export default function AppLayout() {
           if (data?.status === false) {
             try {
               const { apiClient } = await import('@/lib/apiClient');
-              await apiClient.post('/billing/mei/unlock-pending', {});
+              const unlock = await apiClient.post<{
+                unlocked?: boolean
+                reason?: string
+              }>('/billing/mei/unlock-pending', {});
               if (cancelled) return;
+              // Pedido manual (Quero ser cliente / solicitar-acesso) permanece em análise.
+              if (!unlock?.unlocked) {
+                setAccessStatus('pending');
+                return;
+              }
               await useAuthStore.getState().initAuth();
               if (cancelled) return;
               setAccessStatus('ok');

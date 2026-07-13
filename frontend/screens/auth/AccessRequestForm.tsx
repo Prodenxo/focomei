@@ -37,8 +37,13 @@ import { useAuthStore } from '../../store/authStore';
 export type AccessRequestFormProps = {
   onGoToLogin: () => void;
   onDone: () => void;
-  /** Após cadastro + login, redireciona para planos (padrão). */
+  /**
+   * Após cadastro + login no fluxo self-serve (ex.: futura landing → /planos).
+   * Se omitido, fica em “solicitação em análise” sem Stripe.
+   */
   onRegistered?: () => void;
+  /** manual_approval = sem checkout; self_serve = prontos para planos. */
+  signupMode?: 'manual_approval' | 'self_serve';
 };
 
 function maskCnpj(value: string): string {
@@ -58,7 +63,12 @@ function maskCnpj(value: string): string {
   return d;
 }
 
-export function AccessRequestForm({ onGoToLogin, onDone, onRegistered }: AccessRequestFormProps) {
+export function AccessRequestForm({
+  onGoToLogin,
+  onDone,
+  onRegistered,
+  signupMode = 'manual_approval',
+}: AccessRequestFormProps) {
   const isDarkMode = useThemeStore((s) => s.isDarkMode);
   const palette = getAuthPalette(isDarkMode);
   const signIn = useAuthStore((s) => s.signIn);
@@ -210,6 +220,7 @@ export function AccessRequestForm({ onGoToLogin, onDone, onRegistered }: AccessR
           },
           observacao: null,
           appOrigin: resolveAppOrigin(),
+          signupMode,
         }),
       });
 
@@ -222,11 +233,12 @@ export function AccessRequestForm({ onGoToLogin, onDone, onRegistered }: AccessR
         throw new Error(msg);
       }
 
-      // Entra na conta e segue para escolha do plano / Checkout.
-      await signIn(email.trim(), password);
-      if (onRegistered) {
+      if (onRegistered && signupMode === 'self_serve') {
+        // Self-serve: entra na conta e segue para planos / Checkout.
+        await signIn(email.trim(), password);
         onRegistered();
       } else {
+        // Manual: sem Stripe — conta fica em análise.
         setSubmitted(true);
       }
     } catch (err) {
@@ -236,18 +248,24 @@ export function AccessRequestForm({ onGoToLogin, onDone, onRegistered }: AccessR
     }
   };
 
+  const isSelfServe = signupMode === 'self_serve' && Boolean(onRegistered);
+
   const successContent = (
     <View style={styles.successWrap}>
       <View style={[styles.successIcon, { backgroundColor: palette.alertSuccessBg }]}>
         <Ionicons name="checkmark-circle" size={48} color={palette.alertSuccessText} />
       </View>
-      <Text style={[styles.successTitle, { color: palette.titleText }]}>Cadastro concluído!</Text>
+      <Text style={[styles.successTitle, { color: palette.titleText }]}>
+        {isSelfServe ? 'Cadastro concluído!' : 'Solicitação enviada'}
+      </Text>
       <Text style={[styles.successText, { color: palette.subtitleText }]}>
-        Sua conta foi criada. Escolha um plano MEI para liberar o acesso ao sistema.
+        {isSelfServe
+          ? 'Sua conta foi criada. Escolha um plano MEI para liberar o acesso ao sistema.'
+          : 'Recebemos seus dados. A CF Contabilidade vai analisar e liberar o acesso. Você pode fazer login depois para acompanhar.'}
       </Text>
       <AuthButton
-        label="Escolher plano"
-        onPress={() => (onRegistered ? onRegistered() : onDone())}
+        label={isSelfServe ? 'Escolher plano' : 'Ir para o login'}
+        onPress={() => (isSelfServe && onRegistered ? onRegistered() : onGoToLogin())}
         palette={palette}
       />
     </View>

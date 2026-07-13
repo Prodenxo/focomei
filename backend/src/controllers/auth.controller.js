@@ -18,12 +18,19 @@ export const signUp = async (req, res, next) => {
   }
 };
 
-/** Cadastro self-serve: conta + empresa → depois /planos (Stripe). */
+/**
+ * Cadastro empresa.
+ * signupMode=self_serve → depois /planos (Stripe).
+ * signupMode=manual_approval → solicitação em análise (sem checkout).
+ */
 export const registerEmpresa = async (req, res, next) => {
   try {
     const originMeta = buildOriginMetaFromBody(req.body ?? {}, req.headers);
     const result = await submitSelfServeEmpresaSignup(req.body ?? {}, originMeta);
-    return sendCreated(res, result, 'Cadastro criado. Faça login e escolha um plano.');
+    const message = result?.pendingApproval
+      ? 'Cadastro enviado. Aguarde a análise da equipe.'
+      : 'Cadastro criado. Faça login e escolha um plano.';
+    return sendCreated(res, result, message);
   } catch (error) {
     if (error?.status === 409) {
       return res.status(409).json({
