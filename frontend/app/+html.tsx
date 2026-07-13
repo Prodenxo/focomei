@@ -18,6 +18,9 @@ export default function Root({ children }: PropsWithChildren) {
         <meta httpEquiv="Expires" content="0" />
         <meta name="google" content="notranslate" />
         <title>{APP_BRAND_NAME}</title>
+        <link rel="icon" type="image/png" sizes="32x32" href="/fm-mark.png?v=4" />
+        <link rel="shortcut icon" href="/fm-mark.png?v=4" />
+        <link rel="apple-touch-icon" href="/favicon-48.png?v=4" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         <link

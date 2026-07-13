@@ -61,6 +61,23 @@ function RootLayoutInner() {
     installWebStaleChunkRecovery();
     clearHardReloadQueryFromUrl();
     hideBootSplash();
+
+    // Expo/dev ainda pode injetar favicon.ico antigo (JPG com fundo branco).
+    // Força PNG transparente em public/ com query de cache-bust.
+    try {
+      const href = '/fm-mark.png?v=4';
+      const head = document.head;
+      head
+        .querySelectorAll("link[rel='icon'], link[rel='shortcut icon']")
+        .forEach((node) => node.parentElement?.removeChild(node));
+      const link = document.createElement('link');
+      link.rel = 'icon';
+      link.type = 'image/png';
+      link.href = href;
+      head.appendChild(link);
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   const recoveryHandlers = useMemo(

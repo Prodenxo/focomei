@@ -30,7 +30,7 @@
       "package": "com.leonardo25.financaspessoaismobile"
     },
     "web": {
-      "favicon": "./assets/brand-mark.jpg"
+      "favicon": "./assets/favicon.png"
     },
     "scheme": "financas-pessoais",
     "extra": {
