@@ -13,6 +13,9 @@ export const ACTIVATION_ROUTE = '/(app)/ativacao' as const
 /** Cadastro obrigatório de CNPJ (admin da empresa, uma vez). */
 export const EMPRESA_CNPJ_ONBOARDING_ROUTE = '/(app)/empresa-cnpj' as const
 
+/** Escolha de plano MEI + Checkout Stripe (self-serve). */
+export const MEI_BILLING_PLANS_ROUTE = '/(app)/planos' as const
+
 export type SettingsRouteHref = (typeof SETTINGS_ROUTES)[keyof typeof SETTINGS_ROUTES]
 
 /** Voltar sem erro GO_BACK quando não há histórico (F5 em rota profunda). */

@@ -24,8 +24,9 @@ import {
   resetSessionActivationSkip,
   setSessionActivationSkipped,
 } from '@/lib/activationSession';
-import { ACTIVATION_ROUTE, EMPRESA_CNPJ_ONBOARDING_ROUTE } from '@/lib/settingsRoutes';
+import { ACTIVATION_ROUTE, EMPRESA_CNPJ_ONBOARDING_ROUTE, MEI_BILLING_PLANS_ROUTE } from '@/lib/settingsRoutes';
 import { isEmpresaCnpjOnboardingRequired } from '@/lib/empresaCnpjGate';
+import { shouldRequireMeiBillingRoute } from '@/lib/meiBillingGate';
 import {
   registerEmpresaCnpjLayoutGateReset,
   unregisterEmpresaCnpjLayoutGateReset,
@@ -64,11 +65,13 @@ export default function AppLayout() {
   const currentScreen: AppScreenName = resolveAppScreenFromPath(pathname);
   const isActivationRoute = pathname.includes('/ativacao');
   const isEmpresaCnpjRoute = pathname.includes('/empresa-cnpj');
+  const isPlanosRoute = pathname.includes('/planos');
   /** Onboarding obrigatório: sem top nav, drawer, sair ou sair da impersonação. */
-  const shellLocked = isEmpresaCnpjRoute || isActivationRoute;
+  const shellLocked = isEmpresaCnpjRoute || isActivationRoute || isPlanosRoute;
   /** Navbar web desktop; no resto, drawer (☰) nas telas. */
   const hasGlobalNav = isWebDesktop && !shellLocked;
   const loginCnpjGateDone = useRef(false);
+  const loginBillingGateDone = useRef(false);
   const loginActivationGateDone = useRef(false);
   const gateIdentityRef = useRef<{
     userId?: string;
@@ -76,6 +79,7 @@ export default function AppLayout() {
     role?: string | null;
   }>({});
   const [cnpjGate, setCnpjGate] = useState<'checking' | 'ready'>('checking');
+  const [billingGate, setBillingGate] = useState<'checking' | 'ready'>('checking');
   const [activationGate, setActivationGate] = useState<'checking' | 'ready'>('checking');
 
   useEffect(() => {
@@ -87,7 +91,7 @@ export default function AppLayout() {
     })();
   }, [sessionRestored, user, router, pathname]);
 
-  // Bloqueia usuários com cadastro ainda pendente de aprovação do superadmin.
+  // Bloqueia usuários com cadastro ainda pendente — no FocoMEI tenta liberar p/ /planos.
   useEffect(() => {
     if (!user) {
       setAccessStatus('checking');
@@ -103,13 +107,25 @@ export default function AppLayout() {
       .limit(1)
       .maybeSingle()
       .then(
-        ({ data }) => {
+        async ({ data }) => {
           if (cancelled) return;
-          // status === false indica acesso pendente de aprovação
-          setAccessStatus(data?.status === false ? 'pending' : 'ok');
+          if (data?.status === false) {
+            try {
+              const { apiClient } = await import('@/lib/apiClient');
+              await apiClient.post('/billing/mei/unlock-pending', {});
+              if (cancelled) return;
+              await useAuthStore.getState().initAuth();
+              if (cancelled) return;
+              setAccessStatus('ok');
+              return;
+            } catch {
+              if (!cancelled) setAccessStatus('pending');
+              return;
+            }
+          }
+          setAccessStatus('ok');
         },
         () => {
-          // Fail-open: um erro transitório não deve travar usuário legítimo.
           if (!cancelled) setAccessStatus('ok');
         }
       );
@@ -148,9 +164,11 @@ export default function AppLayout() {
   useEffect(() => {
     if (!user) {
       loginCnpjGateDone.current = false;
+      loginBillingGateDone.current = false;
       loginActivationGateDone.current = false;
       gateIdentityRef.current = {};
       setCnpjGate('checking');
+      setBillingGate('checking');
       setActivationGate('checking');
       resetSessionActivationSkip();
       return;
@@ -162,8 +180,10 @@ export default function AppLayout() {
       || prev.role !== role;
     if (identityChanged) {
       loginCnpjGateDone.current = false;
+      loginBillingGateDone.current = false;
       loginActivationGateDone.current = false;
       setCnpjGate('checking');
+      setBillingGate('checking');
       setActivationGate('checking');
     }
     gateIdentityRef.current = {
@@ -176,6 +196,7 @@ export default function AppLayout() {
   useEffect(() => {
     registerEmpresaCnpjLayoutGateReset(() => {
       loginCnpjGateDone.current = false;
+      loginBillingGateDone.current = false;
       loginActivationGateDone.current = false;
     });
     return () => unregisterEmpresaCnpjLayoutGateReset();
@@ -214,6 +235,44 @@ export default function AppLayout() {
     };
   }, [user, accessStatus, isEmpresaCnpjRoute, router]);
 
+  // Admin sem plano MEI pago → /planos (Checkout Stripe).
+  useEffect(() => {
+    if (!user || accessStatus !== 'ok' || cnpjGate === 'checking') {
+      setBillingGate('checking');
+      return;
+    }
+    if (isPlanosRoute) {
+      loginBillingGateDone.current = true;
+      setBillingGate('ready');
+      return;
+    }
+    if (role !== 'admin') {
+      loginBillingGateDone.current = true;
+      setBillingGate('ready');
+      return;
+    }
+    if (loginBillingGateDone.current) {
+      setBillingGate('ready');
+      return;
+    }
+    let cancelled = false;
+    setBillingGate('checking');
+    void shouldRequireMeiBillingRoute().then((required) => {
+      if (cancelled) return;
+      loginBillingGateDone.current = true;
+      if (required) {
+        if (!isPlanosRoute) {
+          router.replace(MEI_BILLING_PLANS_ROUTE as never);
+        }
+        return;
+      }
+      setBillingGate('ready');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, accessStatus, cnpjGate, role, isPlanosRoute, router]);
+
   /** Em /ativacao sem CNPJ: revalida e manda para empresa-cnpj (não liberar ativação antes). */
   useEffect(() => {
     if (!user || accessStatus !== 'ok' || role !== 'admin' || !isActivationRoute) return;
@@ -234,7 +293,7 @@ export default function AppLayout() {
 
   // Evita flash do gate / redirect ao atualizar só metadados (ex.: telefone).
   useEffect(() => {
-    if (!user || accessStatus !== 'ok' || cnpjGate === 'checking') {
+    if (!user || accessStatus !== 'ok' || cnpjGate === 'checking' || billingGate === 'checking') {
       if (loginActivationGateDone.current) return;
       setActivationGate((prev) => (prev === 'checking' ? prev : 'checking'));
       return;
@@ -244,7 +303,7 @@ export default function AppLayout() {
       setActivationGate((prev) => (prev === 'ready' ? prev : 'ready'));
       return;
     }
-    if (isEmpresaCnpjRoute || isActivationRoute) {
+    if (isEmpresaCnpjRoute || isActivationRoute || isPlanosRoute) {
       loginActivationGateDone.current = true;
       setActivationGate((prev) => (prev === 'ready' ? prev : 'ready'));
       return;
@@ -268,7 +327,7 @@ export default function AppLayout() {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, accessStatus, cnpjGate, isEmpresaCnpjRoute, isActivationRoute, router]);
+  }, [user?.id, accessStatus, cnpjGate, billingGate, isEmpresaCnpjRoute, isActivationRoute, isPlanosRoute, router]);
 
   /** Impede URL manual / histórico enquanto CNPJ pendente (admin). */
   useEffect(() => {
@@ -282,6 +341,19 @@ export default function AppLayout() {
       cancelled = true;
     };
   }, [user, accessStatus, role, pathname, isEmpresaCnpjRoute, router]);
+
+  /** Impede sair de /planos sem pagar (admin). */
+  useEffect(() => {
+    if (!user || accessStatus !== 'ok' || role !== 'admin' || isPlanosRoute) return;
+    let cancelled = false;
+    void shouldRequireMeiBillingRoute().then((required) => {
+      if (cancelled || !required) return;
+      router.replace(MEI_BILLING_PLANS_ROUTE as never);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, accessStatus, role, pathname, isPlanosRoute, router]);
 
   const openDrawer = useCallback(() => {
     if (shellLocked) return;
@@ -357,12 +429,28 @@ export default function AppLayout() {
     );
   }
 
+  const awaitingBillingGate =
+    user
+    && accessStatus === 'ok'
+    && billingGate === 'checking'
+    && !isPlanosRoute
+    && role === 'admin';
+
+  if (awaitingBillingGate) {
+    return (
+      <View style={[styles.outer, styles.centered]}>
+        <ActivityIndicator size="large" color={theme.primary} />
+      </View>
+    );
+  }
+
   const awaitingActivationGate =
     user
     && accessStatus === 'ok'
     && activationGate === 'checking'
     && !isActivationRoute
     && !isEmpresaCnpjRoute
+    && !isPlanosRoute
     && !isSessionActivationSkipped();
 
   if (awaitingActivationGate) {

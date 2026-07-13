@@ -1,7 +1,6 @@
 /**
- * Cadastro com solicitação de acesso (empresa + usuário pending).
+ * Cadastro self-serve: empresa + admin (acesso ok; MEI libera após Stripe).
  * Tenta Easypanel; se indisponível ou 404, executa inline com service role.
- * Status de pendência rastreado SOMENTE via role_x_user_x_empresa.status = false.
  */
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -29,7 +28,10 @@ const normalizeText = (value: unknown) => {
   return s || null
 }
 
-const buildEmpresaInsert = (empresaInput: Record<string, unknown> = {}) => {
+const buildEmpresaInsert = (
+  empresaInput: Record<string, unknown> = {},
+  fallbackEmail: string | null = null,
+) => {
   const cnpj = String(empresaInput.cnpj || '').replace(/\D/g, '')
   if (cnpj.length !== 14) throw new Error('CNPJ inválido (14 dígitos).')
   const razaoSocial = normalizeText(empresaInput.razaoSocial)
@@ -50,18 +52,19 @@ const buildEmpresaInsert = (empresaInput: Record<string, unknown> = {}) => {
     cidade: normalizeText(empresaInput.cidade),
     estado: normalizeText(empresaInput.estado)?.toUpperCase()?.slice(0, 2) || null,
     telefone: normalizeText(empresaInput.telefone),
-    email: normalizeText(empresaInput.email),
+    email: normalizeText(empresaInput.email) || fallbackEmail,
     max_mei: 0,
     max_usuarios_nao_mei: null,
-    status: 'pending',
+    // Aguarda pagamento do plano; liberação automática no webhook Stripe.
+    status: 'active',
   }
 }
 
-async function resolveUsuarioRoleId(admin: ReturnType<typeof createClient>) {
+async function resolveAdminRoleId(admin: ReturnType<typeof createClient>) {
   const { data: rows } = await admin.from('roles').select('id, roles')
   const match = (rows || []).find((r) => {
     const n = String(r.roles || '').trim().toLowerCase()
-    return n === 'user' || n === 'usuario'
+    return n === 'admin'
   })
   return match?.id ? String(match.id) : null
 }
@@ -106,7 +109,7 @@ async function submitInline(
   )
   if (emailTaken) throw new Error('Este e-mail já está cadastrado.')
 
-  const empresaPayload = buildEmpresaInsert(empresa)
+  const empresaPayload = buildEmpresaInsert(empresa, email)
   const { data: empresaRow, error: empresaErr } = await admin
     .from('empresas')
     .insert(empresaPayload)
@@ -139,24 +142,23 @@ async function submitInline(
   const userId = createdUser.user.id
 
   try {
-    const roleId = await resolveUsuarioRoleId(admin)
-    if (!roleId) throw new Error('Perfil de usuário não encontrado na base.')
+    const roleId = await resolveAdminRoleId(admin)
+    if (!roleId) throw new Error('Perfil admin não encontrado na base.')
 
     await admin.from('empresas').update({ requested_by: userId }).eq('id', empresaRow.id)
 
-    // Cria perfil SEM profiles.status — status rastreado via role_x_user_x_empresa
+    // Cria perfil — acesso liberado; módulo MEI libera após pagamento Stripe.
     const { error: profileErr } = await admin.from('profiles').upsert({
       id: userId,
-      role: 'usuario',
+      role: 'admin',
     })
     if (profileErr) throw new Error(profileErr.message)
 
-    // Vínculo com status=false = pendente de aprovação
     const { error: linkErr } = await admin.from('role_x_user_x_empresa').insert({
       user_id: userId,
       roles_id: roleId,
       empresas_id: empresaRow.id,
-      status: false,
+      status: true,
       mei: false,
     })
     if (linkErr) throw new Error(linkErr.message)

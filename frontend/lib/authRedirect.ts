@@ -3,8 +3,9 @@ import { Platform } from 'react-native'
 import type { Href } from 'expo-router'
 import { fetchActivationProgress } from '@/services/activationService'
 import { isSessionActivationSkipped } from '@/lib/activationSession'
-import { ACTIVATION_ROUTE, EMPRESA_CNPJ_ONBOARDING_ROUTE } from '@/lib/settingsRoutes'
+import { ACTIVATION_ROUTE, EMPRESA_CNPJ_ONBOARDING_ROUTE, MEI_BILLING_PLANS_ROUTE } from '@/lib/settingsRoutes'
 import { isEmpresaCnpjOnboardingRequired } from '@/lib/empresaCnpjGate'
+import { shouldRequireMeiBillingRoute } from '@/lib/meiBillingGate'
 
 const RETURN_PATH_KEY = 'auth_return_path_v1'
 
@@ -100,6 +101,10 @@ export async function resolvePostAuthHref (fallback: Href): Promise<Href> {
   if (await shouldRequireEmpresaCnpjOnboardingRoute()) {
     await consumeAuthReturnPath()
     return EMPRESA_CNPJ_ONBOARDING_ROUTE as Href
+  }
+  if (await shouldRequireMeiBillingRoute()) {
+    await consumeAuthReturnPath()
+    return MEI_BILLING_PLANS_ROUTE as Href
   }
   if (await shouldRequireActivationRoute()) {
     await consumeAuthReturnPath()

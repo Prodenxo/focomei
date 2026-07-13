@@ -1,46 +1,41 @@
-/** Pacotes MEI contratáveis via Stripe (superadmin). */
-export const MEI_SLOT_PACKAGE_OPTIONS = [
-  ...Array.from({ length: 19 }, (_, i) => i + 1),
-  20,
-  50,
+/** Pacotes MEI públicos (self-serve + admin Stripe). */
+export const MEI_SLOT_PACKAGE_OPTIONS = [5, 20, 50, 100];
+
+/** Tabela comercial FocoMEI — planos por quantidade de CNPJs MEI. */
+export const MEI_PUBLIC_PACKAGES = [
+  { meiSlots: 5, total: 100, unit: 20, featured: false, label: '5 CNPJs MEI' },
+  { meiSlots: 20, total: 300, unit: 15, featured: false, label: '20 CNPJs MEI' },
+  { meiSlots: 50, total: 600, unit: 12, featured: false, label: '50 CNPJs MEI' },
+  {
+    meiSlots: 100,
+    total: 1000,
+    unit: 10,
+    featured: true,
+    label: '100 CNPJs MEI',
+    badge: 'MELHOR CUSTO-BENEFÍCIO',
+  },
 ];
 
-const validateMeiSlots = (meiSlots) => Number.isInteger(meiSlots) && meiSlots > 0;
+const validateMeiSlots = (meiSlots) =>
+  Number.isInteger(meiSlots) && MEI_SLOT_PACKAGE_OPTIONS.includes(meiSlots);
 
 /**
- * 1–19: R$ 20/vaga · 20 vagas: R$ 300/mês · 50 vagas: R$ 500/mês
+ * 5 → R$ 100 · 20 → R$ 300 · 50 → R$ 600 · 100 → R$ 1.000 (/mês)
  */
 export const resolveMeiPricing = (meiSlots) => {
   if (!validateMeiSlots(meiSlots)) {
     return null;
   }
 
-  if (meiSlots >= 1 && meiSlots <= 19) {
-    return {
-      total: meiSlots * 20,
-      unit: 20,
-      tier: 'unit_1_19',
-    };
-  }
+  const pack = MEI_PUBLIC_PACKAGES.find((p) => p.meiSlots === meiSlots);
+  if (!pack) return null;
 
-  if (meiSlots === 20) {
-    return {
-      total: 300,
-      unit: 15,
-      tier: 'fixed_20',
-    };
-  }
-
-  if (meiSlots === 50) {
-    return {
-      total: 500,
-      unit: 10,
-      tier: 'fixed_50',
-    };
-  }
-
-  return null;
+  return {
+    total: pack.total,
+    unit: pack.unit,
+    tier: `fixed_${meiSlots}`,
+  };
 };
 
 export const MEI_PRICING_INVALID_MESSAGE =
-  'Pacote inválido: permitido 1 a 19 MEIs (R$ 20/vaga), pacote de 20 (R$ 300/mês) ou pacote de 50 (R$ 500/mês)';
+  'Pacote inválido: escolha 5 (R$ 100), 20 (R$ 300), 50 (R$ 600) ou 100 (R$ 1.000) CNPJs MEI /mês';

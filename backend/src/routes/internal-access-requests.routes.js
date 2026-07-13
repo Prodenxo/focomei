@@ -139,142 +139,17 @@ router.post('/manage', requireInternalSecret, async (req, res, next) => {
 // POST /api/internal/access-requests/submit
 router.post('/submit', requireInternalSecret, async (req, res, next) => {
   try {
-    const body = req.body ?? {};
-    const user = body.user ?? {};
-    const empresaInput = body.empresa ?? {};
-    const observacao = normalizeText(body.observacao);
-    const appOrigin = resolveAppOriginFromRequest(body, req.headers);
-    const originMeta = buildSignupOriginMetadata(appOrigin);
-
-    const email = normalizeText(user.email)?.toLowerCase();
-    const password = String(user.password || '').trim();
-    const fullName = normalizeText(user.fullName);
-    const phone = normalizeText(user.phone);
-
-    if (!email) return next(badRequest('E-mail é obrigatório.'));
-    if (!fullName) return next(badRequest('Nome completo é obrigatório.'));
-    if (password.length < 8) return next(badRequest('Senha deve ter pelo menos 8 caracteres.'));
-
-    const cnpj = String(empresaInput.cnpj || '').replace(/\D/g, '');
-    if (cnpj.length !== 14) return next(badRequest('CNPJ inválido (14 dígitos).'));
-
-    const razaoSocial = normalizeText(empresaInput.razaoSocial);
-    const nomeFantasia = normalizeText(empresaInput.nomeFantasia);
-    const empresaNome = razaoSocial || nomeFantasia;
-    if (!empresaNome) return next(badRequest('Informe razão social ou nome fantasia.'));
-
-    const sb = getServiceRoleClient();
-
-    // Verifica e-mail duplicado
-    const { data: listData, error: listErr } = await sb.auth.admin.listUsers({ page: 1, perPage: 200 });
-    if (listErr) return next(listErr);
-    const emailTaken = (listData?.users || []).some(
-      (u) => String(u.email || '').toLowerCase() === email,
-    );
-    if (emailTaken) return res.status(409).json({ error: 'Este e-mail já está cadastrado.' });
-
-    // Cria empresa com status pending
-    const { data: empresaRow, error: empresaErr } = await sb
-      .from('empresas')
-      .insert({
-        empresa: empresaNome,
-        cnpj,
-        razao_social: razaoSocial,
-        nome_fantasia: nomeFantasia,
-        cep: String(empresaInput.cep || '').replace(/\D/g, '') || null,
-        logradouro: normalizeText(empresaInput.logradouro),
-        numero: normalizeText(empresaInput.numero),
-        complemento: normalizeText(empresaInput.complemento),
-        bairro: normalizeText(empresaInput.bairro),
-        cidade: normalizeText(empresaInput.cidade),
-        estado: normalizeText(empresaInput.estado)?.toUpperCase()?.slice(0, 2) || null,
-        telefone: normalizeText(empresaInput.telefone),
-        email: normalizeText(empresaInput.email),
-        max_mei: 0,
-        status: 'pending',
-      })
-      .select('id')
-      .maybeSingle();
-
-    if (empresaErr || !empresaRow?.id) {
-      return next(empresaErr ?? new Error('Erro ao criar empresa.'));
-    }
-
-    // Cria usuário no auth
-    const { data: createdUser, error: createErr } = await sb.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: {
-        full_name: fullName,
-        display_name: fullName,
-        phone: phone || null,
-        access_request_observacao: observacao,
-        access_requested_at: new Date().toISOString(),
-        ...originMeta,
-      },
-    });
-
-    if (createErr || !createdUser?.user?.id) {
-      await sb.from('empresas').delete().eq('id', empresaRow.id);
-      return next(createErr ?? new Error('Erro ao criar usuário.'));
-    }
-
-    const userId = createdUser.user.id;
-
-    try {
-      // Vincula empresa ao usuário criador
-      await sb.from('empresas').update({ requested_by: userId }).eq('id', empresaRow.id);
-
-      // Cria perfil (sem status — o status vem do role_x_user_x_empresa)
-      await sb.from('profiles').upsert({ id: userId, role: 'usuario' });
-
-      // Busca roles_id para "User/usuario"
-      const { data: rows } = await sb.from('roles').select('id, roles');
-      const userRole = (rows || []).find((r) => {
-        const n = String(r.roles || '').trim().toLowerCase();
-        return n === 'user' || n === 'usuario';
-      });
-      if (!userRole?.id) throw new Error('Perfil de usuário não encontrado na base.');
-
-      // Cria vínculo com status=false (pendente de aprovação)
-      const { error: linkErr } = await sb.from('role_x_user_x_empresa').insert({
-        user_id: userId,
-        roles_id: userRole.id,
-        empresas_id: empresaRow.id,
-        status: false,
-        mei: false,
-      });
-      if (linkErr) throw new Error(linkErr.message);
-
-      if (phone) {
-        const cleaned = canonicalizeBrazilWhatsappPhone(phone);
-        if (cleaned) {
-          await sb
-            .from('n8n_link')
-            .upsert({ user_id: userId, user_number: cleaned }, { onConflict: 'user_id' });
-        }
-      }
-    } catch (err) {
-      // Rollback: remove tudo criado
-      await sb.from('role_x_user_x_empresa').delete().eq('user_id', userId).catch(() => {});
-      await sb.from('profiles').delete().eq('id', userId).catch(() => {});
-      await sb.from('empresas').delete().eq('id', empresaRow.id).catch(() => {});
-      await sb.auth.admin.deleteUser(userId).catch(() => {});
-      return next(err);
-    }
-
-    void notifySuperadminAccessRequestSubmitted(sb, {
-      fullName,
-      email,
-      phone: phone || null,
-      empresaNome,
-      cnpj,
-      observacao,
-    }).catch(() => {});
-
-    return res.json({ ok: true, userId });
+    const {
+      buildOriginMetaFromBody,
+      submitSelfServeEmpresaSignup,
+    } = await import('../services/self-serve-signup.service.js');
+    const originMeta = buildOriginMetaFromBody(req.body ?? {}, req.headers);
+    const result = await submitSelfServeEmpresaSignup(req.body ?? {}, originMeta);
+    return res.json(result);
   } catch (err) {
+    if (err?.status === 409) {
+      return res.status(409).json({ error: err.message });
+    }
     return next(err);
   }
 });

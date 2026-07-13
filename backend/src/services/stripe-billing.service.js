@@ -7,6 +7,7 @@ import { getRequesterContext } from "./users.service.js";
 import {
   resolveMeiPricing as resolveMeiPricingRaw,
   MEI_PRICING_INVALID_MESSAGE,
+  MEI_PUBLIC_PACKAGES,
 } from "./mei-billing-pricing.js";
 
 const ONLY_DIGITS = (s) => String(s || "").replace(/\D/g, "");
@@ -127,6 +128,36 @@ export const syncEmpresaMaxMeiFromLines = async (
 };
 
 /**
+ * Após pagamento: empresa active + admin criador com mei=true (libera o app).
+ */
+export const activateEmpresaMeiAccessAfterPayment = async (
+  adminClient,
+  empresaId,
+) => {
+  const id = String(empresaId || "").trim();
+  if (!id) return { activated: false };
+
+  await adminClient.from("empresas").update({ status: "active" }).eq("id", id);
+
+  const { data: empresa } = await adminClient
+    .from("empresas")
+    .select("requested_by")
+    .eq("id", id)
+    .maybeSingle();
+
+  const ownerId = String(empresa?.requested_by || "").trim();
+  if (ownerId) {
+    await adminClient
+      .from("role_x_user_x_empresa")
+      .update({ status: true, mei: true })
+      .eq("user_id", ownerId)
+      .eq("empresas_id", id);
+  }
+
+  return { activated: true, ownerId: ownerId || null };
+};
+
+/**
  * Superadmin: força `max_mei` = soma das linhas ativas (corrige histórico quando o sync estava desligado).
  */
 export const forceSyncEmpresaMaxMeiFromLines = async (
@@ -193,16 +224,23 @@ export const ensureEmpresaStripeCustomer = async (adminClient, empresa) => {
 /**
  * Cria Checkout Session (pagamento já) ou acrescenta item à assinatura existente (cobrança no próximo ciclo).
  * `billingTiming`: `checkout` (padrão) | `next_cycle` (próxima fatura, sem prorata).
- * Superadmin apenas.
+ * Superadmin (qualquer empresa) ou admin da própria empresa (self-serve).
  */
 export const createMeiStripeCheckoutSession = async (
   accessToken,
   input = {},
 ) => {
   const requester = await getRequesterContext(accessToken);
-  if (requester.role !== "superadmin") throw forbidden();
+  const isSuperadmin = requester.role === "superadmin";
+  const isAdmin = requester.role === "admin";
+  if (!isSuperadmin && !isAdmin) throw forbidden();
 
-  const empresaId = String(input.empresaId || "").trim();
+  let empresaId = String(input.empresaId || "").trim();
+  if (isAdmin) {
+    if (!requester.empresaId) throw forbidden("Empresa não vinculada ao usuário");
+    empresaId = String(requester.empresaId);
+  }
+
   const meiSlots = Number(input.meiSlots);
   const pricing = resolveMeiPricing(meiSlots);
   const providedValue = input.value === undefined ? null : Number(input.value);
@@ -224,6 +262,13 @@ export const createMeiStripeCheckoutSession = async (
   ) {
     throw badRequest(
       `value divergente: para ${meiSlots} MEIs o valor correto é ${pricing.total.toFixed(2)}`,
+    );
+  }
+
+  // Self-serve (admin): só checkout da 1ª assinatura — add-on next_cycle fica no painel superadmin.
+  if (isAdmin && !isSuperadmin && billingTiming !== "checkout") {
+    throw badRequest(
+      'Para contratar o plano, use o Checkout. Ampliação de vagas: fale com o suporte.',
     );
   }
 
@@ -315,6 +360,7 @@ export const createMeiStripeCheckoutSession = async (
     if (insErr) throw badRequest(insErr.message);
 
     await syncEmpresaMaxMeiFromLines(adminClient, empresaId, { force: true });
+    await activateEmpresaMeiAccessAfterPayment(adminClient, empresaId);
 
     return {
       line: row,
@@ -339,12 +385,16 @@ export const createMeiStripeCheckoutSession = async (
   const baseFrontend = String(
     env.FRONTEND_URL || "http://localhost:3000",
   ).replace(/\/$/, "");
+  const defaultSuccess = isAdmin && !isSuperadmin
+    ? `${baseFrontend}/planos?stripe_mei=success&session_id={CHECKOUT_SESSION_ID}`
+    : `${baseFrontend}/admin?stripe_mei=success&session_id={CHECKOUT_SESSION_ID}`;
+  const defaultCancel = isAdmin && !isSuperadmin
+    ? `${baseFrontend}/planos?stripe_mei=cancel`
+    : `${baseFrontend}/admin?stripe_mei=cancel`;
   const successUrl =
-    String(input.successUrl || "").trim() ||
-    `${baseFrontend}/admin?stripe_mei=success&session_id={CHECKOUT_SESSION_ID}`;
+    String(input.successUrl || "").trim() || defaultSuccess;
   const cancelUrl =
-    String(input.cancelUrl || "").trim() ||
-    `${baseFrontend}/admin?stripe_mei=cancel`;
+    String(input.cancelUrl || "").trim() || defaultCancel;
 
   if (!successUrl.includes("{CHECKOUT_SESSION_ID}")) {
     throw badRequest(
@@ -378,6 +428,7 @@ export const createMeiStripeCheckoutSession = async (
       empresa_id: empresaId,
       mei_slots: String(meiSlots),
       external_reference: externalReference,
+      self_serve: isAdmin && !isSuperadmin ? "1" : "0",
     },
     subscription_data: {
       metadata: {
@@ -418,9 +469,14 @@ export const listSubscriptionLinesForEmpresa = async (
   empresaId,
 ) => {
   const requester = await getRequesterContext(accessToken);
-  if (requester.role !== "superadmin") throw forbidden();
+  const isSuperadmin = requester.role === "superadmin";
+  const isAdmin = requester.role === "admin";
+  if (!isSuperadmin && !isAdmin) throw forbidden();
 
-  const id = String(empresaId || "").trim();
+  let id = String(empresaId || "").trim();
+  if (isAdmin && !isSuperadmin) {
+    id = String(requester.empresaId || "").trim();
+  }
   if (!id) throw badRequest("empresaId é obrigatório");
 
   const adminClient = createSupabaseClient({ useServiceRole: true });
@@ -432,6 +488,47 @@ export const listSubscriptionLinesForEmpresa = async (
 
   if (error) throw badRequest(error.message);
   return { lines: data || [] };
+};
+
+/** Status de cobrança da empresa do requester (gate /planos). */
+export const getMeiBillingStatusForRequester = async (accessToken) => {
+  const requester = await getRequesterContext(accessToken);
+  if (requester.role === "superadmin") {
+    return { required: false, maxMei: null, hasActiveSubscription: true };
+  }
+  if (requester.role !== "admin" || !requester.empresaId) {
+    return { required: false, maxMei: null, hasActiveSubscription: false };
+  }
+
+  const adminClient = createSupabaseClient({ useServiceRole: true });
+  const empresaId = String(requester.empresaId);
+
+  const { data: empresa, error } = await adminClient
+    .from("empresas")
+    .select("id, max_mei")
+    .eq("id", empresaId)
+    .maybeSingle();
+
+  if (error) throw badRequest(error.message);
+
+  const maxMei = Number(empresa?.max_mei || 0);
+  const { data: lines } = await adminClient
+    .from("empresa_mei_subscription_lines")
+    .select("id")
+    .eq("empresa_id", empresaId)
+    .eq("status", "active")
+    .limit(1);
+
+  const hasActiveSubscription = Array.isArray(lines) && lines.length > 0;
+  const required = maxMei <= 0 && !hasActiveSubscription;
+
+  return {
+    required,
+    maxMei,
+    hasActiveSubscription,
+    empresaId,
+    packages: MEI_PUBLIC_PACKAGES,
+  };
 };
 
 /**
@@ -481,6 +578,12 @@ export const finalizeMeiLineFromCheckoutSession = async (session) => {
   await syncEmpresaMaxMeiFromLines(adminClient, existing.empresa_id, {
     force: true,
   });
+  if (status === "active") {
+    await activateEmpresaMeiAccessAfterPayment(
+      adminClient,
+      existing.empresa_id,
+    );
+  }
   return { updated: true, empresaId: existing.empresa_id };
 };
 
@@ -516,6 +619,9 @@ export const touchSubscriptionLineByStripeSubscriptionId = async (
   if (upErr) throw badRequest(upErr.message);
 
   await syncEmpresaMaxMeiFromLines(adminClient, empresaId, { force: true });
+  if (String(patch?.status || "").toLowerCase() === "active") {
+    await activateEmpresaMeiAccessAfterPayment(adminClient, empresaId);
+  }
   return { updated: true, empresaId, rowsUpdated: ids.length };
 };
 

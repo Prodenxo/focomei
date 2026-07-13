@@ -8,7 +8,6 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase } from '../../lib/supabase';
 import { AuthLayoutWeb } from '../../components/auth/AuthLayoutWeb';
 import { AuthLayoutMobile } from '../../components/auth/AuthLayoutMobile';
 import { AuthSectionHeader } from '../../components/auth/AuthSectionHeader';
@@ -33,10 +32,13 @@ import {
   strongPasswordRequirementBullets,
 } from '../../lib/passwordPolicy';
 import { resolveAppOrigin } from '../../lib/appOrigin';
+import { useAuthStore } from '../../store/authStore';
 
 export type AccessRequestFormProps = {
   onGoToLogin: () => void;
   onDone: () => void;
+  /** Após cadastro + login, redireciona para planos (padrão). */
+  onRegistered?: () => void;
 };
 
 function maskCnpj(value: string): string {
@@ -56,9 +58,10 @@ function maskCnpj(value: string): string {
   return d;
 }
 
-export function AccessRequestForm({ onGoToLogin, onDone }: AccessRequestFormProps) {
+export function AccessRequestForm({ onGoToLogin, onDone, onRegistered }: AccessRequestFormProps) {
   const isDarkMode = useThemeStore((s) => s.isDarkMode);
   const palette = getAuthPalette(isDarkMode);
+  const signIn = useAuthStore((s) => s.signIn);
   const { width } = useWindowDimensions();
   const twoCol = width >= AUTH_FORM_TWO_COL_MIN_WIDTH;
   const stackInlineFields = width < 520;
@@ -175,8 +178,16 @@ export function AccessRequestForm({ onGoToLogin, onDone }: AccessRequestFormProp
 
     setLoading(true);
     try {
-      const { data, error: fnError } = await supabase.functions.invoke('submit-access-request', {
-        body: {
+      const { getMeiApiBaseUrl } = await import('../../lib/runtimeEnv');
+      const apiBase = getMeiApiBaseUrl().replace(/\/$/, '');
+      if (!apiBase) {
+        throw new Error('API não configurada. Defina EXPO_PUBLIC_MEI_API_URL_DEV=http://localhost:3333');
+      }
+
+      const res = await fetch(`${apiBase}/api/auth/register-empresa`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           user: {
             fullName: fullName.trim(),
             email: email.trim(),
@@ -199,28 +210,25 @@ export function AccessRequestForm({ onGoToLogin, onDone }: AccessRequestFormProp
           },
           observacao: null,
           appOrigin: resolveAppOrigin(),
-        },
+        }),
       });
 
-      if (fnError) {
-        let msg = 'Não foi possível enviar a solicitação. Tente novamente.';
-        try {
-          const ctx = (fnError as { context?: { json?: () => Promise<{ error?: string }> } })
-            ?.context;
-          if (ctx?.json) {
-            const b = await ctx.json();
-            if (typeof b?.error === 'string') msg = b.error;
-          }
-        } catch {
-          /* mantém mensagem padrão */
-        }
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg =
+          (typeof payload?.message === 'string' && payload.message) ||
+          (typeof payload?.error === 'string' && payload.error) ||
+          'Não foi possível concluir o cadastro. Tente novamente.';
         throw new Error(msg);
       }
-      if (data && typeof data.error === 'string') {
-        throw new Error(data.error);
-      }
 
-      setSubmitted(true);
+      // Entra na conta e segue para escolha do plano / Checkout.
+      await signIn(email.trim(), password);
+      if (onRegistered) {
+        onRegistered();
+      } else {
+        setSubmitted(true);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro inesperado. Tente novamente.');
     } finally {
@@ -233,12 +241,15 @@ export function AccessRequestForm({ onGoToLogin, onDone }: AccessRequestFormProp
       <View style={[styles.successIcon, { backgroundColor: palette.alertSuccessBg }]}>
         <Ionicons name="checkmark-circle" size={48} color={palette.alertSuccessText} />
       </View>
-      <Text style={[styles.successTitle, { color: palette.titleText }]}>Solicitação enviada!</Text>
+      <Text style={[styles.successTitle, { color: palette.titleText }]}>Cadastro concluído!</Text>
       <Text style={[styles.successText, { color: palette.subtitleText }]}>
-        Recebemos seus dados. A CF Contabilidade vai analisar a solicitação e liberar seu acesso.
-        Você poderá entrar no app assim que a aprovação for concluída.
+        Sua conta foi criada. Escolha um plano MEI para liberar o acesso ao sistema.
       </Text>
-      <AuthButton label="Voltar ao início" onPress={onDone} palette={palette} />
+      <AuthButton
+        label="Escolher plano"
+        onPress={() => (onRegistered ? onRegistered() : onDone())}
+        palette={palette}
+      />
     </View>
   );
 

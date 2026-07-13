@@ -2,7 +2,11 @@ import * as authService from '../services/auth.service.js';
 import * as rbacCatalogService from '../services/rbac-catalog.service.js';
 import { getRequesterContext } from '../services/users.service.js';
 import { resolveActorMembershipsForUser } from '../services/openclaw-bot.service.js';
-import { sendSuccess } from '../utils/response.js';
+import {
+  buildOriginMetaFromBody,
+  submitSelfServeEmpresaSignup,
+} from '../services/self-serve-signup.service.js';
+import { sendCreated, sendSuccess } from '../utils/response.js';
 import { badRequest } from '../utils/errors.js';
 
 export const signUp = async (req, res, next) => {
@@ -10,6 +14,25 @@ export const signUp = async (req, res, next) => {
     const result = await authService.signUp(req.body);
     return sendSuccess(res, result, 'Usuário registrado com sucesso');
   } catch (error) {
+    return next(error);
+  }
+};
+
+/** Cadastro self-serve: conta + empresa → depois /planos (Stripe). */
+export const registerEmpresa = async (req, res, next) => {
+  try {
+    const originMeta = buildOriginMetaFromBody(req.body ?? {}, req.headers);
+    const result = await submitSelfServeEmpresaSignup(req.body ?? {}, originMeta);
+    return sendCreated(res, result, 'Cadastro criado. Faça login e escolha um plano.');
+  } catch (error) {
+    if (error?.status === 409) {
+      return res.status(409).json({
+        success: false,
+        data: null,
+        message: error.message || 'Este e-mail já está cadastrado.',
+        errors: null,
+      });
+    }
     return next(error);
   }
 };

@@ -15,6 +15,7 @@ import openclawRoutes from './openclaw.routes.js';
 import zapiRoutes from './zapi.routes.js';
 import internalAccessRequestsRoutes from './internal-access-requests.routes.js';
 import moedasGlobaisRoutes from './moedas-globais.routes.js';
+import billingRoutes from './billing.routes.js';
 const router = Router();
 
 router.use('/auth', authRoutes);
@@ -23,6 +24,7 @@ router.use('/transactions', transactionsRoutes);
 router.use('/users', usersRoutes);
 router.use('/invites', empresaInvitesRoutes);
 router.use('/admin', adminRoutes);
+router.use('/billing', billingRoutes);
 router.use('/health', healthRoutes);
 router.use('/google-calendar', googleCalendarRoutes);
 router.use('/mei-guide', meiGuideRoutes);

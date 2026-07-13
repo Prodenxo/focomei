@@ -25,6 +25,7 @@ import {
 import { formatApiNetworkError } from '../lib/apiNetworkError';
 import { APP_BRAND_NAME } from '../lib/appBrand';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { CertificateIcon } from '../components/icons/CertificateIcon';
 import { presentDownloadedFile } from '../lib/platformDownload';
@@ -4581,22 +4582,43 @@ function MeiScreenContent() {
 
 /** Gate leve: sem permissão não monta o ecrã pesado (evita efeitos/rede — feedback QA M1). */
 export default function MeiScreen() {
-  const { role, mei } = useAuthStore();
+  const { role, mei, user } = useAuthStore();
   const { isDarkMode } = useThemeStore();
   const theme = useMemo(() => getTheme(isDarkMode), [isDarkMode]);
   const styles = useMemo(() => createStyles(theme), [theme]);
   const canAccessMei = useMemo(() => canAccessMeiArea(role, mei), [role, mei]);
+  const router = useRouter();
+  const sessionEmail = user?.email?.trim() || '';
 
   if (!canAccessMei) {
+    const needsPlan = role === 'admin' && mei !== true;
     return (
       <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
         <View style={styles.accessDeniedWrap}>
           <Ionicons name="lock-closed-outline" size={48} color={theme.tabInactive} />
-          <Text style={styles.accessDeniedTitle}>Área indisponível</Text>
-          <Text style={styles.accessDeniedText}>
-            O Meu MEI está disponível apenas para administradores ou utilizadores com MEI habilitado.
-            Fale com o suporte se precisar de acesso.
+          <Text style={styles.accessDeniedTitle}>
+            {needsPlan ? 'Escolha um plano MEI' : 'Área indisponível'}
           </Text>
+          <Text style={styles.accessDeniedText}>
+            {needsPlan
+              ? 'Sua conta está ativa, mas o Meu MEI só libera depois do pagamento do plano.'
+              : 'O Meu MEI está disponível apenas para administradores ou utilizadores com MEI habilitado. Fale com o suporte se precisar de acesso.'}
+          </Text>
+          {sessionEmail ? (
+            <Text style={[styles.accessDeniedText, { marginTop: 8 }]}>
+              Conta logada: {sessionEmail}
+            </Text>
+          ) : null}
+          {needsPlan ? (
+            <TouchableOpacity
+              style={[styles.downloadButton, { marginTop: 20, alignSelf: 'center' }]}
+              onPress={() => router.replace('/(app)/planos' as never)}
+              accessibilityRole="button"
+              accessibilityLabel="Ir para tabela de preços"
+            >
+              <Text style={styles.downloadButtonText}>Ver planos e pagar</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </SafeAreaView>
     );
