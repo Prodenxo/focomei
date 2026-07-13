@@ -1,10 +1,13 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   useWindowDimensions,
+  Pressable,
+  Animated,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -150,6 +153,47 @@ const mock = StyleSheet.create({
   waStatus: { color: C.secondary, fontSize: 10, fontWeight: '800' },
 });
 
+function useLandingCardHover() {
+  const [hovered, setHovered] = React.useState(false);
+  const lift = useRef(new Animated.Value(0)).current;
+  const iconPop = useRef(new Animated.Value(0)).current;
+
+  const animateHover = (next: boolean) => {
+    setHovered(next);
+    Animated.parallel([
+      Animated.spring(lift, {
+        toValue: next ? 1 : 0,
+        speed: 18,
+        bounciness: 8,
+        useNativeDriver: true,
+      }),
+      Animated.spring(iconPop, {
+        toValue: next ? 1 : 0,
+        speed: 22,
+        bounciness: 12,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  return {
+    hovered,
+    lift,
+    animateHover,
+    translateY: lift.interpolate({ inputRange: [0, 1], outputRange: [0, -14] }),
+    scale: lift.interpolate({ inputRange: [0, 1], outputRange: [1, 1.04] }),
+    iconScale: iconPop.interpolate({ inputRange: [0, 1], outputRange: [1, 1.2] }),
+    iconRotate: iconPop.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-10deg'] }),
+    webHoverProps:
+      Platform.OS === 'web'
+        ? {
+            onHoverIn: () => animateHover(true),
+            onHoverOut: () => animateHover(false),
+          }
+        : {},
+  };
+}
+
 function FeatureCard({
   icon,
   title,
@@ -159,36 +203,66 @@ function FeatureCard({
   title: string;
   desc: string;
 }) {
+  const {
+    hovered,
+    lift,
+    animateHover,
+    translateY,
+    scale,
+    iconScale,
+    iconRotate,
+    webHoverProps,
+  } = useLandingCardHover();
+
   return (
-    <View style={feat.card}>
-      <View style={feat.iconBox}>
-        <Ionicons name={icon} size={22} color={C.secondary} />
-      </View>
-      <Text style={feat.title}>{title}</Text>
-      <Text style={feat.desc}>{desc}</Text>
-    </View>
+    <Pressable
+      accessibilityRole="button"
+      onPressIn={() => animateHover(true)}
+      onPressOut={() => animateHover(false)}
+      style={Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : undefined}
+      {...webHoverProps}
+    >
+      <Animated.View
+        style={[
+          glow.card,
+          hovered ? glow.cardHovered : null,
+          { transform: [{ translateY }, { scale }] },
+        ]}
+      >
+        <Animated.View pointerEvents="none" style={[glow.hoverTint, { opacity: lift }]} />
+        <Animated.View
+          style={[
+            glow.iconBox,
+            hovered ? glow.iconBoxHovered : null,
+            { transform: [{ scale: iconScale }, { rotate: iconRotate }], marginBottom: 18 },
+          ]}
+        >
+          <Ionicons name={icon} size={22} color={C.secondary} />
+        </Animated.View>
+        <Text style={feat.title}>{title}</Text>
+        <Text style={feat.desc}>{desc}</Text>
+        <Animated.View
+          style={[
+            glow.accentBar,
+            {
+              opacity: lift,
+              transform: [
+                {
+                  scaleX: lift.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.15, 1],
+                  }),
+                },
+              ],
+            },
+          ]}
+        />
+      </Animated.View>
+    </Pressable>
   );
 }
 
 const feat = StyleSheet.create({
-  card: {
-    flex: 1,
-    minWidth: 240,
-    backgroundColor: C.white,
-    borderRadius: 16,
-    padding: 28,
-    borderWidth: 1,
-    borderColor: 'rgba(13,43,94,0.08)',
-  },
-  iconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 18,
-    backgroundColor: 'rgba(0,168,107,0.1)',
-  },
   title: { fontSize: 17, fontWeight: '800', color: C.primary, marginBottom: 8 },
   desc: { fontSize: 14, color: C.text, lineHeight: 22, fontWeight: '400' },
 });
@@ -204,27 +278,147 @@ function AudienceCard({
   tagline: string;
   desc: string;
 }) {
+  const {
+    hovered,
+    lift,
+    animateHover,
+    translateY,
+    scale,
+    iconScale,
+    iconRotate,
+    webHoverProps,
+  } = useLandingCardHover();
+
   return (
-    <View style={aud.card}>
-      <Ionicons name={icon} size={22} color={C.secondary} />
-      <Text style={aud.title}>{title}</Text>
-      <Text style={aud.tagline}>{tagline}</Text>
-      <Text style={aud.desc}>{desc}</Text>
-    </View>
+    <Pressable
+      accessibilityRole="button"
+      onPressIn={() => animateHover(true)}
+      onPressOut={() => animateHover(false)}
+      style={Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : undefined}
+      {...webHoverProps}
+    >
+      <Animated.View
+        style={[
+          glow.card,
+          hovered ? glow.cardHovered : null,
+          { transform: [{ translateY }, { scale }] },
+        ]}
+      >
+        <Animated.View pointerEvents="none" style={[glow.hoverTint, { opacity: lift }]} />
+        <Animated.View
+          style={[
+            glow.iconBox,
+            hovered ? glow.iconBoxHovered : null,
+            { transform: [{ scale: iconScale }, { rotate: iconRotate }] },
+          ]}
+        >
+          <Ionicons name={icon} size={22} color={C.secondary} />
+        </Animated.View>
+        <Text style={aud.title}>{title}</Text>
+        <Text style={aud.tagline}>{tagline}</Text>
+        <Text style={aud.desc}>{desc}</Text>
+        <Animated.View
+          style={[
+            glow.accentBar,
+            {
+              opacity: lift,
+              transform: [
+                {
+                  scaleX: lift.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.15, 1],
+                  }),
+                },
+              ],
+            },
+          ]}
+        />
+      </Animated.View>
+    </Pressable>
   );
 }
 
-const aud = StyleSheet.create({
+const glow = StyleSheet.create({
   card: {
     flex: 1,
-    minWidth: 260,
+    minWidth: 240,
     backgroundColor: C.white,
     borderRadius: 16,
     padding: 24,
+    paddingBottom: 28,
     borderWidth: 1,
     borderColor: 'rgba(13,43,94,0.08)',
     gap: 10,
+    position: 'relative',
+    ...(Platform.OS === 'web'
+      ? ({
+          boxShadow: '0 4px 18px rgba(13, 43, 94, 0.06)',
+          transitionProperty: 'box-shadow, border-color, background-color',
+          transitionDuration: '200ms',
+        } as object)
+      : {
+          shadowColor: C.primary,
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.06,
+          shadowRadius: 12,
+          elevation: 2,
+        }),
   },
+  cardHovered: {
+    borderColor: 'rgba(0,168,107,0.55)',
+    backgroundColor: '#FBFFFD',
+    ...(Platform.OS === 'web'
+      ? ({
+          boxShadow:
+            '0 28px 56px rgba(0, 168, 107, 0.22), 0 12px 28px rgba(13, 43, 94, 0.14)',
+        } as object)
+      : {
+          shadowColor: C.secondary,
+          shadowOffset: { width: 0, height: 16 },
+          shadowOpacity: 0.28,
+          shadowRadius: 24,
+          elevation: 12,
+        }),
+  },
+  hoverTint: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,168,107,0.05)',
+  },
+  iconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,168,107,0.1)',
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(0,168,107,0.12)',
+  },
+  iconBoxHovered: {
+    backgroundColor: 'rgba(0,168,107,0.18)',
+    borderColor: 'rgba(0,168,107,0.35)',
+    ...(Platform.OS === 'web'
+      ? ({
+          boxShadow: '0 8px 20px rgba(0, 168, 107, 0.25)',
+        } as object)
+      : {}),
+  },
+  accentBar: {
+    position: 'absolute',
+    left: 24,
+    right: 24,
+    bottom: 0,
+    height: 3,
+    borderTopLeftRadius: 2,
+    borderTopRightRadius: 2,
+    backgroundColor: C.secondary,
+    ...(Platform.OS === 'web' ? ({ transformOrigin: 'left center' } as object) : {}),
+  },
+});
+
+const aud = StyleSheet.create({
   title: { fontSize: 13, fontWeight: '800', color: C.secondary, letterSpacing: 0.5 },
   tagline: { fontSize: 16, fontWeight: '800', color: C.primary, lineHeight: 22 },
   desc: { fontSize: 14, color: C.text, lineHeight: 21, fontWeight: '400' },
@@ -296,7 +490,7 @@ export default function LandingPage() {
 
             <Reveal delay={420}>
               <Text style={s.heroBody}>
-                Automação de DAS e nota fiscal — inclusive por áudio no WhatsApp.
+                Automação de DAS e nota fiscal, inclusive por áudio no WhatsApp.
                 Receita recorrente, previsível e escalável para quem leva o MEI a sério.
               </Text>
             </Reveal>
@@ -355,7 +549,7 @@ export default function LandingPage() {
             </Text>
             <Text style={s.diffBody}>
               O MEI manda um áudio no WhatsApp. O sistema emite a nota.
-              Não existe nada igual no mercado hoje — foco, tecnologia e movimento
+              Não existe nada igual no mercado hoje: foco, tecnologia e movimento
               na prática do dia a dia.
             </Text>
           </Reveal>
@@ -382,7 +576,7 @@ export default function LandingPage() {
               {
                 icon: 'logo-whatsapp' as const,
                 title: 'NFSe por WhatsApp',
-                desc: 'Emissão por áudio — o diferencial que nenhuma outra plataforma oferece.',
+                desc: 'Emissão por áudio, o diferencial que nenhuma outra plataforma oferece.',
               },
               {
                 icon: 'receipt-outline' as const,
