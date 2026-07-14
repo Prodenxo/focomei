@@ -215,50 +215,67 @@ const tryAutoUploadStoredCertToPlugnotas = async (userId, cnpj14) => {
   }
 };
 
+/**
+ * Injeta `payload.certificado` a partir do espelho local / PlugNotas / reenvio do .pfx.
+ * Usado no POST e no PATCH — o frontend não precisa (nem deve) mandar o ID.
+ */
+const injectCertificadoIdIntoEmpresaPayload = async (userId, payload) => {
+  const diagnostics = { local: null, resolve: null, autoUpload: null };
+  const existing = String(payload?.certificado || '').trim();
+  if (existing) {
+    payload.certificado = existing;
+    return { certId: existing, diagnostics };
+  }
+  if (!userId) {
+    delete payload.certificado;
+    return { certId: null, diagnostics };
+  }
+
+  let certId = await getPlugNotasCertId(userId);
+  diagnostics.local = certId ? 'found' : 'not_found';
+  const cnpj = String(payload.cpfCnpj || payload.cnpj || '').replace(/\D/g, '');
+
+  if (!certId && cnpj.length === 14) {
+    try {
+      certId = await resolverCertificadoIdPorCnpj(cnpj);
+      diagnostics.resolve = certId ? 'found' : 'not_found_in_plugnotas';
+    } catch (resolveErr) {
+      const msg = resolveErr instanceof Error ? resolveErr.message : String(resolveErr);
+      diagnostics.resolve = `error: ${msg}`;
+      console.warn('[empresa] Falha ao recuperar cert_id por CNPJ', {
+        userId,
+        cnpj14: cnpj,
+        error: msg,
+      });
+    }
+  }
+
+  if (!certId && cnpj.length === 14) {
+    const autoResult = await tryAutoUploadStoredCertToPlugnotas(userId, cnpj);
+    certId = autoResult.certId;
+    diagnostics.autoUpload = certId ? 'success' : autoResult.error;
+  }
+
+  if (certId) {
+    savePlugNotasCertId(userId, certId).catch(() => {});
+    payload.certificado = certId;
+  } else {
+    delete payload.certificado;
+  }
+  return { certId: certId || null, diagnostics };
+};
+
 export const cadastrarPlugNotasEmpresa = async (req, res, next) => {
   try {
     const payload = getEmpresaPayloadFromRequest(req);
-    const diagnostics = { local: null, resolve: null, autoUpload: null };
-
-    if (!payload.certificado && req.user?.id) {
-      let certId = await getPlugNotasCertId(req.user.id);
-      diagnostics.local = certId ? 'found' : 'not_found';
-      const cnpj = String(payload.cpfCnpj || payload.cnpj || '').replace(/\D/g, '');
-
-      if (!certId && cnpj.length === 14) {
-        try {
-          certId = await resolverCertificadoIdPorCnpj(cnpj);
-          diagnostics.resolve = certId ? 'found' : 'not_found_in_plugnotas';
-        } catch (resolveErr) {
-          const msg = resolveErr instanceof Error ? resolveErr.message : String(resolveErr);
-          diagnostics.resolve = `error: ${msg}`;
-          console.warn('[cadastrarPlugNotasEmpresa] Falha ao recuperar cert_id por CNPJ', {
-            userId: req.user.id,
-            cnpj14: cnpj,
-            error: msg
-          });
-        }
-      }
-
-      if (!certId && cnpj.length === 14) {
-        const autoResult = await tryAutoUploadStoredCertToPlugnotas(req.user.id, cnpj);
-        certId = autoResult.certId;
-        diagnostics.autoUpload = certId ? 'success' : autoResult.error;
-      }
-
-      if (certId) {
-        savePlugNotasCertId(req.user.id, certId).catch(() => {});
-        payload.certificado = certId;
-      } else {
-        // Anexa diagnóstico para próximo handler de erro propagar
-        req._certResolutionDiagnostics = diagnostics;
-      }
+    const { certId, diagnostics } = await injectCertificadoIdIntoEmpresaPayload(req.user?.id, payload);
+    if (!certId) {
+      req._certResolutionDiagnostics = diagnostics;
     }
     const data = await cadastrarEmpresaPlugNotas(payload);
     await persistDocumentosAtivosMirrorAfterEmpresa(req.user?.id, payload);
     return sendSuccess(res, data, 'Empresa configurada no serviço de emissão fiscal');
   } catch (error) {
-    // Se for o erro de certificado_nao_configurado, anexar diagnóstico ao errors
     if (error?.errors?.plugnotasCode === 'certificado_nao_configurado' && req._certResolutionDiagnostics) {
       error.errors = { ...error.errors, certResolution: req._certResolutionDiagnostics };
     }
@@ -335,10 +352,21 @@ export const lookupCep = async (req, res, next) => {
 export const atualizarPlugNotasEmpresa = async (req, res, next) => {
   try {
     const payload = getEmpresaPayloadFromRequest(req);
+    const { certId, diagnostics } = await injectCertificadoIdIntoEmpresaPayload(req.user?.id, payload);
+    if (!certId) {
+      req._certResolutionDiagnostics = diagnostics;
+      throw badRequest(
+        'Certificado digital não localizado no emissor. Reenvie o arquivo .pfx em Certificado e tente salvar de novo.',
+        { plugnotasCode: 'certificado_nao_configurado', certResolution: diagnostics },
+      );
+    }
     const data = await atualizarEmpresaPlugNotas(payload);
     await persistDocumentosAtivosMirrorAfterEmpresa(req.user?.id, payload);
     return sendSuccess(res, data, 'Empresa atualizada no serviço de emissão fiscal');
   } catch (error) {
+    if (error?.errors?.plugnotasCode === 'certificado_nao_configurado' && req._certResolutionDiagnostics) {
+      error.errors = { ...error.errors, certResolution: req._certResolutionDiagnostics };
+    }
     return next(error);
   }
 };
@@ -380,6 +408,17 @@ export const listarCatalogoCodigosServicos = async (req, res, next) => {
     const limit = parseCatalogLimit(req.query?.limit);
     const data = await meiNotasService.listarCodigosServicosReferencia({ q, limit });
     return sendSuccess(res, data, 'Códigos de serviço de referência listados');
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const sugerirCatalogoCodigosServicos = async (req, res, next) => {
+  try {
+    const texto = String(req.query?.texto || req.query?.q || '').trim();
+    const limit = parseCatalogLimit(req.query?.limit);
+    const data = await meiNotasService.sugerirCodigosServicosPorTexto({ texto, limit });
+    return sendSuccess(res, data, 'Sugestões de códigos de serviço');
   } catch (error) {
     return next(error);
   }
@@ -433,6 +472,15 @@ export const criarCatalogoProduto = async (req, res, next) => {
   try {
     const data = await meiNotasService.criarCatalogoProduto(req.user.id, req.body);
     return sendCreated(res, data, 'Item do catálogo registado');
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const criarCatalogoProdutosFromCnaes = async (req, res, next) => {
+  try {
+    const data = await meiNotasService.criarCatalogoProdutosFromCnaes(req.user.id, req.body);
+    return sendCreated(res, data, 'CNAEs importados para o catálogo de serviços');
   } catch (error) {
     return next(error);
   }

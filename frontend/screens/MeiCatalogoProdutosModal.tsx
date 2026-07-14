@@ -385,14 +385,28 @@ export default function MeiCatalogoProdutosModal ({
             ListEmptyComponent={
               <Text style={flow.empty}>{emptyListMessage}</Text>
             }
-            renderItem={({ item }) => (
-              <MeiCatalogListCard
-                title={buildProdutoCatalogLabel(item)}
-                meta={catalogDocTypeLabel(item.document_type)}
-                onEdit={() => openEdit(item)}
-                onDelete={() => requestDelete(item)}
-              />
-            )}
+            renderItem={({ item }) => {
+              const needsCodigo = Boolean(
+                item.metadata_json
+                && typeof item.metadata_json === 'object'
+                && (item.metadata_json as { needsServicoCodigo?: boolean }).needsServicoCodigo,
+              )
+              const missingCodigo = !String(item.codigo || '').trim()
+              const tipo = catalogDocTypeLabel(item.document_type)
+              const metaBits = [
+                tipo,
+                item.cnae ? `CNAE ${item.cnae}` : null,
+                needsCodigo || missingCodigo ? 'Completar código LC 116' : null,
+              ].filter(Boolean)
+              return (
+                <MeiCatalogListCard
+                  title={buildProdutoCatalogLabel(item)}
+                  meta={metaBits.join(' · ') || undefined}
+                  onEdit={() => openEdit(item)}
+                  onDelete={() => requestDelete(item)}
+                />
+              )
+            }}
           />
         )}
 

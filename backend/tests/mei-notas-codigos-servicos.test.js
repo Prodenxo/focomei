@@ -111,3 +111,11 @@ test('listarCodigosServicosReferencia — limit 50 (teto parseCatalogLimit)', as
   assert.equal(capture.limit, 50);
   assert.equal(data.length, 50);
 });
+
+test('extractCodigosServicoSearchTokens — remove stopwords e acentos', async () => {
+  const mod = await import('../src/services/mei-notas.service.js');
+  const tokens = mod.extractCodigosServicoSearchTokens(
+    'Desenvolvimento e licenciamento de programas de computador',
+  );
+  assert.deepEqual(tokens, ['desenvolvimento', 'licenciamento', 'programas', 'computador']);
+});

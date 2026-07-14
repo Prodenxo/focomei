@@ -428,6 +428,11 @@ export interface CnpjLookupCnae {
   descricao: string | null;
 }
 
+/** Item unificado (principal + secundários) do lookup CNPJ. */
+export interface CnpjLookupCnaeItem extends CnpjLookupCnae {
+  principal?: boolean;
+}
+
 export interface CnpjLookupData {
   cpfCnpj: string;
   razaoSocial: string | null;
@@ -443,6 +448,9 @@ export interface CnpjLookupData {
   opcaoSimples: boolean | null;
   opcaoMei: boolean | null;
   cnaePrincipal: CnpjLookupCnae | null;
+  cnaesSecundarios?: CnpjLookupCnae[];
+  /** Lista unificada: principal primeiro, depois secundários. */
+  cnaes?: CnpjLookupCnaeItem[];
   raw?: Record<string, unknown>;
 }
 
@@ -623,6 +631,78 @@ export async function criarCatalogoNfseProduto(
   input: CriarCatalogoNfseProdutoInput
 ): Promise<NfseCatalogProduto> {
   return await apiClient.post<NfseCatalogProduto>('/mei-notas/catalogo/produtos', input);
+}
+
+export interface CriarCatalogoFromCnaesInput {
+  documentType?: DocumentType;
+  items: Array<{
+    /** CNAE (7 dígitos) */
+    codigo: string;
+    descricao?: string | null;
+    principal?: boolean;
+    /** Código LC 116 / lista nacional (opcional) */
+    codigoServico?: string | null;
+  }>;
+}
+
+export interface CriarCatalogoFromCnaesResult {
+  created: NfseCatalogProduto[];
+  skipped: Array<{
+    codigo: string;
+    reason: string;
+    existingId?: string;
+    discriminacao?: string;
+  }>;
+  documentType: string;
+}
+
+/** Importa CNAEs da Receita como rascunhos de serviço (`POST /catalogo/produtos/from-cnaes`). */
+export async function criarCatalogoProdutosFromCnaes (
+  input: CriarCatalogoFromCnaesInput
+): Promise<CriarCatalogoFromCnaesResult> {
+  return await apiClient.post<CriarCatalogoFromCnaesResult>(
+    '/mei-notas/catalogo/produtos/from-cnaes',
+    input
+  );
+}
+
+export interface CodigoServicoReferencia {
+  codigo: string;
+  descricao?: string | null;
+  codigoNbs?: string | null;
+}
+
+/** Lista códigos LC 116 / referência (`GET /catalogo/codigos-servicos`). */
+export async function listarCatalogoCodigosServicos (options: {
+  q?: string
+  limit?: number
+} = {}): Promise<CodigoServicoReferencia[]> {
+  const query = new URLSearchParams({
+    ...(options.q ? { q: options.q } : {}),
+    ...(typeof options.limit === 'number' && Number.isFinite(options.limit)
+      ? { limit: String(Math.trunc(options.limit)) }
+      : {}),
+  });
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return await apiClient.get<CodigoServicoReferencia[]>(
+    `/mei-notas/catalogo/codigos-servicos${suffix}`
+  );
+}
+
+/** Sugestões a partir do texto do CNAE (`GET /catalogo/codigos-servicos/sugerir`). */
+export async function sugerirCatalogoCodigosServicos (options: {
+  texto: string
+  limit?: number
+}): Promise<CodigoServicoReferencia[]> {
+  const query = new URLSearchParams({
+    texto: String(options.texto || '').trim(),
+    ...(typeof options.limit === 'number' && Number.isFinite(options.limit)
+      ? { limit: String(Math.trunc(options.limit)) }
+      : { limit: '8' }),
+  });
+  return await apiClient.get<CodigoServicoReferencia[]>(
+    `/mei-notas/catalogo/codigos-servicos/sugerir?${query.toString()}`
+  );
 }
 
 /** Atualiza item (`PATCH /mei-notas/catalogo/produtos/:id`). */

@@ -17,7 +17,6 @@ import {
   FlatList,
   useWindowDimensions,
 } from 'react-native';
-import { ToggleSwitch } from '../components/ToggleSwitch';
 import { useAppToastStore } from '../store/appToastStore';
 import {
   getMeiCertificateUploadToast,
@@ -81,6 +80,7 @@ import {
   type EmitirNfseInput,
   type NfseCatalogCliente,
   type NfseCatalogProduto,
+  type CnpjLookupCnaeItem,
 } from '../services/meiNotasService';
 import {
   getNfseStatusKey,
@@ -103,7 +103,6 @@ import {
 } from '../lib/meiOverviewCache';
 import {
   getDefaultPlugNotasCompanyForm,
-  PLUGNOTAS_REGIME_TRIBUTARIO_MEI_LABEL,
   getPlugNotasCompanyValidationMessage,
   buildPlugNotasEmpresaPayload,
   empresaFiscalToCompanyForm,
@@ -143,6 +142,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { canAccessMeiArea } from '../lib/meiAccess';
 import MeiCatalogoClientesModal from './MeiCatalogoClientesModal';
 import MeiCatalogoProdutosModal from './MeiCatalogoProdutosModal';
+import MeiImportCnaesModal from './MeiImportCnaesModal';
 import { mapCatalogProdutoToNfeItem } from '../lib/mapCatalogProdutoToNfeItem';
 import { isCatalogProdutoUsableForNfeLike } from '../lib/nfeCatalogProdutoMetadata';
 import {
@@ -515,6 +515,9 @@ function MeiScreenContent() {
   const [cnpjLookupLoading, setCnpjLookupLoading] = useState(false);
   const [cnpjLookupError, setCnpjLookupError] = useState<string | null>(null);
   const [showPlugNotasEmpresaForm, setShowPlugNotasEmpresaForm] = useState(false);
+  const [importCnaesVisible, setImportCnaesVisible] = useState(false);
+  const [pendingImportCnaes, setPendingImportCnaes] = useState<CnpjLookupCnaeItem[]>([]);
+  const offerCnaeImportRef = useRef(false);
   const [isEditingEmpresa, setIsEditingEmpresa] = useState(false);
 
   // Emitir nota
@@ -1747,6 +1750,7 @@ function MeiScreenContent() {
         setShowPlugNotasEmpresaForm(true);
         setPlugNotasCnpj(certCnpjMasked);
         lastLookupCnpjRef.current = '';
+        offerCnaeImportRef.current = true;
         handleCnpjLookup(certCnpjMasked);
       }
 
@@ -2008,6 +2012,44 @@ function MeiScreenContent() {
   // Auto-fill via BrasilAPI quando o CNPJ atinge 14 dígitos
   const cnpjLookupAbortRef = useRef<AbortController | null>(null);
   const lastLookupCnpjRef = useRef<string>('');
+
+  const buildCnaesFromLookup = useCallback((data: {
+    cnaes?: CnpjLookupCnaeItem[]
+    cnaePrincipal?: { codigo: string; descricao: string | null } | null
+    cnaesSecundarios?: Array<{ codigo: string; descricao: string | null }>
+  }): CnpjLookupCnaeItem[] => {
+    if (Array.isArray(data.cnaes) && data.cnaes.length > 0) return data.cnaes
+    return [
+      ...(data.cnaePrincipal?.codigo
+        ? [{ ...data.cnaePrincipal, principal: true as const }]
+        : []),
+      ...((data.cnaesSecundarios || []).map((c) => ({ ...c, principal: false as const }))),
+    ].filter((c) => c.codigo)
+  }, [])
+
+  const openImportCnaesFromEmpresa = useCallback(async () => {
+    const digits = normalizeDoc(certDocumento || plugNotasCnpj || '')
+    if (digits.length !== 14) {
+      showToast('CNPJ do certificado não encontrado. Confirme o cadastro da empresa.', 'error')
+      return
+    }
+    setCnpjLookupLoading(true)
+    try {
+      const data = await lookupCnpj(digits)
+      const unified = buildCnaesFromLookup(data)
+      if (unified.length === 0) {
+        showToast('Nenhum CNAE encontrado para este CNPJ na Receita.', 'info')
+        return
+      }
+      setPendingImportCnaes(unified)
+      setImportCnaesVisible(true)
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Falha ao consultar CNAEs do CNPJ.', 'error')
+    } finally {
+      setCnpjLookupLoading(false)
+    }
+  }, [buildCnaesFromLookup, certDocumento, plugNotasCnpj, showToast])
+
   const handleCnpjLookup = useCallback(async (cnpjMasked: string) => {
     const digits = normalizeDoc(cnpjMasked);
     if (digits.length !== 14 || lastLookupCnpjRef.current === digits) return;
@@ -2038,13 +2080,27 @@ function MeiScreenContent() {
         descricaoCidade: data.endereco?.descricaoCidade || prev.descricaoCidade,
         estado: data.endereco?.estado || prev.estado,
       }));
+
+      if (offerCnaeImportRef.current) {
+        offerCnaeImportRef.current = false;
+        const unified = buildCnaesFromLookup(data)
+        if (unified.length > 0) {
+          setPendingImportCnaes(unified);
+          setImportCnaesVisible(true);
+        } else {
+          showToast('Certificado ok, mas a Receita não retornou CNAEs agora. Use “Importar CNAEs / serviços”.', 'info')
+        }
+      }
     } catch (err: any) {
       if (controller.signal.aborted) return;
       setCnpjLookupError(err?.message || 'Falha ao consultar CNPJ');
+      if (offerCnaeImportRef.current) {
+        offerCnaeImportRef.current = false;
+      }
     } finally {
       if (!controller.signal.aborted) setCnpjLookupLoading(false);
     }
-  }, []);
+  }, [buildCnaesFromLookup, showToast]);
 
   const loadCatalogClientes = useCallback(async () => {
     setCatalogLoading(true);
@@ -2401,7 +2457,14 @@ function MeiScreenContent() {
       showToast('Informe um CNPJ válido com 14 dígitos.', 'error');
       return;
     }
-    const msg = getPlugNotasCompanyValidationMessage(plugNotasCompanyForm);
+    // Tipos vêm do espelho admin — o cliente não escolhe o que pode emitir.
+    const formForSave = {
+      ...plugNotasCompanyForm,
+      nfseAtivo: Boolean(documentosPermitidos.nfse) || (!documentosPermitidos.nfe && !documentosPermitidos.nfce),
+      nfeAtivo: Boolean(documentosPermitidos.nfe),
+      nfceAtivo: false,
+    };
+    const msg = getPlugNotasCompanyValidationMessage(formForSave);
     if (msg) {
       showToast(msg, 'error');
       return;
@@ -2411,7 +2474,7 @@ function MeiScreenContent() {
       const payload = buildPlugNotasEmpresaPayload({
         cnpj: cnpjNorm,
         certificadoId: '',
-        form: plugNotasCompanyForm,
+        form: formForSave,
       });
 
       let empresaJaCadastrada = Boolean(empresaFiscal?.cpfCnpj);
@@ -3378,6 +3441,7 @@ function MeiScreenContent() {
             {meiCertificateLoading ? (
               <ActivityIndicator size="small" color={theme.primary} />
             ) : hasUserCertificate ? (
+              <>
               <View style={styles.configCertActive}>
                 <View style={styles.configCertActiveLeft}>
                   <Ionicons name="checkmark-circle" size={20} color={theme.success} />
@@ -3389,6 +3453,23 @@ function MeiScreenContent() {
                     : <Ionicons name="trash-outline" size={20} color={theme.error} />}
                 </TouchableOpacity>
               </View>
+              <TouchableOpacity
+                style={[styles.downloadButton, { marginTop: 12 }, cnpjLookupLoading && { opacity: 0.6 }]}
+                onPress={() => void openImportCnaesFromEmpresa()}
+                disabled={cnpjLookupLoading}
+                accessibilityRole="button"
+                accessibilityLabel="Importar CNAEs para o catálogo de serviços"
+              >
+                {cnpjLookupLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.downloadButtonText}>Importar CNAEs / serviços</Text>
+                )}
+              </TouchableOpacity>
+              <Text style={[styles.sectionDescription, { marginTop: 8 }]}>
+                Busca as atividades do CNPJ na Receita e adiciona no catálogo (código LC 116 você completa depois).
+              </Text>
+              </>
             ) : (
               <>
                 <Text style={styles.sectionDescription}>Envie o certificado A1 (PFX) para gerar guias DAS e emitir notas.</Text>
@@ -3694,80 +3775,6 @@ function MeiScreenContent() {
                       Obrigatória para NF-e de produtos. Use ISENTO se não tiver inscrição estadual.
                     </Text>
                   </View>
-                ) : null}
-
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Regime tributário {requiredMark}</Text>
-                  <View
-                    style={[
-                      styles.typeButton,
-                      { backgroundColor: theme.primary, borderColor: theme.primary, alignSelf: 'flex-start' },
-                    ]}
-                  >
-                    <Text style={[styles.typeButtonText, { color: '#FFF' }]}>{PLUGNOTAS_REGIME_TRIBUTARIO_MEI_LABEL}</Text>
-                  </View>
-                </View>
-
-                {/* Tipos de nota fiscal — só exibe o que o admin liberou */}
-                {(documentosPermitidos.nfse || documentosPermitidos.nfe || documentosPermitidos.nfce) ? (
-                <View style={[styles.inputGroup, { borderWidth: 1, borderColor: theme.border, borderRadius: 8, padding: 12 }]}>
-                  <Text style={[styles.label, { marginBottom: 8 }]}>Tipos de nota fiscal que deseja emitir</Text>
-                  {documentosPermitidos.nfse ? (
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6 }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 14, color: theme.text, fontWeight: '500' }}>NFS-e</Text>
-                      <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 2 }}>Nota fiscal de serviço (padrão MEI)</Text>
-                    </View>
-                    <ToggleSwitch
-                      value={plugNotasCompanyForm.nfseAtivo}
-                      onValueChange={(v) => updatePlugNotasCompanyForm({ nfseAtivo: v })}
-                      activeColor={theme.primary}
-                    />
-                  </View>
-                  ) : null}
-                  {documentosPermitidos.nfse && (documentosPermitidos.nfe || documentosPermitidos.nfce) ? (
-                  <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 4 }} />
-                  ) : null}
-                  {documentosPermitidos.nfe ? (
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6 }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 14, color: theme.text, fontWeight: '500' }}>NF-e</Text>
-                      <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 2 }}>Nota fiscal eletrônica (venda de mercadorias)</Text>
-                    </View>
-                    <ToggleSwitch
-                      value={plugNotasCompanyForm.nfeAtivo}
-                      onValueChange={(v) => updatePlugNotasCompanyForm({ nfeAtivo: v })}
-                      activeColor={theme.primary}
-                    />
-                  </View>
-                  ) : null}
-                  {documentosPermitidos.nfe && documentosPermitidos.nfce ? (
-                  <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 4 }} />
-                  ) : null}
-                  {documentosPermitidos.nfce ? (
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6 }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 14, color: theme.text, fontWeight: '500' }}>NFC-e</Text>
-                      <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 2 }}>Nota fiscal ao consumidor (varejo)</Text>
-                    </View>
-                    <ToggleSwitch
-                      value={plugNotasCompanyForm.nfceAtivo}
-                      onValueChange={(v) => updatePlugNotasCompanyForm({ nfceAtivo: v })}
-                      activeColor={theme.primary}
-                    />
-                  </View>
-                  ) : null}
-                  {documentosPermitidos.nfce && plugNotasCompanyForm.nfceAtivo ? (
-                    <Text style={{ fontSize: 11, color: theme.warning ?? '#D97706', marginTop: 8, lineHeight: 16 }}>
-                      NFC-e exige CSC da SEFAZ. Neste app ainda não há campo para isso — desative NFC-e para salvar NF-e.
-                    </Text>
-                  ) : null}
-                  {documentosPermitidos.nfe && plugNotasCompanyForm.nfeAtivo && !plugNotasCompanyForm.nfceAtivo ? (
-                    <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 8, lineHeight: 16 }}>
-                      Com NF-e ligada e NFC-e desligada, o cadastro deve salvar e o badge NFe aparece no cartão.
-                    </Text>
-                  ) : null}
-                </View>
                 ) : null}
 
                 <TouchableOpacity
@@ -4631,6 +4638,18 @@ function MeiScreenContent() {
         onClose={() => setCatalogProdutosManageVisible(false)}
         onCatalogChanged={loadCatalogProdutos}
         allowedDocumentTypes={emitDocTypesAllowed}
+      />
+
+      <MeiImportCnaesModal
+        visible={importCnaesVisible}
+        cnaes={pendingImportCnaes}
+        onClose={() => {
+          setImportCnaesVisible(false);
+          setPendingImportCnaes([]);
+        }}
+        onImported={() => {
+          void loadCatalogProdutos();
+        }}
       />
 
       <MeiFlowModalShell

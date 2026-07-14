@@ -200,7 +200,6 @@ export function buildPlugNotasEmpresaPayload({
 
   const payload: Record<string, unknown> = {
     cpfCnpj: cnpj,
-    certificado: certificadoId,
     razaoSocial: form.razaoSocial.trim(),
     nomeFantasia: form.nomeFantasia.trim() || form.razaoSocial.trim(),
     regimeTributario: Number(form.regimeTributario || '1'),
@@ -237,7 +236,7 @@ export function buildPlugNotasEmpresaPayload({
       tipoContrato: 0,
       config: { producao: true, serie: 1, numero: 1 },
     },
-    /** O backend só aplica toggles NF-e/NFC-e no PATCH quando esta chave está presente. */
+    /** Espelha permissões já definidas (admin); o utilizador não altera isto na UI. */
     documentosAtivos: {
       nfse: Boolean(form.nfseAtivo),
       nfe: Boolean(form.nfeAtivo),
@@ -253,6 +252,10 @@ export function buildPlugNotasEmpresaPayload({
       ],
     },
   };
+  const certId = String(certificadoId || '').trim();
+  if (certId) {
+    payload.certificado = certId;
+  }
   if (email) payload.email = email;
   if (im) payload.inscricaoMunicipal = im;
   if (ie) payload.inscricaoEstadual = ie;

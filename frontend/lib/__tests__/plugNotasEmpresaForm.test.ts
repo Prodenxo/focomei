@@ -26,6 +26,7 @@ describe('buildPlugNotasEmpresaPayload', () => {
       form,
     });
     expect(payload.documentosAtivos).toEqual({ nfse: true, nfe: true, nfce: false });
+    expect(payload.certificado).toBeUndefined();
     expect((payload.nfe as { ativo: boolean }).ativo).toBe(true);
     expect(payload.rps).toEqual({ lote: 1, numeracao: [{ numero: 1, serie: '1' }] });
     expect((payload.nfse as { config: Record<string, unknown> }).config.nfseNacional).toBe(true);

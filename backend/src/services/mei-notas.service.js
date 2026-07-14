@@ -2252,6 +2252,85 @@ export const listarCodigosServicosReferencia = async ({ q = '', limit = 20 } = {
   return enrichCodigosServicosComNbs(data || []);
 };
 
+const CODALOGO_SERVICO_STOPWORDS = new Set([
+  'de', 'da', 'do', 'das', 'dos', 'e', 'ou', 'a', 'o', 'as', 'os', 'em', 'na', 'no', 'nas', 'nos',
+  'para', 'por', 'com', 'sem', 'ao', 'aos', 'um', 'uma', 'uns', 'umas', 'que', 'seu', 'sua',
+  'seus', 'suas', 'atividade', 'atividades', 'servico', 'servicos', 'serviço', 'serviços',
+  'outros', 'outras', 'nao', 'não', 'especificados', 'especificadas', 'inclusive',
+]);
+
+/**
+ * Extrai tokens úteis da descrição do CNAE para buscar na LC 116.
+ * @param {unknown} text
+ * @param {{ max?: number }} [opts]
+ * @returns {string[]}
+ */
+export const extractCodigosServicoSearchTokens = (text, { max = 4 } = {}) => {
+  const raw = normalizeText(text)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const words = raw.split(/[^a-z0-9]+/).filter((w) => (
+    w.length >= 4 && !CODALOGO_SERVICO_STOPWORDS.has(w)
+  ));
+  const unique = [];
+  for (const w of words) {
+    if (!unique.includes(w)) unique.push(w);
+    if (unique.length >= max) break;
+  }
+  return unique;
+};
+
+/**
+ * Sugere códigos LC 116 / lista nacional a partir do texto do CNAE (não é mapa oficial).
+ * @param {{ texto?: string, limit?: number }} [opts]
+ */
+export const sugerirCodigosServicosPorTexto = async ({ texto = '', limit = 8 } = {}) => {
+  const safeLimit = toCatalogLimit(limit, { defaultValue: 8, max: 20 });
+  const tokens = extractCodigosServicoSearchTokens(texto);
+  if (tokens.length === 0) {
+    return listarCodigosServicosReferencia({ q: String(texto || '').trim().slice(0, 40), limit: safeLimit });
+  }
+
+  const dbClient = getDb();
+  const likeFilters = tokens.flatMap((token) => {
+    const safe = sanitizeSearchTerm(token);
+    if (!safe) return [];
+    const like = `%${safe}%`;
+    return [`descricao.ilike.${like}`, `codigo.ilike.${like}`];
+  });
+  if (likeFilters.length === 0) {
+    return listarCodigosServicosReferencia({ q: '', limit: safeLimit });
+  }
+
+  const { data, error } = await dbClient
+    .from(CODIGOS_SERVICOS_TABLE)
+    .select('codigo, descricao')
+    .or(likeFilters.join(','))
+    .limit(80);
+  if (error) throw badRequest(error.message);
+
+  const scored = (data || []).map((row) => {
+    const desc = normalizeText(row?.descricao)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+    const codigo = String(row?.codigo || '').toLowerCase();
+    let score = 0;
+    for (const token of tokens) {
+      if (desc.includes(token) || codigo.includes(token)) score += 1;
+    }
+    return { row, score };
+  });
+
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return String(a.row.codigo || '').localeCompare(String(b.row.codigo || ''), 'pt-BR');
+  });
+
+  const top = scored.filter((s) => s.score > 0).slice(0, safeLimit).map((s) => s.row);
+  if (top.length > 0) return enrichCodigosServicosComNbs(top);
+  return listarCodigosServicosReferencia({ q: tokens[0], limit: safeLimit });
+};
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -2579,6 +2658,80 @@ export const softHideCatalogoClientePorDocumento = async (userId, documento) => 
     deactivated.push(withDerivedCatalogActive(data));
   }
   return { documento: digits, deactivated };
+};
+
+/**
+ * Encontra serviço no catálogo pelo CNAE (7 dígitos), independente do código LC 116.
+ */
+export const findCatalogoProdutoByCnae = async (
+  userId,
+  cnae,
+  documentType = DOCUMENT_TYPE_NFSE,
+) => {
+  const cnaeNorm = normalizeCatalogProdutoCnae(cnae);
+  if (cnaeNorm.length !== 7) return null;
+  const rows = await listarCatalogoProdutos(userId, {
+    limit: 100,
+    documentType: normalizeDocumentType(documentType),
+  });
+  return rows.find((row) => normalizeCatalogProdutoCnae(row?.cnae) === cnaeNorm) || null;
+};
+
+/**
+ * Cria rascunhos de serviço NFSe a partir de CNAEs da Receita (após import de certificado).
+ * `codigoServico` (LC 116) é opcional — se omitido, fica para completar depois.
+ * Não cria duplicata do mesmo CNAE.
+ */
+export const criarCatalogoProdutosFromCnaes = async (userId, body = {}) => {
+  const documentType = normalizeDocumentType(
+    body.documentType || body.document_type || DOCUMENT_TYPE_NFSE,
+  );
+  const rawItems = Array.isArray(body.items) ? body.items : Array.isArray(body.cnaes) ? body.cnaes : [];
+  if (rawItems.length === 0) {
+    throw badRequest('Informe ao menos um CNAE em items.');
+  }
+
+  const created = [];
+  const skipped = [];
+
+  for (const item of rawItems) {
+    const cnae = normalizeCatalogProdutoCnae(item?.codigo || item?.cnae || item?.codigoCnae);
+    if (cnae.length !== 7) {
+      skipped.push({ codigo: String(item?.codigo || item?.cnae || ''), reason: 'cnae_invalido' });
+      continue;
+    }
+    const descricao = String(item?.descricao || item?.discriminacao || '').trim()
+      || `Serviço CNAE ${cnae}`;
+    const codigoServico = String(
+      item?.codigoServico ?? item?.servicoCodigo ?? item?.codigo_servico ?? '',
+    ).trim();
+    const existing = await findCatalogoProdutoByCnae(userId, cnae, documentType);
+    if (existing) {
+      skipped.push({
+        codigo: cnae,
+        reason: 'ja_existe',
+        existingId: existing.id,
+        discriminacao: existing.discriminacao,
+      });
+      continue;
+    }
+    const row = await criarCatalogoProduto(userId, {
+      documentType,
+      codigo: codigoServico,
+      cnae,
+      discriminacao: descricao.slice(0, 500),
+      aliquota: 0,
+      metadata_json: {
+        cnaeDraft: true,
+        needsServicoCodigo: !codigoServico,
+        cnaeDescricao: descricao.slice(0, 500),
+        ...(item?.principal === true ? { cnaePrincipal: true } : {}),
+      },
+    });
+    created.push(row);
+  }
+
+  return { created, skipped, documentType };
 };
 
 /**

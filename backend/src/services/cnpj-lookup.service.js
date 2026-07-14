@@ -31,6 +31,79 @@ const padZeros = (value, length) => {
 
 const hasText = (value) => String(value || '').trim().length > 0;
 
+/** Normaliza código CNAE para 7 dígitos. */
+export const normalizeCnaeCodigo = (value) => {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.padStart(7, '0').slice(-7);
+};
+
+/**
+ * Extrai CNAEs secundários do payload BrasilAPI / variantes.
+ * @returns {{ codigo: string, descricao: string|null }[]}
+ */
+export const extractCnaesSecundariosFromRaw = (raw) => {
+  const list = raw?.cnaes_secundarios
+    || raw?.cnaesSecundarios
+    || raw?.atividade_principal_secundaria
+    || [];
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const codigo = normalizeCnaeCodigo(item.codigo ?? item.code ?? item.cnae);
+    if (!codigo || codigo.length !== 7 || seen.has(codigo)) continue;
+    seen.add(codigo);
+    out.push({
+      codigo,
+      descricao: item.descricao != null
+        ? String(item.descricao)
+        : (item.description != null ? String(item.description) : null),
+    });
+  }
+  return out;
+};
+
+/**
+ * Anexa cnaePrincipal, cnaesSecundarios e lista unificada `cnaes` (principal primeiro).
+ */
+export const attachNormalizedCnaes = (data) => {
+  if (!data || typeof data !== 'object') return data;
+  const principalRaw = data.cnaePrincipal;
+  const principalCodigo = normalizeCnaeCodigo(principalRaw?.codigo);
+  const principal = principalCodigo.length === 7
+    ? {
+        codigo: principalCodigo,
+        descricao: principalRaw?.descricao != null ? String(principalRaw.descricao) : null,
+      }
+    : (
+      data.raw?.cnae_fiscal
+        ? {
+            codigo: normalizeCnaeCodigo(data.raw.cnae_fiscal),
+            descricao: data.raw?.cnae_fiscal_descricao
+              ? String(data.raw.cnae_fiscal_descricao)
+              : null,
+          }
+        : null
+    );
+  const secundarios = extractCnaesSecundariosFromRaw(data.raw)
+    .filter((item) => !principal || item.codigo !== principal.codigo);
+  const cnaes = [
+    ...(principal && principal.codigo.length === 7
+      ? [{ ...principal, principal: true }]
+      : []),
+    ...secundarios.map((item) => ({ ...item, principal: false })),
+  ];
+  return {
+    ...data,
+    cnaePrincipal: principal && principal.codigo.length === 7 ? principal : null,
+    cnaesSecundarios: secundarios,
+    cnaes,
+  };
+};
+
+
 export const lookupCepBrasilApi = async (cepInput) => {
   const cep = normalizeDoc(cepInput).slice(0, 8);
   if (cep.length !== 8) return null;
@@ -191,7 +264,7 @@ export const lookupCnpjBrasilApi = async (cnpjInput) => {
     raw // mantém payload original caso o front precise de algo extra
   };
 
-  return data;
+  return attachNormalizedCnaes(data);
 };
 
 /**
@@ -249,7 +322,7 @@ export const lookupCnpjPlugnotas = async (cnpjInput) => {
 
   const enderecoSrc = root?.endereco || root?.address || {};
 
-  return {
+  const result = {
     cpfCnpj: cnpj,
     razaoSocial: root?.razaoSocial || root?.razao_social || root?.nome || null,
     nomeFantasia: root?.nomeFantasia || root?.nome_fantasia || null,
@@ -285,17 +358,22 @@ export const lookupCnpjPlugnotas = async (cnpjInput) => {
         : null,
     raw
   };
+
+  return attachNormalizedCnaes(result);
 };
 
 /**
  * Tenta PlugNotas primeiro; se falhar (sem key, 404, timeout, etc.), cai pra BrasilAPI.
+ * Enriquece CNAEs secundários via BrasilAPI quando o provedor principal não os trouxer.
  * @param {string} cnpjInput
  */
 export const lookupCnpjCascade = async (cnpjInput) => {
   let data;
+  let usedPlugnotas = false;
   if (env.PLUGNOTAS_API_KEY) {
     try {
       data = await lookupCnpjPlugnotas(cnpjInput);
+      usedPlugnotas = true;
     } catch (err) {
       // eslint-disable-next-line no-console
       console.warn('[cnpj-lookup] PlugNotas falhou, caindo para BrasilAPI:', err?.message);
@@ -304,5 +382,27 @@ export const lookupCnpjCascade = async (cnpjInput) => {
   } else {
     data = await lookupCnpjBrasilApi(cnpjInput);
   }
-  return enrichEnderecoFromCep(data);
+  data = await enrichEnderecoFromCep(data);
+  data = attachNormalizedCnaes(data);
+
+  const needsBrasilCnaes = usedPlugnotas
+    && (!Array.isArray(data.cnaesSecundarios) || data.cnaesSecundarios.length === 0);
+  if (needsBrasilCnaes) {
+    try {
+      const br = await lookupCnpjBrasilApi(cnpjInput);
+      data = attachNormalizedCnaes({
+        ...data,
+        cnaePrincipal: data.cnaePrincipal || br.cnaePrincipal,
+        raw: {
+          ...(data.raw && typeof data.raw === 'object' ? data.raw : {}),
+          cnaes_secundarios: br.raw?.cnaes_secundarios,
+          cnae_fiscal: data.raw?.cnae_fiscal ?? br.raw?.cnae_fiscal,
+          cnae_fiscal_descricao: data.raw?.cnae_fiscal_descricao ?? br.raw?.cnae_fiscal_descricao,
+        },
+      });
+    } catch {
+      /* best-effort: manter só o CNAE principal do PlugNotas */
+    }
+  }
+  return data;
 };
