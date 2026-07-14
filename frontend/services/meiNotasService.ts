@@ -193,6 +193,8 @@ export interface NfseCatalogCliente {
   nome?: string | null;
   email?: string | null;
   metadata_json?: Record<string, unknown> | null;
+  /** Soft-hide derivado: false quando metadata_json.catalogActive === false (sem coluna SQL). */
+  active?: boolean | null;
   last_used_at?: string;
   created_at?: string;
   updated_at?: string;
@@ -218,6 +220,8 @@ export interface ListarCatalogoNfseInput {
   /** Offset para paginação (quando suportado pelo backend). */
   offset?: number;
   documentType?: DocumentType;
+  /** Inclui tipos com active=false (edição / reativação). */
+  includeInactive?: boolean;
 }
 
 /** Corpo alinhado ao contrato partilhado web/mobile (campos do catálogo NFSe). */
@@ -235,6 +239,22 @@ export interface AtualizarCatalogoNfseClienteInput {
   email?: string;
   documentType?: DocumentType;
   metadata_json?: Record<string, unknown> | null;
+  active?: boolean;
+}
+
+export interface SyncCatalogoClienteDocumentTypesInput {
+  documento: string;
+  nome: string;
+  email?: string | null;
+  documentTypes: Array<'NFSE' | 'NFE' | 'NFCE'>;
+  metadata_json?: Record<string, unknown> | null;
+}
+
+export interface SyncCatalogoClienteDocumentTypesResult {
+  documento: string;
+  nome: string;
+  rows: NfseCatalogCliente[];
+  activeTypes: Array<'NFSE' | 'NFE' | 'NFCE'>;
 }
 
 /** Catálogo serviços/produtos NFSe (API alinhada ao modelo `NfseCatalogProduto`). */
@@ -291,7 +311,8 @@ const buildCatalogSuffix = (options: ListarCatalogoNfseInput = {}) => {
     Math.trunc(options.offset) > 0
       ? { offset: String(Math.trunc(options.offset)) }
       : {}),
-    ...(options.documentType ? { documentType: options.documentType } : {})
+    ...(options.documentType ? { documentType: options.documentType } : {}),
+    ...(options.includeInactive ? { includeInactive: 'true' } : {})
   });
   const text = query.toString();
   return text ? `?${text}` : '';
@@ -566,6 +587,23 @@ export async function atualizarCatalogoNfseCliente(
     `/mei-notas/catalogo/clientes/${encodeURIComponent(id)}`,
     input
   );
+}
+
+/**
+ * Ativa os tipos marcados e soft-hide dos omitidos (`POST /mei-notas/catalogo/clientes/sync`).
+ */
+export async function syncCatalogoClienteDocumentTypes(
+  input: SyncCatalogoClienteDocumentTypesInput
+): Promise<SyncCatalogoClienteDocumentTypesResult> {
+  return await apiClient.post<SyncCatalogoClienteDocumentTypesResult>(
+    '/mei-notas/catalogo/clientes/sync',
+    input
+  );
+}
+
+/** Soft-hide de todos os tipos do CPF/CNPJ (`POST /mei-notas/catalogo/clientes/soft-hide`). */
+export async function softHideCatalogoClientePorDocumento(documento: string): Promise<void> {
+  await apiClient.post<unknown>('/mei-notas/catalogo/clientes/soft-hide', { documento });
 }
 
 /** Remove cliente com confirmação na UI (`DELETE /mei-notas/catalogo/clientes/:id`). */

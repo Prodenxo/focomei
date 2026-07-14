@@ -111,6 +111,39 @@ const DOCUMENT_TYPE_NFSE = 'NFSE';
 const DOCUMENT_TYPE_NFE = 'NFE';
 const DOCUMENT_TYPE_NFCE = 'NFCE';
 
+/**
+ * Soft-hide sem alterar schema compartilhado: `metadata_json.catalogActive === false`.
+ * Ausência da chave = ativo (compatível com outros sistemas que ignoram a chave).
+ */
+const CATALOG_ACTIVE_META_KEY = 'catalogActive';
+
+const isCatalogClienteRowActive = (row) => {
+  const meta = row?.metadata_json;
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return true;
+  return meta[CATALOG_ACTIVE_META_KEY] !== false;
+};
+
+const withDerivedCatalogActive = (row) => {
+  if (!row || typeof row !== 'object') return row;
+  return { ...row, active: isCatalogClienteRowActive(row) };
+};
+
+const setCatalogActiveInMetadata = (existingMeta, active) => {
+  const base = toObject(existingMeta);
+  if (active) {
+    if (!(CATALOG_ACTIVE_META_KEY in base)) {
+      return Object.keys(base).length ? base : null;
+    }
+    const next = { ...base };
+    delete next[CATALOG_ACTIVE_META_KEY];
+    return Object.keys(next).length ? next : null;
+  }
+  return { ...base, [CATALOG_ACTIVE_META_KEY]: false };
+};
+
+const CLIENT_CATALOG_SELECT =
+  'id, document_type, documento, nome, email, metadata_json, last_used_at, created_at, updated_at';
+
 /** FR-GUIA-FISC-16 — alinhado ao frontend: só `MEI_NFE_NFCE_EMIT_ENABLED=false` desactiva; omitir = comportamento actual. */
 const isMeiNfeNfceEmitDisabledByServerPolicy = () =>
   String(process.env.MEI_NFE_NFCE_EMIT_ENABLED || '').toLowerCase() === 'false';
@@ -1554,7 +1587,18 @@ const upsertClienteCatalogo = async (userId, payload, { documentType = DOCUMENT_
       .eq('dedupe_key', entry.dedupe_key)
       .maybeSingle();
     const merged = mergeClienteCatalogMetadata(existingRow?.metadata_json, fiscalMeta);
-    if (merged) upsertRow.metadata_json = merged;
+    upsertRow.metadata_json = setCatalogActiveInMetadata(merged, true);
+  } else {
+    const { data: existingRow } = await dbClient
+      .from(CLIENTS_TABLE)
+      .select('metadata_json')
+      .eq('user_id', userId)
+      .eq('document_type', normalizedType)
+      .eq('dedupe_key', entry.dedupe_key)
+      .maybeSingle();
+    if (existingRow && !isCatalogClienteRowActive(existingRow)) {
+      upsertRow.metadata_json = setCatalogActiveInMetadata(existingRow.metadata_json, true);
+    }
   }
   const { error } = await dbClient
     .from(CLIENTS_TABLE)
@@ -2112,16 +2156,18 @@ export const listarRelatorioNfe = async (_userId, filters = {}) => {
 
 export const listarCatalogoClientes = async (
   userId,
-  { q = '', limit = 20, documentType } = {}
+  { q = '', limit = 20, documentType, includeInactive = false } = {}
 ) => {
   const safeLimit = toCatalogLimit(limit);
   const dbClient = getDb();
+  // Busca um pouco a mais quando filtra soft-hide em memória (sem coluna no schema compartilhado).
+  const fetchLimit = includeInactive ? safeLimit : Math.min(100, Math.max(safeLimit * 3, safeLimit));
   let query = dbClient
     .from(CLIENTS_TABLE)
-    .select('id, document_type, documento, nome, email, metadata_json, last_used_at, created_at, updated_at')
+    .select(CLIENT_CATALOG_SELECT)
     .eq('user_id', userId)
     .order('last_used_at', { ascending: false })
-    .limit(safeLimit);
+    .limit(fetchLimit);
 
   if (documentType) {
     query = query.eq('document_type', normalizeDocumentType(documentType));
@@ -2131,7 +2177,11 @@ export const listarCatalogoClientes = async (
 
   const { data, error } = await query;
   if (error) throw badRequest(error.message);
-  return data || [];
+  const rows = (data || []).map(withDerivedCatalogActive);
+  if (includeInactive) {
+    return rows.slice(0, safeLimit);
+  }
+  return rows.filter((row) => row.active !== false).slice(0, safeLimit);
 };
 
 const normalizeCatalogProdutoCnae = (value) => String(value || '').replace(/\D/g, '').slice(0, 7);
@@ -2222,7 +2272,7 @@ const findCatalogCliente = async (userId, id) => {
     .maybeSingle();
   if (error) throw badRequest(error.message);
   if (!data) throw notFound('Cliente do catálogo não encontrado');
-  return data;
+  return withDerivedCatalogActive(data);
 };
 
 const findCatalogProduto = async (userId, id) => {
@@ -2292,41 +2342,151 @@ export const criarCatalogoCliente = async (userId, body = {}) => {
     last_used_at: now,
     updated_at: now
   };
+
+  const dbClient = getDb();
+  const { data: existingRow } = await dbClient
+    .from(CLIENTS_TABLE)
+    .select('metadata_json')
+    .eq('user_id', userId)
+    .eq('document_type', documentType)
+    .eq('dedupe_key', entry.dedupe_key)
+    .maybeSingle();
+
   if (body.metadata_json !== undefined) {
     if (body.metadata_json === null) {
       row.metadata_json = null;
     } else {
       let meta = sanitizeMetadata(body.metadata_json);
       meta = await enrichCatalogClienteMetadataFromCep(meta);
-      row.metadata_json = Object.keys(meta).length ? meta : null;
+      const merged = mergeClienteCatalogMetadata(existingRow?.metadata_json, meta);
+      row.metadata_json = setCatalogActiveInMetadata(merged, true);
+    }
+  } else if (existingRow && !isCatalogClienteRowActive(existingRow)) {
+    row.metadata_json = setCatalogActiveInMetadata(existingRow.metadata_json, true);
+  }
+
+  const { data, error } = await dbClient
+    .from(CLIENTS_TABLE)
+    .upsert(row, { onConflict: 'user_id,document_type,dedupe_key' })
+    .select(CLIENT_CATALOG_SELECT)
+    .single();
+  if (error) throw badRequest(error.message);
+  return withDerivedCatalogActive(data);
+};
+
+/**
+ * Sincroniza tipos fiscais de um cliente (mesmo CPF/CNPJ).
+ * Tipos em `documentTypes` ficam ativos; tipos existentes omitidos soft-hide via metadata_json.catalogActive=false.
+ */
+export const syncCatalogoClienteDocumentTypes = async (userId, body = {}) => {
+  const rawTypes = Array.isArray(body.documentTypes)
+    ? body.documentTypes
+    : Array.isArray(body.document_types)
+      ? body.document_types
+      : [];
+  const wanted = [...new Set(
+    rawTypes
+      .map((t) => normalizeDocumentType(t))
+      .filter((t) =>
+        t === DOCUMENT_TYPE_NFSE || t === DOCUMENT_TYPE_NFE || t === DOCUMENT_TYPE_NFCE
+      ),
+  )];
+  if (wanted.length === 0) {
+    throw badRequest('Selecione ao menos um tipo: NFSE, NFE ou NFCE.');
+  }
+
+  const nome = String(body.nome || '').trim();
+  if (!nome) throw badRequest('nome é obrigatório');
+  const documentoDigits = normalizeDoc(body.documento || '');
+  if (!documentoDigits || (documentoDigits.length !== 11 && documentoDigits.length !== 14)) {
+    throw badRequest('documento deve ser CPF (11 dígitos) ou CNPJ (14 dígitos)');
+  }
+
+  const emailRaw = body.email;
+  if (emailRaw !== undefined && emailRaw !== null && String(emailRaw).trim()) {
+    assertEmailFormat(String(emailRaw).trim());
+  }
+
+  let metadataJson = undefined;
+  if (body.metadata_json !== undefined) {
+    if (body.metadata_json === null) {
+      metadataJson = null;
+    } else {
+      let meta = sanitizeMetadata(body.metadata_json);
+      meta = await enrichCatalogClienteMetadataFromCep(meta);
+      metadataJson = Object.keys(meta).length ? meta : null;
     }
   }
 
   const dbClient = getDb();
-  const { data, error } = await dbClient
+  const { data: existing, error: listErr } = await dbClient
     .from(CLIENTS_TABLE)
-    .upsert(row, { onConflict: 'user_id,document_type,dedupe_key' })
-    .select('id, document_type, documento, nome, email, metadata_json, last_used_at, created_at, updated_at')
-    .single();
-  if (error) throw badRequest(error.message);
-  return data;
+    .select(CLIENT_CATALOG_SELECT)
+    .eq('user_id', userId)
+    .eq('documento', documentoDigits);
+  if (listErr) throw badRequest(listErr.message);
+
+  const synced = [];
+  for (const documentType of wanted) {
+    const created = await criarCatalogoCliente(userId, {
+      documento: documentoDigits,
+      nome,
+      email: emailRaw,
+      documentType,
+      ...(metadataJson !== undefined ? { metadata_json: metadataJson } : {}),
+    });
+    synced.push(created);
+  }
+
+  const toDisable = (existing || []).filter((row) => {
+    const dt = normalizeDocumentType(row.document_type);
+    return isCatalogClienteRowActive(row) && !wanted.includes(dt);
+  });
+  for (const row of toDisable) {
+    const { error: updErr } = await dbClient
+      .from(CLIENTS_TABLE)
+      .update({
+        metadata_json: setCatalogActiveInMetadata(row.metadata_json, false),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', row.id)
+      .eq('user_id', userId);
+    if (updErr) throw badRequest(updErr.message);
+  }
+
+  const { data: allRows, error: reloadErr } = await dbClient
+    .from(CLIENTS_TABLE)
+    .select(CLIENT_CATALOG_SELECT)
+    .eq('user_id', userId)
+    .eq('documento', documentoDigits)
+    .order('document_type', { ascending: true });
+  if (reloadErr) throw badRequest(reloadErr.message);
+
+  const rows = (allRows || []).map(withDerivedCatalogActive);
+  return {
+    documento: documentoDigits,
+    nome,
+    rows,
+    activeTypes: wanted,
+    synced,
+  };
 };
 
 /**
- * PATCH catálogo cliente — apenas nome, email, metadata_json (documento e dedupe_key imutáveis).
+ * PATCH catálogo cliente — nome, email, metadata_json; body.active mapeia para metadata_json.catalogActive.
  */
 export const atualizarCatalogoCliente = async (userId, id, body = {}) => {
   const recordId = ensureCatalogRecordId(id);
   if (body.documento !== undefined || body.document_type !== undefined || body.documentType !== undefined) {
     throw badRequest(
-      'Não é permitido alterar documento ou tipo de documento via PATCH; crie um novo registo se o documento mudou.'
+      'Não é permitido alterar documento ou tipo de documento via PATCH; use POST /catalogo/clientes/sync para tipos.'
     );
   }
   if (body.dedupe_key !== undefined) {
     throw badRequest('Não é permitido alterar dedupe_key');
   }
 
-  await findCatalogCliente(userId, recordId);
+  const existing = await findCatalogCliente(userId, recordId);
 
   const updates = {};
   if (body.nome !== undefined) {
@@ -2343,17 +2503,29 @@ export const atualizarCatalogoCliente = async (userId, id, body = {}) => {
       updates.email = normalizeEmail(e);
     }
   }
+
+  let nextMeta = existing.metadata_json;
+  let metaTouched = false;
   if (body.metadata_json !== undefined) {
+    metaTouched = true;
     if (body.metadata_json === null) {
-      updates.metadata_json = null;
+      nextMeta = null;
     } else {
       let meta = sanitizeMetadata(body.metadata_json);
       meta = await enrichCatalogClienteMetadataFromCep(meta);
-      updates.metadata_json = Object.keys(meta).length ? meta : null;
+      nextMeta = Object.keys(meta).length ? meta : null;
     }
   }
+  if (body.active !== undefined) {
+    metaTouched = true;
+    nextMeta = setCatalogActiveInMetadata(nextMeta, Boolean(body.active));
+  }
+  if (metaTouched) {
+    updates.metadata_json = nextMeta;
+  }
+
   if (Object.keys(updates).length === 0) {
-    throw badRequest('Informe ao menos um campo editável para atualizar (nome, email ou metadata_json)');
+    throw badRequest('Informe ao menos um campo editável para atualizar (nome, email, metadata_json ou active)');
   }
 
   const now = new Date().toISOString();
@@ -2366,10 +2538,47 @@ export const atualizarCatalogoCliente = async (userId, id, body = {}) => {
     .update(updates)
     .eq('id', recordId)
     .eq('user_id', userId)
-    .select('id, document_type, documento, nome, email, metadata_json, last_used_at, created_at, updated_at')
+    .select(CLIENT_CATALOG_SELECT)
     .single();
   if (error) throw badRequest(error.message);
-  return data;
+  return withDerivedCatalogActive(data);
+};
+
+/**
+ * Soft-hide de todos os tipos fiscais do mesmo CPF/CNPJ (some da listagem ativa).
+ * Usa metadata_json.catalogActive=false — sem migration de schema.
+ */
+export const softHideCatalogoClientePorDocumento = async (userId, documento) => {
+  const digits = normalizeDoc(documento || '');
+  if (!digits || (digits.length !== 11 && digits.length !== 14)) {
+    throw badRequest('documento deve ser CPF (11 dígitos) ou CNPJ (14 dígitos)');
+  }
+  const now = new Date().toISOString();
+  const dbClient = getDb();
+  const { data: rows, error: listErr } = await dbClient
+    .from(CLIENTS_TABLE)
+    .select(CLIENT_CATALOG_SELECT)
+    .eq('user_id', userId)
+    .eq('documento', digits);
+  if (listErr) throw badRequest(listErr.message);
+
+  const deactivated = [];
+  for (const row of rows || []) {
+    if (!isCatalogClienteRowActive(row)) continue;
+    const { data, error } = await dbClient
+      .from(CLIENTS_TABLE)
+      .update({
+        metadata_json: setCatalogActiveInMetadata(row.metadata_json, false),
+        updated_at: now,
+      })
+      .eq('id', row.id)
+      .eq('user_id', userId)
+      .select(CLIENT_CATALOG_SELECT)
+      .single();
+    if (error) throw badRequest(error.message);
+    deactivated.push(withDerivedCatalogActive(data));
+  }
+  return { documento: digits, deactivated };
 };
 
 /**

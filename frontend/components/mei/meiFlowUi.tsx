@@ -1011,6 +1011,63 @@ export function MeiTypeChips ({
   )
 }
 
+/** Multi-select de tipos fiscais (ex.: NFSe + NFe no mesmo cliente). */
+export function MeiTypeMultiChips ({
+  value,
+  onChange,
+  allowedTypes,
+}: {
+  value: MeiDocType[]
+  onChange: (v: MeiDocType[]) => void
+  allowedTypes?: MeiDocType[]
+}) {
+  const { theme, isDarkMode } = useMfTheme()
+  const tokens = getTechTokens(isDarkMode)
+  const flow = useMeiFlowStyles()
+  const visibleTypes = allowedTypes?.length
+    ? allowedTypes
+    : (['NFSE', 'NFE', 'NFCE'] as MeiDocType[])
+  const selected = new Set(value)
+
+  return (
+    <View style={flow.chipRow}>
+      {visibleTypes.map((dt) => {
+        const active = selected.has(dt)
+        return (
+          <Pressable
+            key={dt}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: active }}
+            accessibilityLabel={`Tipo ${dt}`}
+            onPress={() => {
+              if (active) {
+                onChange(value.filter((t) => t !== dt))
+              } else {
+                onChange([...value, dt])
+              }
+            }}
+            style={[
+              flow.chip,
+              active
+                ? { borderColor: tokens.accent, backgroundColor: tokens.accentSoft }
+                : mfTechInsetSurface(isDarkMode),
+            ]}
+          >
+            <Text
+              style={[
+                flow.chipText,
+                { color: active ? tokens.accent : theme.textSecondary },
+              ]}
+            >
+              {dt}
+            </Text>
+          </Pressable>
+        )
+      })}
+    </View>
+  )
+}
+
 function createFlowStyles (
   theme: ReturnType<typeof useMfTheme>['theme'],
   isDarkMode: boolean,

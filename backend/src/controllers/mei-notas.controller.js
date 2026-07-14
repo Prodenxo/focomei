@@ -348,7 +348,14 @@ export const listarCatalogoClientes = async (req, res, next) => {
     const q = String(req.query?.q || '').trim();
     const limit = parseCatalogLimit(req.query?.limit);
     const documentType = String(req.query?.documentType || '').trim() || undefined;
-    const data = await meiNotasService.listarCatalogoClientes(req.user.id, { q, limit, documentType });
+    const includeInactiveRaw = String(req.query?.includeInactive ?? '').trim().toLowerCase();
+    const includeInactive = includeInactiveRaw === '1' || includeInactiveRaw === 'true';
+    const data = await meiNotasService.listarCatalogoClientes(req.user.id, {
+      q,
+      limit,
+      documentType,
+      includeInactive,
+    });
     return sendSuccess(res, data, 'Catálogo de clientes listado');
   } catch (error) {
     return next(error);
@@ -389,6 +396,25 @@ export const criarCatalogoCliente = async (req, res, next) => {
   try {
     const data = await meiNotasService.criarCatalogoCliente(req.user.id, req.body);
     return sendCreated(res, data, 'Cliente do catálogo registado');
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const syncCatalogoClienteDocumentTypes = async (req, res, next) => {
+  try {
+    const data = await meiNotasService.syncCatalogoClienteDocumentTypes(req.user.id, req.body);
+    return sendSuccess(res, data, 'Tipos fiscais do cliente sincronizados');
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const softHideCatalogoClientePorDocumento = async (req, res, next) => {
+  try {
+    const documento = req.body?.documento ?? req.query?.documento;
+    const data = await meiNotasService.softHideCatalogoClientePorDocumento(req.user.id, documento);
+    return sendSuccess(res, data, 'Cliente ocultado da listagem ativa');
   } catch (error) {
     return next(error);
   }

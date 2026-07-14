@@ -53,6 +53,8 @@ router.get('/limite-faturamento', requireAuth, requireMeiEnabled, controller.lim
 router.get('/relatorio/nfe', requireAuth, requireMeiEnabled, controller.relatorioNfe);
 router.get('/catalogo/clientes', requireAuth, requireMeiEnabled, controller.listarCatalogoClientes);
 router.post('/catalogo/clientes', requireAuth, requireMeiEnabled, controller.criarCatalogoCliente);
+router.post('/catalogo/clientes/sync', requireAuth, requireMeiEnabled, controller.syncCatalogoClienteDocumentTypes);
+router.post('/catalogo/clientes/soft-hide', requireAuth, requireMeiEnabled, controller.softHideCatalogoClientePorDocumento);
 router.patch('/catalogo/clientes/:id', requireAuth, requireMeiEnabled, controller.atualizarCatalogoCliente);
 router.delete('/catalogo/clientes/:id', requireAuth, requireMeiEnabled, controller.eliminarCatalogoCliente);
 router.get('/catalogo/produtos', requireAuth, requireMeiEnabled, controller.listarCatalogoProdutos);

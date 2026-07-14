@@ -12,25 +12,27 @@ import type { NfeDestinatarioEnderecoForm } from '../lib/meiNfseForms'
 import type { DestinatarioIndIeDest } from '../lib/meiNfeDestinatarioIe'
 import { buildClienteCatalogLabel } from '../lib/meiFormatters'
 import {
-  applyCatalogClienteToNfeForm,
   buildCatalogClienteMetadataJson,
-  catalogClienteHasNfeEndereco,
   enderecoFromCnpjLookup,
   mergeEnderecoFromCepLookup,
   parseCatalogClienteFiscalMeta,
   validateCatalogClienteNfeFields,
   validateCatalogClienteNfseTomadorFields,
 } from '../lib/meiCatalogClienteFiscal'
+import {
+  formatCatalogGrupoMeta,
+  groupCatalogoClientes,
+  type CatalogClienteGrupo,
+} from '../lib/meiCatalogClienteGroup'
 import { getDefaultNfeDestinatarioEndereco } from '../lib/meiNfseForms'
 import { DEFAULT_DESTINATARIO_IND_IE_DEST } from '../lib/meiNfeDestinatarioIe'
-import type { DocumentType, NfseCatalogCliente } from '../services/meiNotasService'
+import type { NfseCatalogCliente } from '../services/meiNotasService'
 import {
-  atualizarCatalogoNfseCliente,
-  criarCatalogoNfseCliente,
-  excluirCatalogoNfseCliente,
   listarCatalogoNfseClientes,
   lookupCnpj,
   lookupNfseEnderecoPorCep,
+  softHideCatalogoClientePorDocumento,
+  syncCatalogoClienteDocumentTypes,
 } from '../services/meiNotasService'
 import {
   MeiFlowModalShell,
@@ -41,7 +43,7 @@ import {
   MeiConfirmDialog,
   MeiFormSheetActions,
   MeiFormSectionLabel,
-  MeiTypeChips,
+  MeiTypeMultiChips,
   useMeiFlowStyles,
   type MeiDocType,
 } from '../components/mei/meiFlowUi'
@@ -50,6 +52,7 @@ import { alertDialog } from '../lib/confirmDialog'
 import { useAppToastStore } from '../store/appToastStore'
 
 const PAGE_SIZE = 50
+const CLIENTE_DOC_TYPES: MeiDocType[] = ['NFSE', 'NFE', 'NFCE']
 
 function normalizeDoc (value: string): string {
   return value.replace(/\D/g, '')
@@ -93,7 +96,7 @@ type FormState = {
   documento: string
   nome: string
   email: string
-  documentType: DocumentType
+  documentTypes: Array<'NFSE' | 'NFE' | 'NFCE'>
   indIEDest: DestinatarioIndIeDest
   endereco: NfeDestinatarioEnderecoForm
 }
@@ -102,7 +105,7 @@ const emptyForm = (): FormState => ({
   documento: '',
   nome: '',
   email: '',
-  documentType: 'NFSE',
+  documentTypes: ['NFSE'],
   indIEDest: DEFAULT_DESTINATARIO_IND_IE_DEST,
   endereco: getDefaultNfeDestinatarioEndereco(),
 })
@@ -135,13 +138,15 @@ export default function MeiCatalogoClientesModal ({
   refreshingRef.current = refreshing
 
   const [formVisible, setFormVisible] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingDocumento, setEditingDocumento] = useState<string | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
   const [saving, setSaving] = useState(false)
   const [cnpjLookupLoading, setCnpjLookupLoading] = useState(false)
   const [cepLookupLoading, setCepLookupLoading] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState<NfseCatalogCliente | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<CatalogClienteGrupo | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
+
+  const groupedItems = useMemo(() => groupCatalogoClientes(items), [items])
 
   const resetList = useCallback(() => {
     setItems([])
@@ -214,23 +219,57 @@ export default function MeiCatalogoClientesModal ({
   }, [onCatalogChanged])
 
   const openCreate = () => {
-    setEditingId(null)
+    setEditingDocumento(null)
     setForm(emptyForm())
     setFormVisible(true)
   }
 
-  const openEdit = (item: NfseCatalogCliente) => {
-    const fiscal = parseCatalogClienteFiscalMeta(item.metadata_json ?? undefined)
-    setEditingId(item.id)
+  const openEdit = async (group: CatalogClienteGrupo) => {
+    const fiscal = parseCatalogClienteFiscalMeta(group.primary.metadata_json ?? undefined)
+    setEditingDocumento(group.documento)
     setForm({
-      documento: item.documento ? formatDocumentDisplay(item.documento) : '',
-      nome: item.nome ?? '',
-      email: item.email ?? '',
-      documentType: (item.document_type as DocumentType) || 'NFSE',
+      documento: formatDocumentDisplay(group.documento),
+      nome: group.nome ?? '',
+      email: group.email ?? '',
+      documentTypes: group.activeTypes.filter(
+        (t): t is 'NFSE' | 'NFE' | 'NFCE' => t === 'NFSE' || t === 'NFE' || t === 'NFCE',
+      ),
       indIEDest: fiscal.indIEDest ?? DEFAULT_DESTINATARIO_IND_IE_DEST,
       endereco: fiscal.endereco ?? getDefaultNfeDestinatarioEndereco(),
     })
     setFormVisible(true)
+
+    try {
+      const all = await listarCatalogoNfseClientes({
+        q: group.documento,
+        limit: 20,
+        includeInactive: true,
+      })
+      const exact = (Array.isArray(all) ? all : []).filter(
+        (r) => normalizeDoc(r.documento || '') === group.documento,
+      )
+      const activeFromApi = exact
+        .filter((r) => r.active !== false)
+        .map((r) => String(r.document_type || '').toUpperCase())
+        .filter((t): t is 'NFSE' | 'NFE' | 'NFCE' => t === 'NFSE' || t === 'NFE' || t === 'NFCE')
+      if (activeFromApi.length > 0) {
+        setForm((f) => ({
+          ...f,
+          documentTypes: [...new Set(activeFromApi)],
+        }))
+      }
+      const bestMeta = exact.find((r) => r.document_type === 'NFE') || exact[0]
+      if (bestMeta?.metadata_json) {
+        const meta = parseCatalogClienteFiscalMeta(bestMeta.metadata_json)
+        setForm((f) => ({
+          ...f,
+          indIEDest: meta.indIEDest ?? f.indIEDest,
+          endereco: meta.endereco ?? f.endereco,
+        }))
+      }
+    } catch {
+      // Mantém os tipos já carregados do grupo na listagem.
+    }
   }
 
   const lookupDocumentoEndereco = async () => {
@@ -277,48 +316,43 @@ export default function MeiCatalogoClientesModal ({
       alertDialog('Validação', err)
       return
     }
-    const docDigits = normalizeDoc(form.documento)
-    const nfeErr = validateCatalogClienteNfeFields(form.documentType, form.endereco)
-    if (nfeErr) {
-      alertDialog('Validação NF-e', nfeErr)
+    if (form.documentTypes.length === 0) {
+      alertDialog('Validação', 'Selecione ao menos NFSE, NFE ou NFCE.')
       return
     }
-    const nfseErr = validateCatalogClienteNfseTomadorFields(form.documento, form.endereco)
-    if (nfseErr) {
-      alertDialog('Validação NFS-e', nfseErr)
-      return
+
+    const wantsNfeLike =
+      form.documentTypes.includes('NFE') || form.documentTypes.includes('NFCE')
+    const wantsNfse = form.documentTypes.includes('NFSE')
+    if (wantsNfeLike) {
+      const nfeErr = validateCatalogClienteNfeFields('NFE', form.endereco)
+      if (nfeErr) {
+        alertDialog('Validação NF-e / NFC-e', nfeErr)
+        return
+      }
     }
+    if (wantsNfse) {
+      const nfseErr = validateCatalogClienteNfseTomadorFields(form.documento, form.endereco)
+      if (nfseErr) {
+        alertDialog('Validação NFS-e', nfseErr)
+        return
+      }
+    }
+
     setSaving(true)
     try {
-      const metadata_json = (() => {
-        if (form.documentType === 'NFE') {
-          return buildCatalogClienteMetadataJson({
-            indIEDest: form.indIEDest,
-            endereco: form.endereco,
-          })
-        }
-        if (form.documentType === 'NFSE') {
-          return buildCatalogClienteMetadataJson({ endereco: form.endereco })
-        }
-        return undefined
-      })()
-      if (editingId) {
-        await atualizarCatalogoNfseCliente(editingId, {
-          nome: form.nome.trim(),
-          email: form.email.trim() || null,
-          ...(metadata_json ? { metadata_json } : {}),
-        })
-        showToast('Cliente atualizado.', 'success')
-      } else {
-        await criarCatalogoNfseCliente({
-          documento: normalizeDoc(form.documento),
-          nome: form.nome.trim(),
-          ...(form.email.trim() ? { email: form.email.trim() } : {}),
-          documentType: form.documentType,
-          ...(metadata_json ? { metadata_json } : {}),
-        })
-        showToast('Cliente criado.', 'success')
-      }
+      const metadata_json = buildCatalogClienteMetadataJson({
+        ...(wantsNfeLike ? { indIEDest: form.indIEDest } : {}),
+        endereco: form.endereco,
+      })
+      await syncCatalogoClienteDocumentTypes({
+        documento: normalizeDoc(form.documento),
+        nome: form.nome.trim(),
+        email: form.email.trim() || null,
+        documentTypes: form.documentTypes,
+        metadata_json,
+      })
+      showToast(editingDocumento ? 'Cliente atualizado.' : 'Cliente criado.', 'success')
       setFormVisible(false)
       resetList()
       await fetchPage({ append: false, reset: true, q: searchQ })
@@ -330,22 +364,22 @@ export default function MeiCatalogoClientesModal ({
     }
   }
 
-  const requestDelete = (item: NfseCatalogCliente) => {
-    setDeleteTarget(item)
+  const requestDelete = (group: CatalogClienteGrupo) => {
+    setDeleteTarget(group)
   }
 
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return
     setDeleteLoading(true)
     try {
-      await excluirCatalogoNfseCliente(deleteTarget.id)
-      showToast('Cliente removido.', 'success')
+      await softHideCatalogoClientePorDocumento(deleteTarget.documento)
+      showToast('Cliente ocultado. Cadastre de novo com o mesmo CPF/CNPJ para reativar.', 'success')
       setDeleteTarget(null)
       resetList()
       await fetchPage({ append: false, reset: true, q: searchQ })
       notifyChanged()
     } catch (e: unknown) {
-      alertDialog('Erro', e instanceof Error ? e.message : 'Falha ao excluir.')
+      alertDialog('Erro', e instanceof Error ? e.message : 'Falha ao ocultar cliente.')
     } finally {
       setDeleteLoading(false)
     }
@@ -367,16 +401,18 @@ export default function MeiCatalogoClientesModal ({
         <Ionicons name="add" size={22} color={theme.primary} />
       </Pressable>
     ),
-    [flow.headerAdd, theme.primary, openCreate],
+    [flow.headerAdd, theme.primary],
   )
 
   const docDigitsForm = normalizeDoc(form.documento)
-  const showTomadorEndereco = form.documentType === 'NFE' || form.documentType === 'NFSE'
+  const wantsNfeLike =
+    form.documentTypes.includes('NFE') || form.documentTypes.includes('NFCE')
+  const wantsNfse = form.documentTypes.includes('NFSE')
+  const showTomadorEndereco = wantsNfeLike || wantsNfse
   const enderecoObrigatorio =
-    form.documentType === 'NFE'
-    || (form.documentType === 'NFSE' && docDigitsForm.length === 14)
+    wantsNfeLike || (wantsNfse && docDigitsForm.length === 14)
   const enderecoSectionTitle = (() => {
-    if (form.documentType === 'NFE') return 'Endereço (obrigatório na NF-e)'
+    if (wantsNfeLike) return 'Endereço (obrigatório na NF-e / NFC-e)'
     if (docDigitsForm.length === 14) return 'Endereço fiscal (obrigatório na NFS-e para CNPJ)'
     return 'Endereço fiscal (opcional para CPF)'
   })()
@@ -405,8 +441,8 @@ export default function MeiCatalogoClientesModal ({
           </View>
         ) : (
           <FlatList
-            data={items}
-            keyExtractor={(it) => it.id}
+            data={groupedItems}
+            keyExtractor={(it) => it.documento}
             style={flow.listPad}
             keyboardShouldPersistTaps="handled"
             refreshControl={
@@ -426,9 +462,9 @@ export default function MeiCatalogoClientesModal ({
             }
             renderItem={({ item }) => (
               <MeiCatalogListCard
-                title={buildClienteCatalogLabel(item)}
-                meta={item.document_type ?? undefined}
-                onEdit={() => openEdit(item)}
+                title={buildClienteCatalogLabel(item.primary)}
+                meta={formatCatalogGrupoMeta(item)}
+                onEdit={() => void openEdit(item)}
                 onDelete={() => requestDelete(item)}
               />
             )}
@@ -436,13 +472,13 @@ export default function MeiCatalogoClientesModal ({
         )}
 
         <Text style={flow.hint}>
-          Lista até {PAGE_SIZE} itens por página; deslize para carregar mais.
+          Um cadastro por CPF/CNPJ. Marque NFSE e/ou NFE: desmarcar só oculta o tipo da listagem.
         </Text>
       </MeiFlowModalShell>
 
       <MeiFormSheet
         visible={formVisible}
-        title={editingId ? 'Editar cliente' : 'Novo cliente'}
+        title={editingDocumento ? 'Editar cliente' : 'Novo cliente'}
         onClose={() => setFormVisible(false)}
         footer={
           <MeiFormSheetActions
@@ -457,9 +493,13 @@ export default function MeiCatalogoClientesModal ({
           required
           placeholder="Somente números ou formatado"
           value={form.documento}
-          onChangeText={(t) => setForm((f) => ({ ...f, documento: formatDocumentDisplay(t) }))}
+          onChangeText={(t) => {
+            if (editingDocumento) return
+            setForm((f) => ({ ...f, documento: formatDocumentDisplay(t) }))
+          }}
           onBlur={() => void lookupDocumentoEndereco()}
           keyboardType="numeric"
+          editable={!editingDocumento}
         />
         {cnpjLookupLoading ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -482,16 +522,28 @@ export default function MeiCatalogoClientesModal ({
           keyboardType="email-address"
           autoCapitalize="none"
         />
-        <MeiFormSectionLabel>Tipo de documento fiscal</MeiFormSectionLabel>
-        <MeiTypeChips
-          value={form.documentType as MeiDocType}
-          onChange={(dt) => setForm((f) => ({ ...f, documentType: dt }))}
+        <MeiFormSectionLabel>Tipos de documento (pode marcar os dois)</MeiFormSectionLabel>
+        <MeiTypeMultiChips
+          value={form.documentTypes as MeiDocType[]}
+          allowedTypes={CLIENTE_DOC_TYPES}
+          onChange={(types) =>
+            setForm((f) => ({
+              ...f,
+              documentTypes: types.filter(
+                (t): t is 'NFSE' | 'NFE' | 'NFCE' =>
+                  t === 'NFSE' || t === 'NFE' || t === 'NFCE',
+              ),
+            }))
+          }
         />
+        <Text style={[flow.hint, { marginBottom: 8 }]}>
+          NFSE = serviço · NFE = produto · NFCE = cupom. Desmarcar oculta só esse tipo; marcar de novo reativa.
+        </Text>
         {showTomadorEndereco ? (
           <>
             <MeiFormSectionLabel>{enderecoSectionTitle}</MeiFormSectionLabel>
             <Text style={[flow.hint, { marginBottom: 8 }]}>
-              {form.documentType === 'NFE'
+              {wantsNfeLike
                 ? 'Ao informar CNPJ, buscamos logradouro e IBGE automaticamente. Confira o número se vier vazio.'
                 : enderecoObrigatorio
                   ? 'Informe o CEP para preencher logradouro, cidade, UF e código IBGE.'
@@ -582,10 +634,10 @@ export default function MeiCatalogoClientesModal ({
 
       <MeiConfirmDialog
         visible={deleteTarget != null}
-        title="Excluir cliente"
-        message="Remover este cliente do catálogo?"
-        detail={deleteTarget ? buildClienteCatalogLabel(deleteTarget) : undefined}
-        confirmLabel="Excluir"
+        title="Ocultar cliente"
+        message="Ocultar este cliente da listagem ativa? Para voltar a ver, cadastre o mesmo CPF/CNPJ e marque os tipos de novo."
+        detail={deleteTarget ? buildClienteCatalogLabel(deleteTarget.primary) : undefined}
+        confirmLabel="Ocultar"
         loading={deleteLoading}
         onConfirm={() => void handleConfirmDelete()}
         onCancel={() => {

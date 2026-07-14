@@ -277,7 +277,12 @@ export const resolveCatalogClienteRecord = async (userId, documento, documentTyp
       .eq('documento', doc)
       .maybeSingle();
     if (error) return null;
-    return data || null;
+    if (!data) return null;
+    const meta = data.metadata_json;
+    if (meta && typeof meta === 'object' && !Array.isArray(meta) && meta.catalogActive === false) {
+      return null;
+    }
+    return data;
   } catch {
     return null;
   }
