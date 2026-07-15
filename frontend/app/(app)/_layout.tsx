@@ -4,6 +4,7 @@ import { usePathname, useRouter } from 'expo-router';
 import { useThemeStore } from '@/store/themeStore';
 import { useAuthStore } from '@/store/authStore';
 import { getTheme } from '@/lib/theme';
+import { canAccessMeiArea } from '@/lib/meiAccess';
 import { supabase } from '@/lib/supabase';
 import SideDrawer from '@/components/SideDrawer';
 import PendingApprovalScreen from '@/screens/PendingApprovalScreen';
@@ -18,6 +19,7 @@ import {
 import { AppShell, useShellLayout } from '@/components/shell';
 import { SHELL_CANVAS_DARK, SHELL_CANVAS_LIGHT } from '@/components/shell/shellTokens';
 import { getCurrentReturnPath, stashAuthReturnPath } from '@/lib/authRedirect';
+import { captureGoogleCalendarReturnFromUrlSync } from '@/lib/google-calendar-oauth-return';
 import { fetchActivationProgress } from '@/services/activationService';
 import {
   isSessionActivationSkipped,
@@ -45,9 +47,10 @@ export default function AppLayout() {
   const pathname = usePathname() ?? '/';
   const { isWebDesktop, usesDrawerNav } = useShellLayout();
 
+  const showMeiTab = useMemo(() => canAccessMeiArea(role, mei), [role, mei]);
   const navItems = useMemo(
-    () => filterNavItems(APP_NAV_ITEMS),
-    []
+    () => filterNavItems(APP_NAV_ITEMS, showMeiTab),
+    [showMeiTab]
   );
   const drawerItems = useMemo(
     () =>
@@ -86,6 +89,7 @@ export default function AppLayout() {
     if (!sessionRestored) return;
     if (user) return;
     void (async () => {
+      captureGoogleCalendarReturnFromUrlSync();
       await stashAuthReturnPath(getCurrentReturnPath(pathname));
       router.replace('/(auth)/login');
     })();
@@ -474,6 +478,7 @@ export default function AppLayout() {
       <View style={styles.outer} {...(usesDrawerNav ? panResponder.panHandlers : {})}>
         <AppShell
           currentScreen={currentScreen}
+          showMeiTab={showMeiTab}
           navigateTo={navigateTo}
           showTopNav={hasGlobalNav}
         />

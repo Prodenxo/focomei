@@ -1,6 +1,13 @@
 import { createContext, useContext } from "react";
 
 export type AppScreenName =
+  | "Dashboard"
+  | "Transacoes"
+  | "Contas"
+  | "ContaGlobal"
+  | "Categorias"
+  | "Orcamentos"
+  | "Agenda"
   | "MeuMei"
   | "Configuracoes";
 

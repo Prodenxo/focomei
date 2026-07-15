@@ -12,18 +12,19 @@ export type BottomNavAction = AppScreenName | 'Menu';
 
 type Props = {
   current: AppScreenName;
+  showMeiTab: boolean;
   onSelect: (action: BottomNavAction) => void;
 };
 
-export default function AppBottomNav({ current, onSelect }: Props) {
+export default function AppBottomNav({ current, showMeiTab, onSelect }: Props) {
   const insets = useSafeAreaInsets();
   const { isDarkMode } = useThemeStore();
   const theme = useMemo(() => getTheme(isDarkMode), [isDarkMode]);
   const styles = useMemo(() => createStyles(theme, insets.bottom), [theme, insets.bottom]);
 
   const tabItems = useMemo(
-    () => filterNavItems(APP_NAV_ITEMS).filter((i) => i.showInBottomNav),
-    [],
+    () => filterNavItems(APP_NAV_ITEMS, showMeiTab).filter((i) => i.showInBottomNav),
+    [showMeiTab],
   );
 
   const primaryScreens = tabItems.map((i) => i.screen);

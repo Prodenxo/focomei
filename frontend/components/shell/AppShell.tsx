@@ -11,12 +11,14 @@ import { useShellLayout } from './useShellLayout';
 
 type Props = {
   currentScreen: AppScreenName;
+  showMeiTab: boolean;
   navigateTo: (screen: AppScreenName) => void;
   /** Navbar web. Desligado em onboarding bloqueado. */
   showTopNav?: boolean;
 };
 
 export default function AppShell({
+  showMeiTab,
   navigateTo,
   currentScreen,
   showTopNav = true,
@@ -31,6 +33,7 @@ export default function AppShell({
       {isWebDesktop && showTopNav ? (
         <AppTopNav
           current={currentScreen}
+          showMeiTab={showMeiTab}
           compact={false}
           onOpenSettings={() => navigateTo('Configuracoes')}
         />

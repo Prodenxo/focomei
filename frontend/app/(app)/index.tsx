@@ -1,2 +1,2 @@
-import MeiScreen from '@/screens/MeiScreen';
-export default MeiScreen;
+import DashboardScreen from '@/screens/DashboardScreen';
+export default DashboardScreen;

@@ -20,6 +20,7 @@ import { SignOutHeaderButton } from '../settings/SignOutHeaderButton';
 
 type Props = {
   current: AppScreenName;
+  showMeiTab: boolean;
   compact?: boolean;
   onOpenMenu?: () => void;
   onOpenSettings: () => void;
@@ -34,6 +35,7 @@ function initialsFromName(name: string): string {
 
 export default function AppTopNav({
   current,
+  showMeiTab,
   compact = false,
   onOpenMenu,
   onOpenSettings,
@@ -50,8 +52,8 @@ export default function AppTopNav({
   const navChrome = useMemo(() => mfTechPanelChrome(isDarkMode), [isDarkMode]);
 
   const topItems = useMemo(
-    () => filterNavItems(APP_NAV_ITEMS).filter((i) => i.showInTopNav),
-    [],
+    () => filterNavItems(APP_NAV_ITEMS, showMeiTab).filter((i) => i.showInTopNav),
+    [showMeiTab],
   );
 
   const displayName =

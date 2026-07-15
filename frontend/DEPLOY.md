@@ -6,11 +6,11 @@
 
 | Pasta | O que é | Deploy |
 |-------|---------|--------|
-| **`App/frontend/`** | **Único frontend** (Expo: web + mobile, `meiinfinito.com.br`) | Easypanel com `App/frontend/Dockerfile` |
-| **`Site/backend/`** | API Express | Easypanel backend (`Site/Dockerfile.backend`) |
-| **`Site/frontend/`** | Vite legado — **não usar em produção** | Ignorar |
+| **`frontend/`** | **Frontend de produção** (Expo web + mobile, `focomei.com.br`) | Easypanel com `frontend/Dockerfile` |
+| **`backend/`** / **`site/backend/`** | API Express | Easypanel backend |
+| **`App/frontend/`** | Cópia local de trabalho (gitignored) — **não** sobe no deploy | Só uso local |
 
-Toda alteração de UI (Orçamentos, Dashboard, etc.) vai **somente** em `App/frontend/`. Push/deploy do repo **Site** atualiza **só o backend**, não a interface.
+Toda alteração de UI que precisa ir ao site deve ficar em **`frontend/`**. Push do monorepo + **Redeploy** do serviço web no Easypanel.
 
 ## Repositórios GitHub
 

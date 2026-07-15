@@ -17,12 +17,19 @@ import { SETTINGS_ROUTES } from "../lib/settingsRoutes";
 import { hasRole, normalizeRoleValue, type UserRole } from "../lib/auth-roles";
 import { useThemeStore } from "../store/themeStore";
 import { getTheme } from "../lib/theme";
+import { startGoogleAuthFlow } from "../lib/google-auth-flow";
+import { checkGoogleAuth, disconnectGoogleAuth } from "../lib/google-calendar";
 import { supabase } from "../lib/supabase";
 import { phonesMatch, normalizePhoneDigits, getBrazilPhoneValidationError } from "../lib/internationalPhone";
 import { getErrorMessage } from "../lib/errors";
 import { logger } from "../lib/logger";
 import { useNavigationDrawer } from "../lib/navigationContext";
+import {
+  MfConfirmDialog,
+  type MfConfirmDialogVariant,
+} from "../components/ui/MfConfirmDialog";
 import { MfScrollView } from "../components/ui/MfScrollView";
+import { useGoogleCalendarStore } from "../store/googleCalendarStore";
 import { useAppToastStore } from "../store/appToastStore";
 import { ActivationSettingsEntry } from "../components/activation/ActivationSettingsEntry";
 import { SitePageShell } from "../components/onboarding/SitePageShell";
@@ -41,12 +48,20 @@ import { mfRadius, mfSpacing } from "../lib/theme";
 
 const DESKTOP_BREAKPOINT = 900;
 
+type GoogleDialogState =
+  | { kind: "disconnect-confirm" }
+  | { kind: "disconnect-success" }
+  | { kind: "disconnect-error"; message: string }
+  | { kind: "connect-success" }
+  | { kind: "connect-error"; message: string }
+  | null;
+
 export default function SettingsScreen() {
   const { user, phone, displayName, updatePhone, updateDisplayName } =
     useAuthStore();
   const { isDarkMode, preference, setPreference } = useThemeStore();
   const { isDarkMode: mfDark } = useMfTheme();
-  const { openDrawer, hasGlobalNav, requestSignOut } = useNavigationDrawer();
+  const { openDrawer, hasGlobalNav } = useNavigationDrawer();
   const { width: windowWidth } = useWindowDimensions();
   const isDesktop = windowWidth >= DESKTOP_BREAKPOINT;
   const isNarrow = windowWidth < 380;
@@ -58,8 +73,13 @@ export default function SettingsScreen() {
   const [savingPhone, setSavingPhone] = useState<boolean>(false);
   const [savingDisplayName, setSavingDisplayName] = useState<boolean>(false);
   const [savingEmail, setSavingEmail] = useState<boolean>(false);
+  const [googleAgendaIntegrated, setGoogleAgendaIntegrated] =
+    useState<boolean>(false);
+  const [checkingIntegration, setCheckingIntegration] = useState<boolean>(true);
   const router = useRouter();
   const [resolvedRole, setResolvedRole] = useState<UserRole | null>(null);
+  const [googleDialog, setGoogleDialog] = useState<GoogleDialogState>(null);
+  const [disconnectingGoogle, setDisconnectingGoogle] = useState(false);
   const theme = useMemo(() => getTheme(isDarkMode), [isDarkMode]);
   const siteTokens = useMemo(() => getSiteTokens(isDarkMode), [isDarkMode]);
   const styles = useMemo(
@@ -93,7 +113,16 @@ export default function SettingsScreen() {
     setEmailInput(user?.email || "");
   }, [user?.email]);
 
+  useEffect(() => {
+    checkGoogleAgendaIntegration();
+  }, [user]);
+
   const showAppToast = useAppToastStore((s) => s.show);
+  const googleConnectionVersion = useGoogleCalendarStore((s) => s.connectionVersion);
+
+  useEffect(() => {
+    void checkGoogleAgendaIntegration();
+  }, [googleConnectionVersion]);
 
   useEffect(() => {
     const loadRoleFromLink = async () => {
@@ -157,6 +186,136 @@ export default function SettingsScreen() {
 
     loadRoleFromLink();
   }, [user?.id]);
+
+  const checkGoogleAgendaIntegration = async () => {
+    setCheckingIntegration(true);
+    try {
+      if (!user) {
+        setGoogleAgendaIntegrated(false);
+        return;
+      }
+      const integrated = await checkGoogleAuth();
+      setGoogleAgendaIntegrated(integrated);
+    } catch (error) {
+      console.error("Erro ao verificar integração:", error);
+      setGoogleAgendaIntegrated(false);
+    } finally {
+      setCheckingIntegration(false);
+    }
+  };
+
+  const handleAuthorizeGoogle = async () => {
+    try {
+      if (!user) {
+        Alert.alert(
+          "Login Necessário",
+          "Você precisa fazer login no app antes de autorizar o acesso ao Google Calendar. Por favor, faça login primeiro.",
+          [{ text: "OK" }],
+        );
+        return;
+      }
+
+      const success = await startGoogleAuthFlow();
+
+      if (success === null) {
+        return;
+      }
+
+      if (success) {
+        setGoogleAgendaIntegrated(true);
+        useGoogleCalendarStore.getState().notifyConnectionChanged();
+        await checkGoogleAgendaIntegration();
+        showAppToast("Google Agenda vinculada com sucesso!", "success");
+      } else {
+        Alert.alert(
+          "Erro",
+          "Não foi possível autorizar o acesso ao Google Calendar. Por favor, tente novamente.",
+          [{ text: "OK" }],
+        );
+      }
+    } catch (error: any) {
+      console.error("Erro ao autorizar Google Agenda:", error);
+      Alert.alert(
+        "Erro",
+        error.message ||
+          "Erro ao autorizar Google Calendar. Por favor, tente novamente.",
+        [{ text: "OK" }],
+      );
+    }
+  };
+
+  const handleDisconnectGoogle = () => {
+    setGoogleDialog({ kind: "disconnect-confirm" });
+  };
+
+  const performDisconnectGoogle = async () => {
+    setDisconnectingGoogle(true);
+    try {
+      await disconnectGoogleAuth();
+      setGoogleAgendaIntegrated(false);
+      useGoogleCalendarStore.getState().notifyConnectionChanged();
+      setGoogleDialog({ kind: "disconnect-success" });
+    } catch (error: unknown) {
+      console.error("Erro ao desfazer integração:", error);
+      const msg =
+        error instanceof Error
+          ? error.message
+          : "Erro ao desconectar Google Calendar. Por favor, tente novamente.";
+      setGoogleDialog({ kind: "disconnect-error", message: msg });
+    } finally {
+      setDisconnectingGoogle(false);
+    }
+  };
+
+  const closeGoogleDialog = () => {
+    if (disconnectingGoogle) return;
+    setGoogleDialog(null);
+  };
+
+  const googleDialogVariant: MfConfirmDialogVariant =
+    googleDialog?.kind === "disconnect-confirm"
+      ? "confirm"
+      : googleDialog?.kind === "disconnect-success" ||
+          googleDialog?.kind === "connect-success"
+        ? "success"
+        : googleDialog?.kind === "disconnect-error" ||
+            googleDialog?.kind === "connect-error"
+          ? "error"
+          : "info";
+
+  const googleDialogTitle = (() => {
+    switch (googleDialog?.kind) {
+      case "disconnect-confirm":
+        return "Desconectar Google Agenda?";
+      case "disconnect-success":
+        return "Desconectado";
+      case "disconnect-error":
+        return "Não foi possível desconectar";
+      case "connect-success":
+        return "Google Agenda conectada";
+      case "connect-error":
+        return "Falha na conexão";
+      default:
+        return "";
+    }
+  })();
+
+  const googleDialogMessage = (() => {
+    switch (googleDialog?.kind) {
+      case "disconnect-confirm":
+        return "Seus compromissos no app deixam de sincronizar com o Google Calendar. Você pode conectar de novo quando quiser.";
+      case "disconnect-success":
+        return "A integração com Google Calendar foi removida desta conta.";
+      case "disconnect-error":
+        return googleDialog.message;
+      case "connect-success":
+        return "Sua conta Google foi vinculada. Compromissos criados no app podem aparecer no seu calendário.";
+      case "connect-error":
+        return googleDialog.message;
+      default:
+        return "";
+    }
+  })();
 
   const resolvePhoneSaveError = (error: unknown): string => {
     const code = (error as { code?: string })?.code;
@@ -301,7 +460,7 @@ export default function SettingsScreen() {
             </Text>
           </View>
           <Text style={[siteLeadStyle, { color: siteTokens.textSecondary }]}>
-            Perfil e preferências da sua conta MEI.
+            Perfil, integrações e preferências da sua conta.
           </Text>
         </View>
       ) : null}
@@ -358,26 +517,6 @@ export default function SettingsScreen() {
             />
           </SettingsSectionCard>
 
-          <SettingsSectionCard
-            title="Suporte"
-            description="Ajuda humana e comunidade"
-            style={isDesktop ? styles.sectionHalf : styles.sectionFull}
-          >
-            <SettingsActionLink
-              title="Fale com o Agente"
-              description="WhatsApp do consultor pessoal"
-              icon="logo-whatsapp"
-              onPress={() => void handleOpenWhatsapp()}
-            />
-            <SettingsActionLink
-              title="Grupo de suporte"
-              description="Tire dúvidas com outros usuários"
-              icon="chatbubbles-outline"
-              onPress={() => void handleOpenSupportGroup()}
-              accessibilityLabel="Entrar no grupo de suporte do WhatsApp"
-            />
-          </SettingsSectionCard>
-
           {hasRole(resolvedRole, ["admin"]) ? (
             <SettingsSectionCard
               title="Equipe"
@@ -400,6 +539,45 @@ export default function SettingsScreen() {
                 ) : null}
             </SettingsSectionCard>
           ) : null}
+
+          <SettingsSectionCard
+            title="Google Agenda"
+            description="Sincronize pagamentos e compromissos no calendário"
+            style={isDesktop ? styles.sectionHalf : styles.sectionFull}
+          >
+            {checkingIntegration ? (
+              <Text style={styles.loadingText}>
+                Verificando integração...
+              </Text>
+            ) : !googleAgendaIntegrated ? (
+              <TouchableOpacity
+                onPress={handleAuthorizeGoogle}
+                accessibilityRole="button"
+                accessibilityLabel="Conectar Google Agenda"
+                style={{ paddingVertical: 4 }}
+              >
+                <Text style={[styles.linkAction, { color: siteTokens.neon }]}>
+                  Conectar com Google
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.integrationStatus}>
+                <View style={styles.statusRow}>
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={18}
+                    color={theme.success}
+                  />
+                  <Text style={styles.statusText}>Conectado</Text>
+                </View>
+                <TouchableOpacity onPress={handleDisconnectGoogle}>
+                  <Text style={[styles.linkDanger, { color: siteTokens.textSecondary }]}>
+                    Desconectar
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </SettingsSectionCard>
 
           <SettingsSectionCard
             title="Aparência"
@@ -469,11 +647,24 @@ export default function SettingsScreen() {
             </View>
           </SettingsSectionCard>
 
-          <SettingsSectionCard title="Sessão" style={styles.sectionFull}>
-            <TouchableOpacity style={styles.signOutBtn} onPress={requestSignOut}>
-              <Ionicons name="log-out-outline" size={18} color={siteTokens.textSecondary} />
-              <Text style={[styles.signOutText, { color: siteTokens.textSecondary }]}>Sair da conta</Text>
-            </TouchableOpacity>
+          <SettingsSectionCard
+            title="Suporte"
+            description="Ajuda humana e comunidade"
+            style={styles.sectionFull}
+          >
+            <SettingsActionLink
+              title="Fale com o Agente"
+              description="WhatsApp do consultor pessoal"
+              icon="logo-whatsapp"
+              onPress={() => void handleOpenWhatsapp()}
+            />
+            <SettingsActionLink
+              title="Grupo de suporte"
+              description="Tire dúvidas com outros usuários"
+              icon="chatbubbles-outline"
+              onPress={() => void handleOpenSupportGroup()}
+              accessibilityLabel="Entrar no grupo de suporte do WhatsApp"
+            />
           </SettingsSectionCard>
       </View>
     </>
@@ -504,6 +695,36 @@ export default function SettingsScreen() {
         >
           {settingsBody}
         </MfScrollView>
+
+      <MfConfirmDialog
+        visible={googleDialog !== null}
+        variant={googleDialogVariant}
+        confirmIntent={
+          googleDialog?.kind === "disconnect-confirm" ? "danger" : "primary"
+        }
+        iconName={
+          googleDialog?.kind === "disconnect-confirm"
+            ? "unlink-outline"
+            : googleDialog?.kind === "connect-success"
+              ? "logo-google"
+              : undefined
+        }
+        title={googleDialogTitle}
+        message={googleDialogMessage}
+        confirmLabel={
+          googleDialog?.kind === "disconnect-confirm"
+            ? "Desconectar"
+            : "Entendi"
+        }
+        cancelLabel="Cancelar"
+        loading={disconnectingGoogle}
+        onConfirm={
+          googleDialog?.kind === "disconnect-confirm"
+            ? () => void performDisconnectGoogle()
+            : undefined
+        }
+        onCancel={closeGoogleDialog}
+      />
 
       </SafeAreaView>
     </SitePageShell>
@@ -560,27 +781,23 @@ const createStyles = (
         ? {
             flexDirection: 'row' as const,
             flexWrap: 'wrap' as const,
+            alignItems: 'stretch' as const,
             justifyContent: 'space-between' as const,
           }
-        : null),
+        : {
+            flexDirection: 'column' as const,
+          }),
     },
     sectionFull: {
       width: '100%',
+      flexGrow: 0,
+      flexShrink: 0,
     },
     sectionHalf: {
       width: isDesktop ? '48.5%' : '100%',
       minWidth: isDesktop ? 280 : undefined,
-    },
-    signOutBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      alignSelf: 'flex-start',
-      paddingVertical: 4,
-    },
-    signOutText: {
-      fontSize: 14,
-      fontWeight: '500',
+      flexGrow: 0,
+      flexShrink: 0,
     },
     loadingText: {
       fontSize: 14,

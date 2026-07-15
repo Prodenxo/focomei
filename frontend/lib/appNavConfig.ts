@@ -9,6 +9,7 @@ export type AppNavItem = {
   label: string;
   icon: IoniconName;
   activeIcon: IoniconName;
+  requiresMeiAccess?: boolean;
   /** Exibido na barra superior (web) */
   showInTopNav?: boolean;
   /** Exibido na tab bar inferior (native) */
@@ -17,10 +18,63 @@ export type AppNavItem = {
 
 export const APP_NAV_ITEMS: AppNavItem[] = [
   {
+    screen: 'Dashboard',
+    label: 'Visão Geral',
+    icon: 'home-outline',
+    activeIcon: 'home',
+    showInTopNav: true,
+    showInBottomNav: true,
+  },
+  {
+    screen: 'Transacoes',
+    label: 'Transações',
+    icon: 'swap-horizontal-outline',
+    activeIcon: 'swap-horizontal',
+    showInTopNav: true,
+    showInBottomNav: true,
+  },
+  {
+    screen: 'Contas',
+    label: 'Contas',
+    icon: 'card-outline',
+    activeIcon: 'card',
+    showInTopNav: true,
+  },
+  {
+    screen: 'ContaGlobal',
+    label: 'Conta global',
+    icon: 'globe-outline',
+    activeIcon: 'globe',
+    showInTopNav: true,
+  },
+  {
+    screen: 'Categorias',
+    label: 'Categorias',
+    icon: 'apps-outline',
+    activeIcon: 'apps',
+    showInTopNav: true,
+  },
+  {
+    screen: 'Orcamentos',
+    label: 'Orçamentos',
+    icon: 'wallet-outline',
+    activeIcon: 'wallet',
+    showInTopNav: true,
+  },
+  {
+    screen: 'Agenda',
+    label: 'Agenda',
+    icon: 'calendar-outline',
+    activeIcon: 'calendar',
+    showInTopNav: true,
+    showInBottomNav: true,
+  },
+  {
     screen: 'MeuMei',
     label: 'Meu MEI',
     icon: 'briefcase-outline',
     activeIcon: 'briefcase',
+    requiresMeiAccess: true,
     showInTopNav: true,
     showInBottomNav: true,
   },
@@ -33,27 +87,30 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
 ];
 
 export const SCREEN_TO_HREF: Record<AppScreenName, string> = {
-  MeuMei: '/(app)/',
+  Dashboard: '/(app)/',
+  Transacoes: '/(app)/transacoes',
+  Contas: '/(app)/contas',
+  ContaGlobal: '/(app)/conta-global',
+  Categorias: '/(app)/categorias',
+  Orcamentos: '/(app)/orcamentos',
+  Agenda: '/(app)/agenda',
+  MeuMei: '/(app)/mei',
   Configuracoes: '/(app)/configuracoes',
 };
 
 const PATH_SUFFIX_TO_SCREEN: Record<string, AppScreenName> = {
-  '': 'MeuMei',
-  '/': 'MeuMei',
-  '/index': 'MeuMei',
+  '': 'Dashboard',
+  '/': 'Dashboard',
+  '/index': 'Dashboard',
+  '/transacoes': 'Transacoes',
+  '/contas': 'Contas',
+  '/conta-global': 'ContaGlobal',
+  '/categorias': 'Categorias',
+  '/orcamentos': 'Orcamentos',
+  '/agenda': 'Agenda',
   '/mei': 'MeuMei',
   '/configuracoes': 'Configuracoes',
 };
-
-/** Rotas legadas do financeiro pessoal → home MEI. */
-const LEGACY_FINANCE_PATHS = new Set([
-  '/transacoes',
-  '/contas',
-  '/conta-global',
-  '/categorias',
-  '/orcamentos',
-  '/agenda',
-]);
 
 /** Normaliza pathname do Expo Router para `AppScreenName`. */
 export function resolveAppScreenFromPath(pathname?: string | null): AppScreenName {
@@ -66,16 +123,13 @@ export function resolveAppScreenFromPath(pathname?: string | null): AppScreenNam
   if (suffix === '/configuracoes' || suffix.startsWith('/configuracoes/')) {
     return 'Configuracoes';
   }
-  if (suffix === '/solicitacoes') {
+  if (suffix === '/solicitacoes' || suffix === '/planos') {
     return 'Configuracoes';
   }
-  if (LEGACY_FINANCE_PATHS.has(suffix)) {
-    return 'MeuMei';
-  }
 
-  return PATH_SUFFIX_TO_SCREEN[suffix] ?? 'MeuMei';
+  return PATH_SUFFIX_TO_SCREEN[suffix] ?? 'Dashboard';
 }
 
-export function filterNavItems(items: AppNavItem[]): AppNavItem[] {
-  return items;
+export function filterNavItems(items: AppNavItem[], showMei: boolean): AppNavItem[] {
+  return items.filter((item) => !item.requiresMeiAccess || showMei);
 }
