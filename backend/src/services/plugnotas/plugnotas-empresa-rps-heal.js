@@ -1,5 +1,9 @@
 import { unwrapPlugnotasEmpresaRecord } from '../mei-emitente-empresa-sync.js';
-import { atualizarEmpresaPlugNotas, consultarEmpresaPlugNotas } from './empresa.service.js';
+import {
+  atualizarEmpresaPlugNotas,
+  consultarEmpresaPlugNotas,
+  resolverCertificadoIdPorCnpj,
+} from './empresa.service.js';
 import { consultarNfsePorPeriodo } from './nfse.service.js';
 import {
   cloneEmpresaPlugnotasRpsInicialPost,
@@ -149,6 +153,23 @@ export function isNfseRpsDuplicateRejectionLoose(response) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Erro ao PATCH do contador RPS na empresa (antes da emissão) quando o nº já foi consumido.
+ * @param {unknown} error
+ */
+export function isPlugnotasNfseRpsNumeroJaUtilizadoError(error) {
+  const message = (error instanceof Error ? error.message : String(error ?? '')).toLowerCase();
+  if (!message) return false;
+  const mentionsRps = message.includes('rps') || message.includes('numeracao') || message.includes('numeração');
+  if (!mentionsRps) return false;
+  return message.includes('já utiliz')
+    || message.includes('ja utiliz')
+    || message.includes('já utilizada')
+    || message.includes('ja utilizada')
+    || message.includes('em uso')
+    || message.includes('duplic');
 }
 
 /**
@@ -346,6 +367,51 @@ const buildMinimalNfseConfigForRpsPatch = (existingConfig, configRps) => {
   };
 };
 
+/**
+ * ID do certificado na ficha da empresa (GET) — formatos string ou objeto `{ id }`.
+ * @param {unknown} empresaJson
+ * @returns {string|null}
+ */
+const readCertificadoIdFromEmpresaJson = (empresaJson) => {
+  const empresa = unwrapPlugnotasEmpresaRecord(empresaJson);
+  if (!empresa || typeof empresa !== 'object') return null;
+  const candidates = [
+    empresa.certificado,
+    empresa.certificadoId,
+    empresa.idCertificado,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+      const nested = candidate.id ?? candidate._id ?? candidate.uuid;
+      if (nested != null && String(nested).trim()) return String(nested).trim();
+    }
+  }
+  return null;
+};
+
+/**
+ * Resolve `certificado` obrigatório no PATCH /empresa (PlugNotas).
+ * @param {string} cnpj
+ * @param {unknown} empresaJson
+ * @returns {Promise<string|null>}
+ */
+const resolveCertificadoIdForEmpresaRpsPatch = async (cnpj, empresaJson) => {
+  const fromEmpresa = readCertificadoIdFromEmpresaJson(empresaJson);
+  if (fromEmpresa) return fromEmpresa;
+  try {
+    const resolved = await resolverCertificadoIdPorCnpj(cnpj);
+    const id = resolved != null ? String(resolved).trim() : '';
+    return id || null;
+  } catch (error) {
+    console.warn(
+      '[plugnotas-rps] não foi possível resolver certificado para PATCH RPS',
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
+};
+
 const patchPlugnotasEmpresaRpsNextNumero = async (cnpj, empresaJson, { serie, lote, numero }) => {
   const empresa = unwrapPlugnotasEmpresaRecord(empresaJson);
   const nfseAtivo = empresa?.nfse?.ativo !== false;
@@ -353,9 +419,17 @@ const patchPlugnotasEmpresaRpsNextNumero = async (cnpj, empresaJson, { serie, lo
     ? empresa.nfse.config
     : { producao: true };
   const { rootRps, configRps } = buildPlugnotasEmpresaRpsBlocks({ serie, lote, numero });
+  const certificado = await resolveCertificadoIdForEmpresaRpsPatch(cnpj, empresaJson);
+  if (!certificado) {
+    throw new Error(
+      'Certificado digital não encontrado no emissor para alinhar a numeração. '
+      + 'Em Certificado, confirme o .pfx activo ou grave de novo a empresa.',
+    );
+  }
 
   await atualizarEmpresaPlugNotas({
     cpfCnpj: cnpj,
+    certificado,
     rps: rootRps,
     nfse: {
       ativo: nfseAtivo,

@@ -117,5 +117,17 @@ test('extractCodigosServicoSearchTokens — remove stopwords e acentos', async (
   const tokens = mod.extractCodigosServicoSearchTokens(
     'Desenvolvimento e licenciamento de programas de computador',
   );
-  assert.deepEqual(tokens, ['desenvolvimento', 'licenciamento', 'programas', 'computador']);
+  // "desenvolvimento" é fraco; tokens fortes / mais longos vêm primeiro
+  assert.ok(tokens.includes('licenciamento'));
+  assert.ok(tokens.includes('programas'));
+  assert.ok(tokens.includes('computador'));
+});
+
+test('extractCodigosServicoSearchTokens — prioriza token forte (treinamento)', async () => {
+  const mod = await import('../src/services/mei-notas.service.js');
+  const tokens = mod.extractCodigosServicoSearchTokens(
+    'Treinamento em desenvolvimento profissional e gerencial',
+  );
+  assert.equal(tokens[0], 'treinamento');
+  assert.ok(!tokens.includes('desenvolvimento') || tokens.indexOf('treinamento') < tokens.indexOf('desenvolvimento'));
 });

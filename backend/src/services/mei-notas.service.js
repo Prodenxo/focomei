@@ -17,6 +17,7 @@ import {
   isNfseE0014FromPlugnotasResponse,
   isNfseRejectedPlugnotasResponse,
   isNfseRpsDuplicateRejectionLoose,
+  isPlugnotasNfseRpsNumeroJaUtilizadoError,
   queryAuthoritativeNfseRpsMaxUsed,
   readRpsNumeroFromNfseHistoryRow,
   readRpsNumeroFromNfsePlugnotasBody,
@@ -1157,7 +1158,7 @@ const parsePositiveIntLocal = (value, fallback = NaN) => {
 const NFSE_EMIT_TERMINAL_POLL_MAX_MS = 8000;
 const NFSE_EMIT_PROCESSING_POLL_MAX_MS = 28000;
 const NFSE_EMIT_TERMINAL_POLL_INTERVAL_MS = 1000;
-const NFSE_EMIT_E0014_RETRY_MAX = 2;
+const NFSE_EMIT_E0014_RETRY_MAX = 5;
 const NFSE_PERIODO_FAST_PAGES = 6;
 const NFSE_PROCESSING_FOLLOWUP_MS = 95000;
 /** Tempo mínimo na lista principal antes de arquivar E0014 automaticamente. */
@@ -1425,12 +1426,40 @@ const emitNfseWithAutoRpsRecovery = async (
       reserved: allocation.numero,
     });
 
-    await applyAllocatedNfseRpsToEmitPayload(
-      emitPayload,
-      cnpjPrestadorNfse,
-      allocation,
-      empresaJsonCache,
-    );
+    try {
+      await applyAllocatedNfseRpsToEmitPayload(
+        emitPayload,
+        cnpjPrestadorNfse,
+        allocation,
+        empresaJsonCache,
+      );
+    } catch (syncError) {
+      // Contador local atrasado vs Plug (Pendente/Processando/Cancelado): sync falha
+      // ANTES do POST — sem isso o usuário vê "conflito RPS" e nada aparece na Plug.
+      if (isPlugnotasNfseRpsNumeroJaUtilizadoError(syncError)) {
+        console.warn('[plugnotas-rps] sync pré-emissão: número já usado — avanço e nova reserva', {
+          attempt: attempt + 1,
+          blockedAt: allocation.numero,
+          message: syncError instanceof Error ? syncError.message : String(syncError),
+        });
+        await forceNfseRpsCounterFloor(getDb, cnpjPrestadorNfse, allocation.numero).catch(() => {});
+        await advancePlugnotasNfseRpsAfterEmit(cnpjPrestadorNfse, {
+          serie: allocation.serie,
+          lote: allocation.lote,
+          numero: allocation.numero,
+        }).catch(() => {});
+        localMax = Math.max(localMax, allocation.numero);
+        if (attempt + 1 >= NFSE_EMIT_E0014_RETRY_MAX) {
+          throw new Error(
+            'Numeração RPS/DPS em conflito na PlugNotas (número já utilizado). '
+            + 'No painel PlugNotas, confira Pendente/Processando; se persistir, '
+            + 'em Certificado → Empresa aumente o próximo número acima do último DPS.',
+          );
+        }
+        continue;
+      }
+      throw syncError;
+    }
 
     emitPayload.idIntegracao = buildMeiIdIntegracao(userId);
     response = await adapter.emitir(emitPayload);
@@ -2260,7 +2289,20 @@ const CODALOGO_SERVICO_STOPWORDS = new Set([
 ]);
 
 /**
+ * Tokens ambíguos: aparecem em muitos códigos LC 116 sem distinguir o ramo
+ * (ex.: "desenvolvimento" casa TI e treinamento gerencial).
+ */
+const CODALOGO_SERVICO_WEAK_TOKENS = new Set([
+  'desenvolvimento', 'profissional', 'gerencial', 'natureza', 'qualquer',
+  'geral', 'gerais', 'customizavel', 'customizaveis', 'inclusive',
+  'pesquisas', 'pesquisa', 'especializado', 'especializados', 'especializada',
+]);
+
+const isStrongCodigoServicoToken = (token) => !CODALOGO_SERVICO_WEAK_TOKENS.has(token);
+
+/**
  * Extrai tokens úteis da descrição do CNAE para buscar na LC 116.
+ * Prioriza tokens fortes (não ambíguos) no início da lista.
  * @param {unknown} text
  * @param {{ max?: number }} [opts]
  * @returns {string[]}
@@ -2275,13 +2317,19 @@ export const extractCodigosServicoSearchTokens = (text, { max = 4 } = {}) => {
   const unique = [];
   for (const w of words) {
     if (!unique.includes(w)) unique.push(w);
-    if (unique.length >= max) break;
   }
-  return unique;
+  unique.sort((a, b) => {
+    const sa = isStrongCodigoServicoToken(a) ? 1 : 0;
+    const sb = isStrongCodigoServicoToken(b) ? 1 : 0;
+    if (sb !== sa) return sb - sa;
+    return b.length - a.length;
+  });
+  return unique.slice(0, max);
 };
 
 /**
  * Sugere códigos LC 116 / lista nacional a partir do texto do CNAE (não é mapa oficial).
+ * Evita “falso positivo” por palavras genéricas (ex.: desenvolvimento → sistemas).
  * @param {{ texto?: string, limit?: number }} [opts]
  */
 export const sugerirCodigosServicosPorTexto = async ({ texto = '', limit = 8 } = {}) => {
@@ -2291,8 +2339,12 @@ export const sugerirCodigosServicosPorTexto = async ({ texto = '', limit = 8 } =
     return listarCodigosServicosReferencia({ q: String(texto || '').trim().slice(0, 40), limit: safeLimit });
   }
 
+  const strongTokens = tokens.filter(isStrongCodigoServicoToken);
+  // Com token forte (ex.: treinamento), busca só por ele — não espalha por "desenvolvimento".
+  const queryTokens = strongTokens.length > 0 ? strongTokens : tokens;
+
   const dbClient = getDb();
-  const likeFilters = tokens.flatMap((token) => {
+  const likeFilters = queryTokens.flatMap((token) => {
     const safe = sanitizeSearchTerm(token);
     if (!safe) return [];
     const like = `%${safe}%`;
@@ -2315,20 +2367,37 @@ export const sugerirCodigosServicosPorTexto = async ({ texto = '', limit = 8 } =
       .replace(/[\u0300-\u036f]/g, '');
     const codigo = String(row?.codigo || '').toLowerCase();
     let score = 0;
+    let strongHits = 0;
     for (const token of tokens) {
-      if (desc.includes(token) || codigo.includes(token)) score += 1;
+      if (!(desc.includes(token) || codigo.includes(token))) continue;
+      if (isStrongCodigoServicoToken(token)) {
+        score += 4;
+        strongHits += 1;
+      } else {
+        score += 1;
+      }
     }
-    return { row, score };
+    return { row, score, strongHits };
   });
 
-  scored.sort((a, b) => {
+  // Se o CNAE tem termos fortes, descarta matches só em palavra fraca.
+  const ranked = (strongTokens.length > 0
+    ? scored.filter((s) => s.strongHits > 0)
+    : scored
+  ).filter((s) => s.score > 0);
+
+  ranked.sort((a, b) => {
+    if (b.strongHits !== a.strongHits) return b.strongHits - a.strongHits;
     if (b.score !== a.score) return b.score - a.score;
     return String(a.row.codigo || '').localeCompare(String(b.row.codigo || ''), 'pt-BR');
   });
 
-  const top = scored.filter((s) => s.score > 0).slice(0, safeLimit).map((s) => s.row);
+  const top = ranked.slice(0, safeLimit).map((s) => s.row);
   if (top.length > 0) return enrichCodigosServicosComNbs(top);
-  return listarCodigosServicosReferencia({ q: tokens[0], limit: safeLimit });
+  return listarCodigosServicosReferencia({
+    q: queryTokens[0] || tokens[0],
+    limit: safeLimit,
+  });
 };
 
 const UUID_RE =

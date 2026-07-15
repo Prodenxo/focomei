@@ -83,7 +83,7 @@ export function humanizeFiscalEmitError(
     lower.includes('rps')
     && (lower.includes('duplic') || lower.includes('já utiliz') || lower.includes('ja utiliz') || lower.includes('em uso'))
   ) {
-    return 'Numeração RPS em conflito: o número desta nota já foi usado. Aguarde a nota anterior ser autorizada ou ajuste lote/série/número em Certificado → Empresa.'
+    return 'Numeração RPS/DPS em conflito: esse número já foi usado na PlugNotas (pode estar Pendente/Processando/Cancelado). Aguarde ou aumente o próximo número em Certificado → Empresa.'
   }
 
   if (
