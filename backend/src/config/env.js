@@ -35,8 +35,16 @@ const DEFAULT_DEV_CORS_ORIGINS = [
   "http://localhost:3001",
   "http://localhost:3002",
 ];
+/** Origens de produto conhecidas (sempre mergeadas, mesmo com CORS_ORIGIN custom). */
+const DEFAULT_PRODUCT_CORS_ORIGINS = [
+  "https://focomei.com.br",
+  "http://focomei.com.br",
+  "https://www.focomei.com.br",
+  "https://meiinfinito.com.br",
+  "https://www.meiinfinito.com.br",
+];
 const DEFAULT_PROD_CORS_ORIGIN =
-  process.env.FRONTEND_URL || "https://meiinfinito.com.br";
+  process.env.FRONTEND_URL || "https://focomei.com.br";
 const DEFAULT_CORS_ORIGINS =
   process.env.NODE_ENV === "development"
     ? DEFAULT_DEV_CORS_ORIGINS
@@ -49,7 +57,13 @@ const normalizeOrigin = (s) => (s || "").trim().replace(/\/$/, "");
 const baseOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(",").map(normalizeOrigin)
   : DEFAULT_CORS_ORIGINS;
-const mergedCorsOrigin = [...new Set([...baseOrigins, ...EXPO_WEB_ORIGINS])]
+const mergedCorsOrigin = [
+  ...new Set([
+    ...baseOrigins,
+    ...DEFAULT_PRODUCT_CORS_ORIGINS,
+    ...EXPO_WEB_ORIGINS,
+  ]),
+]
   .filter(Boolean)
   .join(",");
 
@@ -72,7 +86,7 @@ export const env = {
   /** Garante tabela calendar_checklist_completions no arranque (default true). */
   CALENDAR_CHECKLIST_SCHEMA_ENSURE:
     process.env.CALENDAR_CHECKLIST_SCHEMA_ENSURE || "",
-  FRONTEND_URL: process.env.FRONTEND_URL || "https://meiinfinito.com.br",
+  FRONTEND_URL: process.env.FRONTEND_URL || "https://focomei.com.br",
   /** Resend — envio de recuperação de senha (recomendado para Hotmail/Outlook). */
   RESEND_API_KEY: normalizeEnvSecret(process.env.RESEND_API_KEY || ""),
   RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL || "",
