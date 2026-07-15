@@ -59,3 +59,10 @@ final_review_gate.mjs
 
 # Supabase local
 supabase/.temp/
+
+# Cópia Meu Financeiro (apps/meiinfinito) — nunca commitar secrets locais
+apps/meiinfinito/**/.env
+apps/meiinfinito/**/.env.*
+!apps/meiinfinito/**/.env.example
+apps/meiinfinito/**/node_modules/
+apps/meiinfinito/**/dist/
