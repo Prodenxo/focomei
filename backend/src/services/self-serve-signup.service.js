@@ -13,6 +13,7 @@ import {
   isLocalAuthMode,
 } from './local-auth.service.js';
 import { assertStrongPassword } from '../utils/passwordPolicy.js';
+import { isValidCpf, normalizeDocDigits } from '../utils/cpf-cnpj.js';
 
 const normalizeText = (value) => {
   if (value == null) return null;
@@ -52,9 +53,11 @@ const submitSelfServeEmpresaSignupLocal = async (body = {}, originMeta = {}) => 
   const password = String(user.password || '').trim();
   const fullName = normalizeText(user.fullName);
   const phone = normalizeText(user.phone);
+  const cpf = normalizeDocDigits(user.cpf);
 
   if (!email) throw badRequest('E-mail é obrigatório.');
   if (!fullName) throw badRequest('Nome completo é obrigatório.');
+  if (!cpf || !isValidCpf(cpf)) throw badRequest('CPF inválido.');
   assertStrongPassword(password);
 
   const cnpj = String(empresaInput.cnpj || '').replace(/\D/g, '');
@@ -107,6 +110,7 @@ const submitSelfServeEmpresaSignupLocal = async (body = {}, originMeta = {}) => 
     full_name: fullName,
     display_name: fullName,
     phone: phone || null,
+    cpf,
     access_request_observacao: observacao,
     access_requested_at: new Date().toISOString(),
     signup_mode: signupMode,
@@ -194,9 +198,11 @@ export const submitSelfServeEmpresaSignup = async (body = {}, originMeta = {}) =
   const password = String(user.password || '').trim();
   const fullName = normalizeText(user.fullName);
   const phone = normalizeText(user.phone);
+  const cpf = normalizeDocDigits(user.cpf);
 
   if (!email) throw badRequest('E-mail é obrigatório.');
   if (!fullName) throw badRequest('Nome completo é obrigatório.');
+  if (!cpf || !isValidCpf(cpf)) throw badRequest('CPF inválido.');
   if (password.length < 8) throw badRequest('Senha deve ter pelo menos 8 caracteres.');
 
   const cnpj = String(empresaInput.cnpj || '').replace(/\D/g, '');
@@ -257,6 +263,7 @@ export const submitSelfServeEmpresaSignup = async (body = {}, originMeta = {}) =
       full_name: fullName,
       display_name: fullName,
       phone: phone || null,
+      cpf,
       access_request_observacao: observacao,
       access_requested_at: new Date().toISOString(),
       signup_mode: signupMode,
@@ -312,6 +319,7 @@ export const submitSelfServeEmpresaSignup = async (body = {}, originMeta = {}) =
     fullName,
     email,
     phone: phone || null,
+    cpf,
     empresaNome,
     cnpj,
     observacao,

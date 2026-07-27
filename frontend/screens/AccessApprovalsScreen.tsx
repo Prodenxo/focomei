@@ -36,6 +36,7 @@ type AccessRequest = {
   email: string | null;
   fullName: string | null;
   phone: string | null;
+  cpf: string | null;
   observacao: string | null;
   requestedAt: string | null;
   empresa: AccessRequestEmpresa | null;
@@ -55,6 +56,13 @@ function formatCnpj(value: string | null): string {
   const d = value.replace(/\D/g, '');
   if (d.length !== 14) return value;
   return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+}
+
+function formatCpf(value: string | null): string {
+  if (!value) return '—';
+  const d = value.replace(/\D/g, '');
+  if (d.length !== 11) return value;
+  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
 }
 
 function formatDate(value: string | null): string {
@@ -295,6 +303,7 @@ export default function AccessApprovalsScreen({ onBack }: Props) {
                   <View style={styles.flex1}>
                     <Text style={styles.name}>{req.fullName || 'Sem nome'}</Text>
                     {req.email ? <Text style={styles.muted}>{req.email}</Text> : null}
+                    {req.cpf ? <Text style={styles.muted}>CPF: {formatCpf(req.cpf)}</Text> : null}
                     {req.phone ? <Text style={styles.muted}>{req.phone}</Text> : null}
                   </View>
                 </View>

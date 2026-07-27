@@ -108,11 +108,18 @@ const formatCnpjDisplay = (cnpj) => {
   return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
 };
 
+const formatCpfDisplay = (cpf) => {
+  const d = String(cpf || '').replace(/\D/g, '');
+  if (d.length !== 11) return d || '—';
+  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+};
+
 /**
  * @param {{
  *   fullName?: string | null,
  *   email?: string | null,
  *   phone?: string | null,
+ *   cpf?: string | null,
  *   empresaNome?: string | null,
  *   cnpj?: string | null,
  *   observacao?: string | null,
@@ -124,6 +131,7 @@ export const buildAccessRequestSubmittedSuperadminMessage = (input) => {
     '',
     `Nome: ${input.fullName || '—'}`,
     `E-mail: ${input.email || '—'}`,
+    `CPF: ${formatCpfDisplay(input.cpf)}`,
     `Telefone: ${input.phone || '—'}`,
     `Empresa: ${input.empresaNome || '—'}`,
     `CNPJ: ${formatCnpjDisplay(input.cnpj)}`,

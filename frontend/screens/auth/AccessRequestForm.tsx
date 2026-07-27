@@ -33,6 +33,7 @@ import {
 } from '../../lib/passwordPolicy';
 import { resolveAppOrigin } from '../../lib/appOrigin';
 import { useAuthStore } from '../../store/authStore';
+import { isValidCpfDigits } from '../../lib/validateCnpj';
 
 export type AccessRequestFormProps = {
   onGoToLogin: () => void;
@@ -63,6 +64,20 @@ function maskCnpj(value: string): string {
   return d;
 }
 
+function maskCpf(value: string): string {
+  const d = value.replace(/\D/g, '').slice(0, 11);
+  if (d.length > 9) {
+    return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+  }
+  if (d.length > 6) {
+    return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`;
+  }
+  if (d.length > 3) {
+    return `${d.slice(0, 3)}.${d.slice(3)}`;
+  }
+  return d;
+}
+
 export function AccessRequestForm({
   onGoToLogin,
   onDone,
@@ -79,6 +94,7 @@ export function AccessRequestForm({
   // Dados do usuário
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [cpf, setCpf] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -151,6 +167,7 @@ export function AccessRequestForm({
     if (
       !fullName.trim() ||
       !email.trim() ||
+      !cpf.trim() ||
       !phone.trim() ||
       !password.trim() ||
       !confirmPassword.trim()
@@ -166,6 +183,11 @@ export function AccessRequestForm({
     const eName = validateOptionalDisplayName(fullName);
     if (eName) {
       setError(eName);
+      return;
+    }
+    const cpfDigits = cpf.replace(/\D/g, '');
+    if (!isValidCpfDigits(cpfDigits)) {
+      setError('Informe um CPF válido.');
       return;
     }
     const pwd = validateStrongPassword(password);
@@ -201,6 +223,7 @@ export function AccessRequestForm({
           user: {
             fullName: fullName.trim(),
             email: email.trim(),
+            cpf: cpf.replace(/\D/g, ''),
             phone: phone.trim() || null,
             password,
           },
@@ -303,7 +326,19 @@ export function AccessRequestForm({
           leftIcon="mail-outline"
         />
       </View>
-      <View style={cellFull}>
+      <View style={cellHalf}>
+        <AuthInput
+          label="CPF"
+          required
+          palette={palette}
+          placeholder="000.000.000-00"
+          value={cpf}
+          onChangeText={(v) => setCpf(maskCpf(v))}
+          keyboardType="numeric"
+          leftIcon="card-outline"
+        />
+      </View>
+      <View style={cellHalf}>
         <AuthPhoneInput
           label="Telefone"
           required

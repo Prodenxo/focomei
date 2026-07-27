@@ -133,6 +133,7 @@ export const listPendingAccessRequestsLocal = async () => {
       email: user.email ?? null,
       fullName: meta.full_name ?? meta.display_name ?? meta.name ?? null,
       phone: meta.phone ?? user.phone ?? null,
+      cpf: meta.cpf ?? null,
       observacao: meta.access_request_observacao ?? meta.observacao ?? null,
       requestedAt: link.created_at ?? null,
       empresa: {
@@ -187,6 +188,7 @@ export const listPendingAccessRequests = async (sb) => {
           email: authData?.user?.email ?? null,
           fullName: meta.full_name ?? meta.name ?? null,
           phone: meta.phone ?? authData?.user?.phone ?? null,
+          cpf: meta.cpf ?? null,
           observacao: meta.access_request_observacao ?? meta.observacao ?? null,
           requestedAt: link.created_at ?? null,
           empresa: {
@@ -228,6 +230,10 @@ export const findPendingAccessRequestByIdentifier = (pending, identifier) => {
 
   if (idDigits.length === 14) {
     return pending.find((r) => onlyDigits(r.empresa?.cnpj) === idDigits) ?? null;
+  }
+
+  if (idDigits.length === 11) {
+    return pending.find((r) => onlyDigits(r.cpf) === idDigits) ?? null;
   }
 
   if (idDigits.length >= 10) {

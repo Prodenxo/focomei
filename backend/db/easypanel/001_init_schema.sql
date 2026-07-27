@@ -8,7 +8,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- ---------------------------------------------------------------------------
 -- Auth próprio (substitui auth.users)
 -- ---------------------------------------------------------------------------
-CREATE TABLE public.users (
+CREATE TABLE IF NOT EXISTS public.users (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   email text NOT NULL,
   password_hash text NOT NULL,
@@ -22,11 +22,11 @@ CREATE TABLE public.users (
   CONSTRAINT users_email_lower_unique UNIQUE (email)
 );
 
-CREATE UNIQUE INDEX users_phone_unique
+CREATE UNIQUE INDEX IF NOT EXISTS users_phone_unique
   ON public.users (phone)
   WHERE phone IS NOT NULL AND deleted_at IS NULL;
 
-CREATE TABLE public.profiles (
+CREATE TABLE IF NOT EXISTS public.profiles (
   id uuid PRIMARY KEY REFERENCES public.users (id) ON DELETE CASCADE,
   role text NOT NULL DEFAULT 'usuario'
     CHECK (role = ANY (ARRAY['superadmin', 'admin', 'usuario', 'outsider'])),
@@ -34,13 +34,13 @@ CREATE TABLE public.profiles (
   last_seen_update_id text
 );
 
-CREATE TABLE public.roles (
+CREATE TABLE IF NOT EXISTS public.roles (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at timestamptz NOT NULL DEFAULT now(),
   roles text NOT NULL DEFAULT '' UNIQUE
 );
 
-CREATE TABLE public.empresas (
+CREATE TABLE IF NOT EXISTS public.empresas (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at timestamptz NOT NULL DEFAULT now(),
   empresa text NOT NULL UNIQUE,
@@ -67,7 +67,7 @@ CREATE TABLE public.empresas (
   requested_by uuid REFERENCES public.users (id)
 );
 
-CREATE TABLE public.role_x_user_x_empresa (
+CREATE TABLE IF NOT EXISTS public.role_x_user_x_empresa (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at timestamptz NOT NULL DEFAULT now(),
   user_id uuid REFERENCES public.users (id),
@@ -78,7 +78,7 @@ CREATE TABLE public.role_x_user_x_empresa (
   expires_at timestamptz
 );
 
-CREATE TABLE public.empresa_invites (
+CREATE TABLE IF NOT EXISTS public.empresa_invites (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   empresas_id uuid NOT NULL REFERENCES public.empresas (id),
   token_hash text NOT NULL UNIQUE,
@@ -93,7 +93,7 @@ CREATE TABLE public.empresa_invites (
   raw_token text
 );
 
-CREATE TABLE public.empresa_mei_subscription_lines (
+CREATE TABLE IF NOT EXISTS public.empresa_mei_subscription_lines (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   empresa_id uuid NOT NULL REFERENCES public.empresas (id),
   mei_slots integer NOT NULL CHECK (mei_slots > 0),
@@ -109,7 +109,7 @@ CREATE TABLE public.empresa_mei_subscription_lines (
   stripe_checkout_session_id text
 );
 
-CREATE TABLE public.n8n_link (
+CREATE TABLE IF NOT EXISTS public.n8n_link (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   created_at timestamptz NOT NULL DEFAULT now(),
   user_id uuid UNIQUE REFERENCES public.users (id),
@@ -120,7 +120,7 @@ CREATE TABLE public.n8n_link (
 -- ---------------------------------------------------------------------------
 -- Financeiro
 -- ---------------------------------------------------------------------------
-CREATE TABLE public.categorias_id (
+CREATE TABLE IF NOT EXISTS public.categorias_id (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   nome text NOT NULL,
   tipo text NOT NULL CHECK (tipo = ANY (ARRAY['entrada', 'saida', 'saída'])),
@@ -130,7 +130,7 @@ CREATE TABLE public.categorias_id (
   user_id uuid REFERENCES public.users (id)
 );
 
-CREATE TABLE public.contas_financeiras (
+CREATE TABLE IF NOT EXISTS public.contas_financeiras (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES public.users (id),
   nome text NOT NULL,
@@ -150,7 +150,7 @@ CREATE TABLE public.contas_financeiras (
   instituicao_id text
 );
 
-CREATE TABLE public.contas_moeda_global (
+CREATE TABLE IF NOT EXISTS public.contas_moeda_global (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES public.users (id),
   moeda text NOT NULL CHECK (char_length(moeda) = 3),
@@ -161,7 +161,7 @@ CREATE TABLE public.contas_moeda_global (
   atualizado_em timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.recorrencias (
+CREATE TABLE IF NOT EXISTS public.recorrencias (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES public.users (id),
   dia_do_mes integer NOT NULL CHECK (dia_do_mes >= 1 AND dia_do_mes <= 31),
@@ -178,7 +178,7 @@ CREATE TABLE public.recorrencias (
   ocorrencias_geradas integer NOT NULL DEFAULT 0 CHECK (ocorrencias_geradas >= 0)
 );
 
-CREATE TABLE public.recorrencias_job_runs (
+CREATE TABLE IF NOT EXISTS public.recorrencias_job_runs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   run_key text NOT NULL CHECK (run_key ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'),
   run_type text NOT NULL DEFAULT 'diario',
@@ -187,7 +187,7 @@ CREATE TABLE public.recorrencias_job_runs (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.recorrencia_skips (
+CREATE TABLE IF NOT EXISTS public.recorrencia_skips (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES public.users (id),
   recorrencia_id uuid NOT NULL REFERENCES public.recorrencias (id),
@@ -196,7 +196,7 @@ CREATE TABLE public.recorrencia_skips (
   criado_em timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.lancamentos_id (
+CREATE TABLE IF NOT EXISTS public.lancamentos_id (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tipo text NOT NULL CHECK (tipo = ANY (ARRAY['entrada', 'saida', 'saída'])),
   valor numeric NOT NULL,
@@ -213,7 +213,7 @@ CREATE TABLE public.lancamentos_id (
   conta_id uuid REFERENCES public.contas_financeiras (id)
 );
 
-CREATE TABLE public.orcamentos (
+CREATE TABLE IF NOT EXISTS public.orcamentos (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at timestamptz NOT NULL DEFAULT now(),
   user_id uuid NOT NULL REFERENCES public.users (id),
@@ -225,7 +225,7 @@ CREATE TABLE public.orcamentos (
 -- ---------------------------------------------------------------------------
 -- Google / agenda
 -- ---------------------------------------------------------------------------
-CREATE TABLE public.google_tokens_id (
+CREATE TABLE IF NOT EXISTS public.google_tokens_id (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   access_token text NOT NULL UNIQUE,
   refresh_token text NOT NULL UNIQUE,
@@ -235,7 +235,7 @@ CREATE TABLE public.google_tokens_id (
   user_id uuid NOT NULL UNIQUE REFERENCES public.users (id)
 );
 
-CREATE TABLE public.google_oauth_states (
+CREATE TABLE IF NOT EXISTS public.google_oauth_states (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES public.users (id),
   state text NOT NULL UNIQUE,
@@ -243,7 +243,7 @@ CREATE TABLE public.google_oauth_states (
   expires_at timestamptz NOT NULL
 );
 
-CREATE TABLE public.calendar_checklist_completions (
+CREATE TABLE IF NOT EXISTS public.calendar_checklist_completions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES public.users (id),
   event_date date NOT NULL,
@@ -253,7 +253,7 @@ CREATE TABLE public.calendar_checklist_completions (
   completed_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.calendar_upcoming_reminder_sent (
+CREATE TABLE IF NOT EXISTS public.calendar_upcoming_reminder_sent (
   user_id uuid NOT NULL REFERENCES public.users (id),
   event_date date NOT NULL,
   event_key text NOT NULL,
@@ -264,7 +264,7 @@ CREATE TABLE public.calendar_upcoming_reminder_sent (
 -- ---------------------------------------------------------------------------
 -- MEI / fiscal
 -- ---------------------------------------------------------------------------
-CREATE TABLE public.user_mei_certificates (
+CREATE TABLE IF NOT EXISTS public.user_mei_certificates (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL UNIQUE REFERENCES public.users (id),
   pfx_base64 text,
@@ -297,7 +297,7 @@ CREATE TABLE public.user_mei_certificates (
   plugnotas_cert_id text
 );
 
-CREATE TABLE public.mei_nfse (
+CREATE TABLE IF NOT EXISTS public.mei_nfse (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES public.users (id),
   plugnotas_id text,
@@ -319,7 +319,7 @@ CREATE TABLE public.mei_nfse (
   metadata_json jsonb
 );
 
-CREATE TABLE public.mei_nfse_clientes (
+CREATE TABLE IF NOT EXISTS public.mei_nfse_clientes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES public.users (id),
   dedupe_key text NOT NULL,
@@ -334,7 +334,7 @@ CREATE TABLE public.mei_nfse_clientes (
   metadata_json jsonb
 );
 
-CREATE TABLE public.mei_nfse_produtos (
+CREATE TABLE IF NOT EXISTS public.mei_nfse_produtos (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES public.users (id),
   dedupe_key text NOT NULL,
@@ -351,7 +351,7 @@ CREATE TABLE public.mei_nfse_produtos (
   metadata_json jsonb
 );
 
-CREATE TABLE public.mei_nfse_rps_counters (
+CREATE TABLE IF NOT EXISTS public.mei_nfse_rps_counters (
   cnpj_prestador text PRIMARY KEY,
   serie text NOT NULL DEFAULT '1',
   lote integer NOT NULL DEFAULT 1,
@@ -359,12 +359,12 @@ CREATE TABLE public.mei_nfse_rps_counters (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.codigosservicos (
+CREATE TABLE IF NOT EXISTS public.codigosservicos (
   codigo varchar PRIMARY KEY,
   descricao text
 );
 
-CREATE TABLE public.das_mei (
+CREATE TABLE IF NOT EXISTS public.das_mei (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at timestamptz NOT NULL DEFAULT now(),
   user_id uuid NOT NULL REFERENCES public.users (id),
@@ -375,7 +375,7 @@ CREATE TABLE public.das_mei (
   status_de_envio text DEFAULT 'pendente'
 );
 
-CREATE TABLE public.das_mensal_status (
+CREATE TABLE IF NOT EXISTS public.das_mensal_status (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES public.users (id),
   empresa_id uuid NOT NULL REFERENCES public.empresas (id),
@@ -391,7 +391,7 @@ CREATE TABLE public.das_mensal_status (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.das_mensal_job_runs (
+CREATE TABLE IF NOT EXISTS public.das_mensal_job_runs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   run_key text NOT NULL CHECK (run_key ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
   run_type text NOT NULL DEFAULT 'automatico',
@@ -400,7 +400,7 @@ CREATE TABLE public.das_mensal_job_runs (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.parcelamento_pdfs (
+CREATE TABLE IF NOT EXISTS public.parcelamento_pdfs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES public.users (id),
   contribuinte_numero text NOT NULL,
