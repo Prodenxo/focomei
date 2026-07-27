@@ -2,6 +2,10 @@
 
 import { useMemo, useState } from "react";
 
+const WHATSAPP_URL =
+  "https://wa.me/5521983992146?text=" +
+  encodeURIComponent("Olá! Quero conhecer a FocoMEI para o meu escritório.");
+
 const features = [
   ["✦", "Notas fiscais pelo WhatsApp", "O cliente envia um áudio e recebe a nota pronta. Simples para ele, escalável para o escritório."],
   ["↻", "DAS no automático", "Envio mensal, acompanhamento e menos chamados repetitivos na sua equipe."],
@@ -27,7 +31,14 @@ export default function Home() {
             <a href="#receita">Como ganhar mais</a>
             <a href="#contador">Para o contador</a>
           </nav>
-          <a className="btn outline" href="#demonstracao">Falar com especialista <b>→</b></a>
+          <a
+            className="btn outline"
+            href={WHATSAPP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Falar com especialista <b>→</b>
+          </a>
         </header>
 
         <div className="hero-content shell">
@@ -35,11 +46,18 @@ export default function Home() {
             <p className="eyebrow">Tecnologia que transforma MEIs em receita</p>
             <h1>Transforme sua carteira de MEIs em <span>uma nova fonte de receita</span></h1>
             <p className="lead">Automatize a operação, entregue mais valor e crie receita recorrente sem aumentar a equipe.</p>
-            <a className="btn primary" href="#demonstracao">Quero conhecer a FocoMEI <b>→</b></a>
+            <a
+              className="btn primary"
+              href={WHATSAPP_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Quero conhecer a FocoMEI <b>→</b>
+            </a>
             <div className="proof"><i>●</i><strong>+1.000</strong><span>usuários ativos</span></div>
           </div>
 
-          <div className="dashboard">
+          <div className="dashboard" aria-hidden="true">
             <aside>
               <div className="dash-logo">Foco<span>MEI</span></div>
               {["⌂  Visão geral", "◎  Clientes", "↻  Automação", "▤  Obrigações", "□  Notas fiscais", "$  Financeiro"].map((x, i) =>
@@ -121,10 +139,31 @@ export default function Home() {
           <p className="eyebrow">O próximo passo da sua carteira de MEIs</p>
           <h2>Pare de vender apenas obrigação.<br/><span>Comece a entregar evolução.</span></h2>
           <p>Conheça a FocoMEI e descubra o modelo ideal para transformar tecnologia em receita no seu escritório.</p>
-          <a className="btn primary" href="mailto:contato@cfsolucoesempresariais.com.br?subject=Quero conhecer a FocoMEI">Quero falar com um especialista <b>→</b></a>
+          <a
+            className="btn primary"
+            href={WHATSAPP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Quero falar com um especialista <b>→</b>
+          </a>
         </div>
       </section>
-      <footer><div className="shell"><div className="brand">Foco<span>MEI</span></div><p>Tecnologia para o contador crescer junto com o MEI.</p><span>© 2026 FocoMEI</span></div></footer>
+      <footer>
+        <div className="shell">
+          <div className="brand">Foco<span>MEI</span></div>
+          <p>Tecnologia para o contador crescer junto com o MEI.</p>
+          <a
+            className="footer-wa"
+            href={WHATSAPP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            WhatsApp (21) 98399-2146
+          </a>
+          <span>© 2026 FocoMEI</span>
+        </div>
+      </footer>
     </main>
   );
 }
