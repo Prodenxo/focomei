@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { Stack, useRouter, usePathname, type Href } from 'expo-router';
-import { SCREEN_TO_HREF } from '@/lib/appNavConfig';
+import { DEFAULT_APP_HREF } from '@/lib/appNavConfig';
 import { useAuthStore } from '@/store/authStore';
 import { resolvePostAuthHref } from '@/lib/authRedirect';
 import { isPasswordRecoveryPath } from '@/lib/passwordRecoveryDeepLink';
@@ -15,7 +15,7 @@ export default function AuthLayout() {
   useEffect(() => {
     if (!sessionRestored || !user || isResetPasswordRoute) return;
     void (async () => {
-      const href = await resolvePostAuthHref(SCREEN_TO_HREF.MeuMei as Href);
+      const href = await resolvePostAuthHref(DEFAULT_APP_HREF as Href);
       router.replace(href);
     })();
   }, [sessionRestored, user, router, isResetPasswordRoute]);

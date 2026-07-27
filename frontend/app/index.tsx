@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { View, Text, ActivityIndicator, StyleSheet, Platform } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
-import { SCREEN_TO_HREF } from '@/lib/appNavConfig';
+import { DEFAULT_APP_HREF } from '@/lib/appNavConfig';
 import { resolvePostAuthHref } from '@/lib/authRedirect';
 import { isPasswordRecoveryPath } from '@/lib/passwordRecoveryDeepLink';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -41,7 +41,7 @@ export default function RootIndex() {
         return;
       }
       if (user) {
-        void resolvePostAuthHref(SCREEN_TO_HREF.MeuMei as Href).then((href) => {
+        void resolvePostAuthHref(DEFAULT_APP_HREF as Href).then((href) => {
           router.replace(href);
         });
       }
@@ -53,7 +53,7 @@ export default function RootIndex() {
     if (!onboardingDone) {
       router.replace('/onboarding');
     } else if (user) {
-      void resolvePostAuthHref(SCREEN_TO_HREF.MeuMei as Href).then((href) => {
+      void resolvePostAuthHref(DEFAULT_APP_HREF as Href).then((href) => {
         router.replace(href);
       });
     } else {

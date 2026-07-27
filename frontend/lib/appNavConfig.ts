@@ -98,6 +98,9 @@ export const SCREEN_TO_HREF: Record<AppScreenName, string> = {
   Configuracoes: '/(app)/configuracoes',
 };
 
+/** Destino padrão após login / logo / home — Visão Geral (não Meu MEI). */
+export const DEFAULT_APP_HREF = SCREEN_TO_HREF.Dashboard;
+
 const PATH_SUFFIX_TO_SCREEN: Record<string, AppScreenName> = {
   '': 'Dashboard',
   '/': 'Dashboard',

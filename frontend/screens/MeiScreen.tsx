@@ -24,7 +24,9 @@ import {
 import { formatApiNetworkError } from '../lib/apiNetworkError';
 import { APP_BRAND_NAME } from '../lib/appBrand';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { DEFAULT_APP_HREF } from '../lib/appNavConfig';
 import { CertificateIcon } from '../components/icons/CertificateIcon';
 import { presentDownloadedFile } from '../lib/platformDownload';
 import { getWebScrollbarStyle } from '../lib/webScrollbar';
@@ -4696,22 +4698,24 @@ function MeiScreenContent() {
 export default function MeiScreen() {
   const { role, mei, user } = useAuthStore();
   const { isDarkMode } = useThemeStore();
+  const router = useRouter();
   const theme = useMemo(() => getTheme(isDarkMode), [isDarkMode]);
   const styles = useMemo(() => createStyles(theme), [theme]);
   const canAccessMei = useMemo(() => canAccessMeiArea(role, mei), [role, mei]);
   const sessionEmail = user?.email?.trim() || '';
 
+  useEffect(() => {
+    if (!canAccessMei) {
+      router.replace(DEFAULT_APP_HREF as never);
+    }
+  }, [canAccessMei, router]);
+
   if (!canAccessMei) {
-    // Admin de escritório (mei=false) NÃO é “falta de plano” — evita CTA que reabre o loop /planos.
     return (
       <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
         <View style={styles.accessDeniedWrap}>
-          <Ionicons name="lock-closed-outline" size={48} color={theme.tabInactive} />
-          <Text style={styles.accessDeniedTitle}>Área indisponível</Text>
-          <Text style={styles.accessDeniedText}>
-            O Meu MEI está disponível apenas para utilizadores com MEI habilitado nesta empresa.
-            Peça ao administrador para ativar o slot MEI na sua conta.
-          </Text>
+          <ActivityIndicator size="large" color={theme.primary} />
+          <Text style={styles.accessDeniedText}>Redirecionando para Visão Geral…</Text>
           {sessionEmail ? (
             <Text style={[styles.accessDeniedText, { marginTop: 8 }]}>
               Conta logada: {sessionEmail}

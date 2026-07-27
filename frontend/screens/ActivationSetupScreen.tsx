@@ -77,7 +77,7 @@ export default function ActivationSetupScreen () {
     setPayload(data)
     setLoading(false)
     if (data?.progress.isFullyComplete) {
-      router.replace(SCREEN_TO_HREF.MeuMei as any)
+      router.replace(SCREEN_TO_HREF.Dashboard as any)
     }
   }, [router])
 
@@ -96,7 +96,7 @@ export default function ActivationSetupScreen () {
 
   const handleSkip = () => {
     setSessionActivationSkipped(true)
-    router.replace(SCREEN_TO_HREF.MeuMei as any)
+    router.replace(SCREEN_TO_HREF.Dashboard as any)
   }
 
   const steps = useMemo(
