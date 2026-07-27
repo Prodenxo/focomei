@@ -256,10 +256,14 @@ export function AccessRequestForm({
         throw new Error(msg);
       }
 
-      if (onRegistered && signupMode === 'self_serve') {
-        // Self-serve: entra na conta e segue para planos / Checkout.
+      if (signupMode === 'self_serve') {
+        // Self-serve: entra na conta e segue para planos / Checkout Stripe.
         await signIn(email.trim(), password);
-        onRegistered();
+        if (onRegistered) {
+          onRegistered();
+        } else {
+          setSubmitted(true);
+        }
       } else {
         // Manual: sem Stripe — conta fica em análise.
         setSubmitted(true);
@@ -271,7 +275,7 @@ export function AccessRequestForm({
     }
   };
 
-  const isSelfServe = signupMode === 'self_serve' && Boolean(onRegistered);
+  const isSelfServe = signupMode === 'self_serve';
 
   const successContent = (
     <View style={styles.successWrap}>
@@ -288,7 +292,13 @@ export function AccessRequestForm({
       </Text>
       <AuthButton
         label={isSelfServe ? 'Escolher plano' : 'Ir para o login'}
-        onPress={() => (isSelfServe && onRegistered ? onRegistered() : onGoToLogin())}
+        onPress={() => {
+          if (isSelfServe && onRegistered) {
+            onRegistered()
+            return
+          }
+          onGoToLogin()
+        }}
         palette={palette}
       />
     </View>
@@ -562,8 +572,8 @@ export function AccessRequestForm({
 
       <View style={cellFull}>
         <AuthButton
-          label="Enviar solicitação"
-          loadingLabel="Enviando..."
+          label={isSelfServe ? 'Criar conta e escolher plano' : 'Enviar solicitação'}
+          loadingLabel={isSelfServe ? 'Criando conta...' : 'Enviando...'}
           loading={loading}
           onPress={handleSubmit}
           palette={palette}
@@ -576,10 +586,14 @@ export function AccessRequestForm({
     </View>
   );
 
-  const title = submitted ? 'Solicitação enviada' : 'Quero garantir meu acesso';
+  const title = submitted
+    ? (isSelfServe ? 'Cadastro concluído!' : 'Solicitação enviada')
+    : (isSelfServe ? 'Criar minha conta' : 'Quero garantir meu acesso');
   const subtitle = submitted
     ? undefined
-    : 'Preencha seus dados e os da sua empresa. A CF Contabilidade analisa e libera o acesso.';
+    : (isSelfServe
+      ? 'Preencha seus dados e os da sua empresa. Em seguida você escolhe o plano e paga no Stripe.'
+      : 'Preencha seus dados e os da sua empresa. A CF Contabilidade analisa e libera o acesso.');
   const content = submitted ? successContent : formContent;
 
   if (Platform.OS === 'web') {

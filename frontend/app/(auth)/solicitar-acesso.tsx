@@ -2,14 +2,15 @@ import React from 'react'
 import { useRouter } from 'expo-router'
 import { AccessRequestForm } from '@/screens/auth/AccessRequestForm'
 
-/** Pedido de acesso comercial/manual — sem Checkout Stripe. */
+/** Cadastro self-serve → login → /planos (Checkout Stripe). */
 export default function SolicitarAcessoScreen() {
   const router = useRouter()
   return (
     <AccessRequestForm
-      signupMode="manual_approval"
+      signupMode="self_serve"
       onGoToLogin={() => router.replace('/(auth)/login')}
-      onDone={() => router.replace('/(auth)/login')}
+      onRegistered={() => router.replace('/(app)/planos')}
+      onDone={() => router.replace('/(app)/planos')}
     />
   )
 }
