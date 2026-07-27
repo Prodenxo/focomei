@@ -60,7 +60,7 @@ export function getPasswordResetRedirectUrl (): string {
 
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
     const origin = window.location.origin.replace(/\/$/, '')
-    if (publicBase && !origin.includes('meiinfinito.com.br')) {
+    if (publicBase && !origin.includes('meiinfinito.com.br') && !origin.includes('localhost')) {
       return `${publicBase}/reset-password`
     }
     return `${origin}/reset-password`

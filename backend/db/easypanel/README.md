@@ -22,7 +22,17 @@ AUTH_JWT_SECRET=troque-por-um-segredo-longo-e-aleatorio
 APP_PRODUCT=focomei
 FRONTEND_URL=https://focomei.com.br
 CORS_ORIGIN=https://focomei.com.br,https://www.focomei.com.br
+# Recuperação de senha (Resend) — remetente com domínio verificado
+RESEND_API_KEY=re_...
+RESEND_FROM_EMAIL=FocoMEI <noreply@focomei.com.br>
 ```
+
+### Reset de senha (Auth local)
+
+- `POST /auth/reset-password` gera JWT de recovery (1h) e envia e-mail FocoMEI via Resend.
+- Link: `{FRONTEND_URL}/reset-password?token_hash=...&type=recovery`
+- `POST /auth/confirm-password-reset` `{ token_hash, newPassword }` conclui.
+- Template: `backend/email-templates/focomei-reset-password.html`
 
 - Database sugerido: `focomei` (ou `focomei_db`)
 - **Não** use o banco do Foco Simples

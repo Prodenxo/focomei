@@ -3,6 +3,10 @@ import { query } from '../config/pg.js';
 import { env } from '../config/env.js';
 import { badRequest, unauthorized, forbidden } from '../utils/errors.js';
 import { assertStrongPassword } from '../utils/passwordPolicy.js';
+import {
+  buildRecoveryUrl,
+  sendPasswordResetEmailViaResend,
+} from './password-reset-email.service.js';
 
 const ROLE_DEFAULT = 'usuario';
 const TOKEN_TTL_SEC = 60 * 60 * 24 * 7; // 7 dias
@@ -125,6 +129,8 @@ export const verifyLocalAccessToken = (token) => {
   if (typeof payload.exp === 'number' && payload.exp < now) return null;
   if (!payload.sub) return null;
   if (payload.iss && payload.iss !== 'focomei-local') return null;
+  // Token de recovery não autentica sessão normal
+  if (payload.purpose === 'password_recovery') return null;
 
   return {
     id: payload.sub,
@@ -132,6 +138,70 @@ export const verifyLocalAccessToken = (token) => {
     role: payload.role || 'authenticated',
     app_metadata: payload.app_metadata || {},
     user_metadata: payload.user_metadata || {},
+  };
+};
+
+const RECOVERY_TTL_SEC = 60 * 60; // 1 hora
+const RECOVERY_PURPOSE = 'password_recovery';
+
+/**
+ * Decodifica e valida JWT local (inclui purpose). Retorna payload bruto ou null.
+ * @param {string} token
+ * @returns {Record<string, unknown>|null}
+ */
+export const verifyLocalJwtPayload = (token) => {
+  const secret = String(
+    env.AUTH_JWT_SECRET || env.JWT_SECRET || env.SUPABASE_JWT_SECRET || '',
+  ).trim();
+  if (!token || !secret) return null;
+
+  const parts = String(token).split('.');
+  if (parts.length !== 3) return null;
+
+  const [headerB64, payloadB64, signatureB64] = parts;
+  let header;
+  try {
+    header = JSON.parse(base64UrlToBuffer(headerB64).toString('utf8'));
+  } catch {
+    return null;
+  }
+  if (header?.alg && header.alg !== 'HS256') return null;
+
+  const expectedSig = createHmac('sha256', secret)
+    .update(`${headerB64}.${payloadB64}`)
+    .digest();
+  const actualSig = base64UrlToBuffer(signatureB64);
+  if (
+    expectedSig.length !== actualSig.length
+    || !timingSafeEqual(expectedSig, actualSig)
+  ) {
+    return null;
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(base64UrlToBuffer(payloadB64).toString('utf8'));
+  } catch {
+    return null;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (typeof payload.exp === 'number' && payload.exp < now) return null;
+  if (!payload.sub) return null;
+  if (payload.iss && payload.iss !== 'focomei-local') return null;
+  return payload;
+};
+
+/**
+ * @param {string} tokenHash
+ * @returns {{ userId: string, email: string|null }|null}
+ */
+export const verifyPasswordRecoveryToken = (tokenHash) => {
+  const payload = verifyLocalJwtPayload(tokenHash);
+  if (!payload || payload.purpose !== RECOVERY_PURPOSE) return null;
+  return {
+    userId: String(payload.sub),
+    email: payload.email ? String(payload.email) : null,
   };
 };
 
@@ -459,6 +529,212 @@ export const localGetSession = async (accessToken) => {
     empresaId,
     mei,
   };
+};
+
+/**
+ * Emite sessão JWT do usuário alvo (AUTH_MODE=local).
+ * Superadmin: qualquer alvo. Admin: mesma empresa; não pode impersonar superadmin.
+ */
+export const localImpersonate = async (accessToken, targetUserId) => {
+  if (!accessToken || !targetUserId) {
+    throw badRequest('Token e usuário alvo são obrigatórios');
+  }
+
+  const requester = verifyLocalAccessToken(accessToken);
+  if (!requester?.id) throw unauthorized('Sessão expirada ou inválida');
+
+  await ensureUserNotBlocked(requester.id);
+  const {
+    role: requesterRole,
+    empresaId: requesterEmpresaId,
+  } = await getRoleAndCompany(requester.id);
+
+  if (requesterRole !== 'superadmin' && requesterRole !== 'admin') {
+    throw forbidden('Apenas administradores podem acessar outras contas');
+  }
+
+  if (String(requester.id) === String(targetUserId)) {
+    throw badRequest('Você já está nesta conta');
+  }
+
+  const { rows } = await query(
+    `SELECT id, email, phone, raw_user_meta_data, banned_until, deleted_at
+     FROM public.users
+     WHERE id = $1
+     LIMIT 1`,
+    [targetUserId],
+  );
+  const userRow = rows[0];
+  if (!userRow || userRow.deleted_at) {
+    throw badRequest('Usuário alvo não encontrado');
+  }
+  if (userRow.banned_until && new Date(userRow.banned_until) > new Date()) {
+    throw forbidden('Conta alvo bloqueada');
+  }
+
+  await ensureUserNotBlocked(userRow.id);
+  const {
+    role: targetRole,
+    empresaId: targetEmpresaId,
+    mei,
+  } = await getRoleAndCompany(userRow.id);
+
+  if (requesterRole === 'admin') {
+    if (!requesterEmpresaId || requesterEmpresaId !== targetEmpresaId) {
+      throw forbidden('Você só pode acessar usuários da sua própria empresa');
+    }
+    if (targetRole === 'superadmin') {
+      throw forbidden('Administradores não podem acessar contas de Superadmin');
+    }
+  }
+
+  const meta = userRow.raw_user_meta_data || {};
+  const newAccessToken = signLocalAccessToken({
+    sub: userRow.id,
+    email: userRow.email,
+    role: 'authenticated',
+    user_metadata: meta,
+    app_metadata: { provider: 'email', impersonated_by: requester.id },
+  });
+  const session = buildSession(userRow, newAccessToken);
+
+  return {
+    mode: 'local',
+    user: session.user,
+    userId: userRow.id,
+    phone: userRow.phone || meta.phone || null,
+    displayName: meta.display_name || null,
+    role: targetRole,
+    empresaId: targetEmpresaId,
+    mei,
+    session,
+    // Compatível com clientes que ainda leem token_hash (não usado no modo local).
+    email: userRow.email,
+    token_hash: null,
+  };
+};
+
+/**
+ * Solicita e-mail de recuperação (AUTH_MODE=local).
+ * Sempre resolve com sucesso se Resend ok — não revela se o e-mail existe.
+ */
+export const localRequestPasswordReset = async (email) => {
+  const normalized = normalizeEmail(email);
+  if (!normalized) throw badRequest('Email é obrigatório');
+
+  const baseUrl = String(env.FRONTEND_URL || '').replace(/\/$/, '');
+  if (!baseUrl) {
+    throw badRequest('FRONTEND_URL não configurado no backend.');
+  }
+  const redirectTo = `${baseUrl}/reset-password`;
+
+  const { rows } = await query(
+    `SELECT id, email, deleted_at, banned_until
+     FROM public.users
+     WHERE email = $1
+     LIMIT 1`,
+    [normalized],
+  );
+  const userRow = rows[0];
+
+  // Resposta uniforme: só envia se conta ativa existir
+  if (
+    userRow
+    && !userRow.deleted_at
+    && !(userRow.banned_until && new Date(userRow.banned_until) > new Date())
+  ) {
+    const tokenHash = signLocalAccessToken(
+      {
+        sub: userRow.id,
+        email: userRow.email,
+        purpose: RECOVERY_PURPOSE,
+        role: 'recovery',
+      },
+      RECOVERY_TTL_SEC,
+    );
+    const recoveryUrl = buildRecoveryUrl(redirectTo, tokenHash);
+    await sendPasswordResetEmailViaResend({ to: normalized, recoveryUrl });
+  }
+
+  return { success: true };
+};
+
+/**
+ * Confirma nova senha com JWT de recovery (público).
+ */
+export const localConfirmPasswordReset = async ({ tokenHash, newPassword }) => {
+  if (!tokenHash) throw badRequest('Token de recuperação ausente');
+  if (!newPassword) throw badRequest('Senha inválida');
+  assertStrongPassword(newPassword);
+
+  const recovered = verifyPasswordRecoveryToken(tokenHash);
+  if (!recovered?.userId) {
+    throw badRequest('Link de recuperação inválido ou expirado. Solicite um novo.');
+  }
+
+  const { rows } = await query(
+    `SELECT id, raw_user_meta_data, deleted_at, banned_until
+     FROM public.users
+     WHERE id = $1
+     LIMIT 1`,
+    [recovered.userId],
+  );
+  const userRow = rows[0];
+  if (!userRow || userRow.deleted_at) {
+    throw badRequest('Link de recuperação inválido ou expirado. Solicite um novo.');
+  }
+  if (userRow.banned_until && new Date(userRow.banned_until) > new Date()) {
+    throw forbidden('Conta bloqueada');
+  }
+
+  const passwordHash = hashPassword(newPassword);
+  const meta = { ...(userRow.raw_user_meta_data || {}) };
+  delete meta.password_reset_required;
+
+  await query(
+    `UPDATE public.users
+     SET password_hash = $1,
+         raw_user_meta_data = $2::jsonb,
+         updated_at = now()
+     WHERE id = $3`,
+    [passwordHash, JSON.stringify(meta), recovered.userId],
+  );
+
+  return { success: true };
+};
+
+/**
+ * Atualiza senha com sessão local autenticada.
+ */
+export const localUpdatePassword = async ({ userId, newPassword }) => {
+  if (!userId) throw unauthorized('Token ausente');
+  if (!newPassword) throw badRequest('Senha inválida');
+  assertStrongPassword(newPassword);
+
+  const { rows } = await query(
+    `SELECT id, raw_user_meta_data, deleted_at
+     FROM public.users
+     WHERE id = $1
+     LIMIT 1`,
+    [userId],
+  );
+  const userRow = rows[0];
+  if (!userRow || userRow.deleted_at) throw unauthorized();
+
+  const passwordHash = hashPassword(newPassword);
+  const meta = { ...(userRow.raw_user_meta_data || {}) };
+  delete meta.password_reset_required;
+
+  await query(
+    `UPDATE public.users
+     SET password_hash = $1,
+         raw_user_meta_data = $2::jsonb,
+         updated_at = now()
+     WHERE id = $3`,
+    [passwordHash, JSON.stringify(meta), userId],
+  );
+
+  return { success: true };
 };
 
 export const localSignOut = async () => {

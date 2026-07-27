@@ -8,6 +8,7 @@ router.post('/signup', controller.signUp);
 router.post('/register-empresa', controller.registerEmpresa);
 router.post('/signin', controller.signIn);
 router.post('/reset-password', controller.resetPassword);
+router.post('/confirm-password-reset', controller.confirmPasswordReset);
 router.post('/process-recovery-hash', controller.processRecoveryHash);
 router.post('/exchange-code-for-session', controller.exchangeCodeForSession);
 

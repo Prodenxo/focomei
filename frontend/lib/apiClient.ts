@@ -12,12 +12,20 @@ function logLocalhostBackendHint(apiUrl: string): void {
   if (typeof window === 'undefined' || !window.location?.hostname) return;
   if (!/^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname)) return;
   console.log('[api] MEI backend:', apiUrl || '(não configurada)');
-  if (apiUrl.includes('easypanel.host')) {
-    console.error(
-      '[api] ERRO: localhost apontou para Easypanel. Reinicie o Expo (npm start -c). ' +
-        'Em dev local a API deve ser http://localhost:3333',
+  if (!apiUrl.includes('easypanel.host')) return;
+
+  // Dev FocoMEI: API remota (Postgres EasyPanel) é válida com AUTH_MODE=local.
+  // Só alerta o backend legado Meu Financeiro (evita misturar produto).
+  const isLegacyMeuFinanceiro =
+    /meufinanceiro|meu-financeiro|auto-back-meufinanceiro/i.test(apiUrl);
+  if (isLegacyMeuFinanceiro) {
+    console.warn(
+      '[api] Atenção: localhost apontou para o backend legado Meu Financeiro. ' +
+        'Use o backend FocoMEI (auto-focomei-backend) ou http://localhost:3333.',
     );
+    return;
   }
+  console.log('[api] Dev apontando para EasyPanel (ok com AUTH_MODE=local).');
 }
 
 const normalizePath = (path: string) => (path.startsWith('/') ? path : `/${path}`);

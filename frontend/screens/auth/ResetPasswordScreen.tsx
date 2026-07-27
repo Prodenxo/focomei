@@ -18,6 +18,9 @@ import { validatePasswordMatch, validateSignupPassword } from '../../lib/authVal
 import { useAuthStore } from '../../store/authStore';
 import { getTheme } from '../../lib/theme';
 import { useThemeStore } from '../../store/themeStore';
+import { isLocalApiAuthMode } from '../../lib/authMode';
+import { confirmPasswordReset } from '../../services/authService';
+import { getErrorMessage } from '../../lib/errors';
 
 type RecoveryStatus = 'validating_link' | 'ready' | 'invalid_link' | 'expired_or_invalid_token' | 'network_error' | 'updated';
 
@@ -30,21 +33,27 @@ export type ResetPasswordScreenProps = {
 };
 
 function getRecoveryErrorMessage(error: unknown): { status: RecoveryStatus; message: string } {
-  const msg = getSupabaseAuthMessagePt(error);
+  const msg = `${getSupabaseAuthMessagePt(error)} ${getErrorMessage(error)}`;
   const lower = msg.toLowerCase();
-  const genericRecoveryError = 'Nao foi possivel validar o link de recuperacao. Solicite um novo link e tente novamente.';
+  const genericRecoveryError = 'Não foi possível validar o link de recuperação. Solicite um novo link e tente novamente.';
 
   if (lower.includes('network') || lower.includes('fetch') || lower.includes('internet') || lower.includes('conex')) {
     return {
       status: 'network_error',
-      message: 'Nao foi possivel comunicar com o servidor. Verifique sua internet e tente novamente.',
+      message: 'Não foi possível comunicar com o servidor. Verifique sua internet e tente novamente.',
     };
   }
 
-  if (lower.includes('expired') || lower.includes('invalid') || lower.includes('jwt') || lower.includes('token')) {
+  if (
+    lower.includes('expired')
+    || lower.includes('invalid')
+    || lower.includes('jwt')
+    || lower.includes('token')
+    || lower.includes('expir')
+  ) {
     return {
       status: 'expired_or_invalid_token',
-      message: 'O link de recuperacao esta invalido ou expirou. Solicite um novo link na tela de login.',
+      message: 'O link de recuperação está inválido ou expirou. Solicite um novo link na tela de login.',
     };
   }
 
@@ -64,12 +73,13 @@ export default function ResetPasswordScreen({
   const { isDarkMode } = useThemeStore();
   const theme = useMemo(() => getTheme(isDarkMode), [isDarkMode]);
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const localAuth = isLocalApiAuthMode();
 
   const signOut = useAuthStore((s) => s.signOut);
 
   const [status, setStatus] = useState<RecoveryStatus>(invalidLink ? 'invalid_link' : 'validating_link');
   const [message, setMessage] = useState<string>(
-    invalidLink ? 'Link invalido. Volte ao login e solicite nova recuperacao de senha.' : 'Validando link de recuperacao...'
+    invalidLink ? 'Link inválido. Volte ao login e solicite nova recuperação de senha.' : 'Validando link de recuperação...'
   );
 
   const [password, setPassword] = useState('');
@@ -84,6 +94,20 @@ export default function ResetPasswordScreen({
       if (invalidLink) return;
 
       if (tokenHash) {
+        if (localAuth) {
+          // JWT local: validação definitiva no confirm; aqui só exige presença do token.
+          if (!cancelled) {
+            if (String(tokenHash).split('.').length === 3) {
+              setStatus('ready');
+              setMessage('Defina sua nova senha para concluir a recuperação.');
+            } else {
+              setStatus('expired_or_invalid_token');
+              setMessage('O link de recuperação está inválido ou expirou. Solicite um novo link na tela de login.');
+            }
+          }
+          return;
+        }
+
         try {
           const { error } = await supabase.auth.verifyOtp({
             token_hash: tokenHash,
@@ -93,7 +117,7 @@ export default function ResetPasswordScreen({
 
           if (!cancelled) {
             setStatus('ready');
-            setMessage('Defina sua nova senha para concluir a recuperacao.');
+            setMessage('Defina sua nova senha para concluir a recuperação.');
           }
         } catch (error: unknown) {
           const parsed = getRecoveryErrorMessage(error);
@@ -108,7 +132,7 @@ export default function ResetPasswordScreen({
       if (!accessToken || !refreshToken) {
         if (!cancelled) {
           setStatus('invalid_link');
-          setMessage('Link invalido. Volte ao login e solicite nova recuperacao de senha.');
+          setMessage('Link inválido. Volte ao login e solicite nova recuperação de senha.');
         }
         return;
       }
@@ -121,7 +145,7 @@ export default function ResetPasswordScreen({
 
         if (!cancelled) {
           setStatus('ready');
-          setMessage('Defina sua nova senha para concluir a recuperacao.');
+          setMessage('Defina sua nova senha para concluir a recuperação.');
         }
       } catch (error: unknown) {
         const parsed = getRecoveryErrorMessage(error);
@@ -136,7 +160,7 @@ export default function ResetPasswordScreen({
     return () => {
       cancelled = true;
     };
-  }, [accessToken, refreshToken, tokenHash, invalidLink]);
+  }, [accessToken, refreshToken, tokenHash, invalidLink, localAuth]);
 
   const handleSubmit = async () => {
     const e1 = validateSignupPassword(password);
@@ -154,16 +178,20 @@ export default function ResetPasswordScreen({
 
     setLoading(true);
     try {
-      const { error } = await supabase.auth.updateUser({ password });
-      if (error) throw error;
+      if (localAuth && tokenHash) {
+        await confirmPasswordReset(tokenHash, password);
+      } else {
+        const { error } = await supabase.auth.updateUser({ password });
+        if (error) throw error;
+      }
 
       await signOut();
       setStatus('updated');
       setMessage('Senha atualizada com sucesso. Entre novamente com a nova senha.');
     } catch (error: unknown) {
       const parsed = getRecoveryErrorMessage(error);
-      setStatus(parsed.status);
-      setMessage(parsed.message);
+      setStatus(parsed.status === 'network_error' ? 'network_error' : 'ready');
+      setMessage(getErrorMessage(error) || parsed.message);
     } finally {
       setLoading(false);
     }

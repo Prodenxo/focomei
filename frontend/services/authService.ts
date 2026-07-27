@@ -2,9 +2,19 @@ import { apiClient } from '../lib/apiClient';
 import type { UserRole } from '../lib/auth-roles';
 
 export interface ImpersonateResult {
-  email: string;
-  token_hash: string;
+  mode?: 'local' | string;
+  email?: string;
+  token_hash?: string | null;
   redirect_to?: string;
+  /** Presente em AUTH_MODE=local — sessão JWT do alvo. */
+  user?: LocalAuthResult['user'];
+  userId?: string | null;
+  phone?: string | null;
+  displayName?: string | null;
+  role?: UserRole | null;
+  empresaId?: string | null;
+  mei?: boolean | null;
+  session?: LocalAuthResult['session'];
 }
 
 export interface LocalAuthResult {
@@ -41,6 +51,17 @@ export async function updatePhone(phone: string): Promise<string> {
 export async function requestPasswordReset(email: string): Promise<void> {
   await apiClient.postPublic<{ success: boolean }>('/auth/reset-password', {
     email: email.trim().toLowerCase(),
+  });
+}
+
+/** Confirma nova senha com token_hash do e-mail (AUTH_MODE=local). */
+export async function confirmPasswordReset(
+  tokenHash: string,
+  newPassword: string,
+): Promise<void> {
+  await apiClient.postPublic<{ success: boolean }>('/auth/confirm-password-reset', {
+    token_hash: tokenHash,
+    newPassword,
   });
 }
 

@@ -116,6 +116,7 @@ async function clearLocalAuthSession(set: (partial: Partial<AuthState>) => void)
 async function applyLocalApiResultToStore(
   result: Awaited<ReturnType<typeof signInWithApi>>,
   set: (partial: Partial<AuthState>) => void,
+  isImpersonating = false,
 ): Promise<void> {
   const accessToken = result.session?.access_token;
   if (!accessToken) {
@@ -153,7 +154,7 @@ async function applyLocalApiResultToStore(
     role,
     mei: result.mei,
     empresaId: result.empresaId,
-    isImpersonating: false,
+    isImpersonating,
   });
 }
 
@@ -468,6 +469,44 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set(CLEARED_AUTH_STATE);
   },
   impersonate: async (targetUserId) => {
+    if (isLocalApiAuthMode()) {
+      const snap = await readLocalAuthSnapshot();
+      if (!snap?.accessToken) {
+        throw new Error('Sessão não encontrada. Faça login novamente.');
+      }
+
+      await backupAdminSession({
+        access_token: snap.accessToken,
+        // Guarda snapshot do admin para restaurar sem nova chamada (JWT local).
+        refresh_token: `local-snap:${JSON.stringify(snap)}`,
+      });
+
+      try {
+        const result = await impersonateUser(targetUserId);
+        if (!result.session?.access_token) {
+          throw new Error('Falha ao obter sessão do usuário alvo');
+        }
+        await applyLocalApiResultToStore(
+          {
+            user: result.user || result.session.user,
+            userId: result.userId || result.user?.id || null,
+            phone: result.phone ?? null,
+            displayName: result.displayName ?? null,
+            role: result.role ?? null,
+            empresaId: result.empresaId ?? null,
+            mei: result.mei ?? null,
+            session: result.session,
+          },
+          set,
+          true,
+        );
+      } catch (error) {
+        await clearBackedUpAdminSession();
+        throw error instanceof Error ? error : new Error(getErrorMessage(error));
+      }
+      return;
+    }
+
     const { data: currentSession } = await supabase.auth.getSession();
     if (!currentSession?.session) {
       throw new Error('Sessão não encontrada. Faça login novamente.');
@@ -480,6 +519,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     try {
       const { token_hash } = await impersonateUser(targetUserId);
+      if (!token_hash) {
+        throw new Error('Falha ao obter sessão do usuário alvo');
+      }
       const { data, error } = await supabase.auth.verifyOtp({
         token_hash,
         type: 'magiclink',
@@ -499,6 +541,37 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!backup) {
       await get().signOut();
       return;
+    }
+
+    if (isLocalApiAuthMode() || backup.refresh_token.startsWith('local-snap:')) {
+      try {
+        if (!backup.refresh_token.startsWith('local-snap:')) {
+          throw new Error('Não foi possível restaurar a sessão do administrador');
+        }
+        const snap = JSON.parse(
+          backup.refresh_token.slice('local-snap:'.length),
+        ) as NonNullable<Awaited<ReturnType<typeof readLocalAuthSnapshot>>>;
+        if (!snap?.accessToken || !snap?.user?.id) {
+          throw new Error('Não foi possível restaurar a sessão do administrador');
+        }
+        await writeLocalAuthSnapshot(snap);
+        set({
+          user: snap.user,
+          phone: snap.phone,
+          displayName: snap.displayName,
+          userId: snap.user.id,
+          role: snap.role,
+          mei: snap.mei,
+          empresaId: snap.empresaId,
+          isImpersonating: false,
+        });
+        await clearBackedUpAdminSession();
+        return;
+      } catch (error) {
+        await clearBackedUpAdminSession();
+        await get().signOut();
+        throw error instanceof Error ? error : new Error(getErrorMessage(error));
+      }
     }
 
     const { data, error } = await supabase.auth.setSession({
@@ -523,6 +596,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (isLocalApiAuthMode()) {
       const snap = await readLocalAuthSnapshot();
       if (snap) {
+        const isImpersonating = await hasBackedUpAdminSession();
         set({
           user: snap.user,
           phone: snap.phone,
@@ -531,7 +605,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           role: snap.role,
           mei: snap.mei,
           empresaId: snap.empresaId,
-          isImpersonating: false,
+          isImpersonating,
           sessionRestored: true,
         });
         // Revalida mei/role no servidor (snapshot pode estar defasado após liberar Notas)

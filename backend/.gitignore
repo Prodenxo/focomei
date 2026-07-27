@@ -3,4 +3,5 @@
 .env.*
 .env.backup*
 !.env.example
-
+# Relatórios de import (podem citar paths locais)
+scripts/one-time/import-focomei-migration-20260727/reports/

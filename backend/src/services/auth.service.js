@@ -20,10 +20,15 @@ import {
 import { buildSignupOriginMetadata, resolveAppOriginFromRequest } from '../utils/app-origin.js';
 import {
   isLocalAuthMode,
+  localConfirmPasswordReset,
   localGetSession,
+  localImpersonate,
+  localRequestPasswordReset,
   localSignIn,
   localSignOut,
   localSignUp,
+  localUpdatePassword,
+  verifyLocalAccessToken,
 } from './local-auth.service.js';
 
 const assertValidWhatsappPhone = (phone) => {
@@ -492,10 +497,7 @@ export const getSession = async (accessToken) => {
 
 export const resetPasswordForEmail = async (email) => {
   if (isLocalAuthMode()) {
-    throw badRequest(
-      'Recuperação de senha ainda não está disponível no Auth local. Em breve.',
-      { code: 'LOCAL_RESET_NOT_IMPLEMENTED' },
-    );
+    return localRequestPasswordReset(email);
   }
 
   const normalized = String(email || '').trim().toLowerCase();
@@ -509,6 +511,16 @@ export const resetPasswordForEmail = async (email) => {
   }
 
   await sendPasswordResetViaSupabase(normalized, redirectTo);
+};
+
+export const confirmPasswordReset = async ({ token_hash, tokenHash, newPassword }) => {
+  const hash = token_hash || tokenHash;
+  if (isLocalAuthMode()) {
+    return localConfirmPasswordReset({ tokenHash: hash, newPassword });
+  }
+  throw badRequest(
+    'Confirmação por token_hash só está disponível no Auth local. Use o fluxo de sessão recovery.',
+  );
 };
 
 export const processRecoveryHash = async ({ access_token, refresh_token, type }) => {
@@ -556,6 +568,15 @@ export const exchangeCodeForSession = async (code) => {
 export const updatePassword = async ({ accessToken, userId, newPassword }) => {
   if (!newPassword) throw badRequest('Senha inválida');
   assertStrongPassword(newPassword);
+
+  if (isLocalAuthMode()) {
+    let id = userId;
+    if (!id && accessToken) {
+      const user = verifyLocalAccessToken(accessToken);
+      id = user?.id || null;
+    }
+    return localUpdatePassword({ userId: id, newPassword });
+  }
 
   if (env.SUPABASE_SERVICE_ROLE_KEY && userId) {
     const adminClient = createSupabaseClient({ useServiceRole: true });
@@ -729,9 +750,14 @@ export const resolveRequesterContext = async (accessToken) => {
 /**
  * Gera um token de impersonação (magic link hash) para um usuário alvo.
  * Apenas Superadmin ou Admin da mesma empresa podem realizar esta ação.
+ * AUTH_MODE=local: devolve sessão JWT do alvo (sem Supabase magic link).
  */
 export const impersonate = async (accessToken, targetUserId) => {
   if (!accessToken || !targetUserId) throw badRequest('Token e usuário alvo são obrigatórios');
+
+  if (isLocalAuthMode()) {
+    return localImpersonate(accessToken, targetUserId);
+  }
 
   // 1. Resolve o contexto de quem está pedindo
   const { userId, role, empresaId } = await resolveRequesterContext(accessToken);

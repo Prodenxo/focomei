@@ -23,7 +23,7 @@ import { getTheme, mfSpacing, type Theme } from '../lib/theme';
 import { getTechTokens, mfTechInsetSurface } from '../lib/techDesign';
 import { cleanPhone, hasRole } from '../lib/auth-roles';
 import { getMeiUserStatusShort, getMeiUserTypeLabel, isMeiSlotUser } from '../lib/meiUserSlot';
-import { filterFocoMeiAdminEmpresas, filterFocoMeiAdminUsers, listEmpresaMembersForMeiAdmin } from '../lib/focomeiAdminFilters';
+import { countFocoMeiEmpresaAdmins, filterFocoMeiAdminEmpresas, filterFocoMeiAdminUsers, listEmpresaMembersForMeiAdmin } from '../lib/focomeiAdminFilters';
 import { isFocoMeiProductLine, productLineLabel, resolveEmpresaProductLine, resolveUserProductLine } from '../lib/productLine';
 import { getManagedUserActions } from '../lib/managedUserActions';
 import { formatPhoneBrCell } from '../lib/numberFormat';
@@ -1139,7 +1139,10 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
   };
 
   const focomeiUsers = useMemo(() => filterFocoMeiAdminUsers(users), [users]);
-  const focomeiEmpresas = useMemo(() => filterFocoMeiAdminEmpresas(empresas), [empresas]);
+  const focomeiEmpresas = useMemo(
+    () => filterFocoMeiAdminEmpresas(empresas, users),
+    [empresas, users],
+  );
 
   const empresaMembersList = useMemo(() => {
     if (!membersEmpresa) return [];
@@ -1567,20 +1570,19 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
 
   const pageStats = useMemo(() => {
     const activeCount = focomeiUsers.filter((u) => u.status !== false).length;
-    const adminCount = focomeiUsers.filter(
-      (u) => u.role === 'admin' || u.role === 'superadmin',
-    ).length;
+    // Todos os Admins das empresas com MEI disponível (max_mei) ou em uso.
+    const empresaAdminCount = countFocoMeiEmpresaAdmins(users, focomeiEmpresas);
     const items = [
       { label: 'Usuários MEI', value: focomeiUsers.length },
       { label: 'Ativos', value: activeCount },
       { label: 'Bloqueados', value: blockedCount },
-      { label: 'Admins', value: adminCount },
+      { label: 'Admins empresa', value: empresaAdminCount },
     ];
     if (showEmpresasTab) {
       items.splice(1, 0, { label: 'Empresas MEI', value: focomeiEmpresas.length });
     }
     return items;
-  }, [focomeiUsers, focomeiEmpresas, blockedCount, showEmpresasTab]);
+  }, [users, focomeiUsers, focomeiEmpresas, blockedCount, showEmpresasTab]);
 
   // ----------------------------------------------------------------------
   // Render

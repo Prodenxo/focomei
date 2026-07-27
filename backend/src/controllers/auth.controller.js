@@ -80,6 +80,18 @@ export const resetPassword = async (req, res, next) => {
   }
 };
 
+export const confirmPasswordReset = async (req, res, next) => {
+  try {
+    await authService.confirmPasswordReset({
+      token_hash: req.body.token_hash || req.body.tokenHash,
+      newPassword: req.body.newPassword,
+    });
+    return sendSuccess(res, { success: true }, 'Senha atualizada');
+  } catch (error) {
+    return next(error);
+  }
+};
+
 export const processRecoveryHash = async (req, res, next) => {
   try {
     const result = await authService.processRecoveryHash(req.body);

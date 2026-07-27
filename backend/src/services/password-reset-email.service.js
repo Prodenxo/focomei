@@ -1,12 +1,38 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createSupabaseClient } from '../config/supabase.js';
 import { env } from '../config/env.js';
 import { badRequest, serviceUnavailable } from '../utils/errors.js';
 
-const buildRecoveryUrl = (redirectTo, hashedToken) => {
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const TEMPLATE_PATH = path.join(
+  __dirname,
+  '../../email-templates/focomei-reset-password.html',
+);
+
+export const buildRecoveryUrl = (redirectTo, hashedToken) => {
   const url = new URL(redirectTo);
   url.searchParams.set('token_hash', hashedToken);
   url.searchParams.set('type', 'recovery');
   return url.toString();
+};
+
+const fallbackHtml = (recoveryUrl) => `
+  <p>Olá,</p>
+  <p>Recebemos um pedido para redefinir a senha da sua conta no <strong>FocoMEI</strong>.</p>
+  <p><a href="${recoveryUrl}">Clique aqui para criar uma nova senha</a></p>
+  <p>Se você não solicitou, ignore este e-mail. O link expira em cerca de 1 hora.</p>
+  <p style="color:#64748b;font-size:12px">FocoMEI — focomei.com.br</p>
+`.trim();
+
+const loadFocoMeiResetHtml = (recoveryUrl) => {
+  try {
+    const raw = fs.readFileSync(TEMPLATE_PATH, 'utf8');
+    return raw.split('{{RECOVERY_URL}}').join(recoveryUrl);
+  } catch {
+    return fallbackHtml(recoveryUrl);
+  }
 };
 
 const mapSupabaseRecoveryError = (error) => {
@@ -21,18 +47,23 @@ const mapSupabaseRecoveryError = (error) => {
 
   if (/redirect.*not allowed|redirect_to/i.test(message)) {
     throw badRequest(
-      'Configuração de redirect inválida no Supabase. Inclua https://meiinfinito.com.br/reset-password em Redirect URLs.',
+      'Configuração de redirect inválida. Inclua https://focomei.com.br/reset-password em Redirect URLs.',
     );
   }
 
   throw badRequest(message);
 };
 
-const sendViaResend = async ({ to, recoveryUrl }) => {
+/**
+ * Envia e-mail de reset via Resend (sem depender do Supabase Auth).
+ */
+export const sendPasswordResetEmailViaResend = async ({ to, recoveryUrl }) => {
   const apiKey = env.RESEND_API_KEY;
   const from = env.RESEND_FROM_EMAIL;
   if (!apiKey || !from) {
-    throw serviceUnavailable('Envio de e-mail não configurado (RESEND_API_KEY / RESEND_FROM_EMAIL).');
+    throw serviceUnavailable(
+      'Envio de e-mail não configurado (RESEND_API_KEY / RESEND_FROM_EMAIL).',
+    );
   }
 
   const response = await fetch('https://api.resend.com/emails', {
@@ -44,26 +75,22 @@ const sendViaResend = async ({ to, recoveryUrl }) => {
     body: JSON.stringify({
       from,
       to: [to],
-      subject: 'Redefinir sua senha — Mei Infinito',
-      html: `
-        <p>Olá,</p>
-        <p>Recebemos um pedido para redefinir a senha da sua conta no Mei Infinito.</p>
-        <p><a href="${recoveryUrl}">Clique aqui para criar uma nova senha</a></p>
-        <p>Se você não solicitou, ignore este e-mail. O link expira em cerca de 1 hora.</p>
-        <p style="color:#64748b;font-size:12px">Mei Infinito — meiinfinito.com.br</p>
-      `.trim(),
+      subject: 'Redefinir sua senha — FocoMEI',
+      html: loadFocoMeiResetHtml(recoveryUrl),
     }),
   });
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
     console.error('[password-reset] Resend falhou:', response.status, body.slice(0, 300));
-    throw serviceUnavailable('Não foi possível enviar o e-mail de recuperação. Tente novamente em alguns minutos.');
+    throw serviceUnavailable(
+      'Não foi possível enviar o e-mail de recuperação. Tente novamente em alguns minutos.',
+    );
   }
 };
 
 /**
- * Gera link de recovery (admin) e envia via Resend com URL no domínio do app (melhor entrega Hotmail/Outlook).
+ * Legado Supabase: generateLink + Resend com URL no domínio do app.
  */
 export const sendPasswordResetEmail = async (email, redirectTo) => {
   const normalized = String(email || '').trim().toLowerCase();
@@ -90,7 +117,7 @@ export const sendPasswordResetEmail = async (email, redirectTo) => {
   }
 
   const recoveryUrl = buildRecoveryUrl(redirectTo, hashedToken);
-  await sendViaResend({ to: normalized, recoveryUrl });
+  await sendPasswordResetEmailViaResend({ to: normalized, recoveryUrl });
 };
 
 export const sendPasswordResetViaSupabase = async (email, redirectTo) => {
