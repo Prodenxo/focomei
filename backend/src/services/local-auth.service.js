@@ -242,7 +242,7 @@ const getRoleAndCompany = async (userId) => {
 
 const ensureUserNotBlocked = async (userId) => {
   const { rows } = await query(
-    `SELECT id, status, expires_at
+    `SELECT id, status, expires_at, empresas_id
      FROM public.role_x_user_x_empresa
      WHERE user_id = $1
      ORDER BY created_at DESC
@@ -251,9 +251,26 @@ const ensureUserNotBlocked = async (userId) => {
   );
   const link = rows[0];
   if (!link) return;
+
   if (link.status === false) {
+    // Pedido antigo (manual_approval) ou self_serve pendente → libera p/ /planos.
+    try {
+      const { unlockPendingSelfServeSignup } = await import(
+        './self-serve-signup.service.js'
+      );
+      const unlocked = await unlockPendingSelfServeSignup(userId);
+      if (unlocked?.unlocked || unlocked?.reason === 'already_active') {
+        return;
+      }
+    } catch (err) {
+      console.warn(
+        '[LocalAuth] falha ao liberar vínculo pendente no login:',
+        err?.message || err,
+      );
+    }
     throw forbidden('Seu perfil está bloqueado', { code: 'PROFILE_BLOCKED' });
   }
+
   if (link.expires_at && new Date(link.expires_at) < new Date()) {
     await query(
       'UPDATE public.role_x_user_x_empresa SET status = false WHERE id = $1',

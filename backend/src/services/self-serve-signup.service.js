@@ -359,19 +359,6 @@ export const unlockPendingSelfServeSignup = async (userId) => {
       return { unlocked: false, reason: 'already_active', empresaId: link.empresas_id };
     }
 
-    const { rows: userRows } = await query(
-      `SELECT raw_user_meta_data FROM public.users WHERE id = $1 LIMIT 1`,
-      [id],
-    );
-    const signupMode = normalizeSignupMode(userRows[0]?.raw_user_meta_data?.signup_mode);
-    if (signupMode === 'manual_approval') {
-      return {
-        unlocked: false,
-        reason: 'manual_approval',
-        empresaId: link.empresas_id,
-      };
-    }
-
     const empresaId = link.empresas_id;
     const adminRoleId = await resolveAdminRoleIdPg();
     await query(
@@ -388,6 +375,19 @@ export const unlockPendingSelfServeSignup = async (userId) => {
       `INSERT INTO public.profiles (id, role) VALUES ($1, 'admin')
        ON CONFLICT (id) DO UPDATE SET role = 'admin'`,
       [id],
+    );
+    await query(
+      `UPDATE public.users
+       SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || $2::jsonb
+       WHERE id = $1`,
+      [
+        id,
+        JSON.stringify({
+          signup_mode: 'self_serve',
+          access_unlocked_at: new Date().toISOString(),
+          access_unlock_reason: 'pending_to_planos',
+        }),
+      ],
     );
     return { unlocked: true, empresaId };
   }
@@ -408,18 +408,6 @@ export const unlockPendingSelfServeSignup = async (userId) => {
 
   if (link.status === true) {
     return { unlocked: false, reason: 'already_active', empresaId: link.empresas_id };
-  }
-
-  const { data: authData } = await sb.auth.admin.getUserById(id);
-  const signupMode = normalizeSignupMode(
-    authData?.user?.user_metadata?.signup_mode,
-  );
-  if (signupMode === 'manual_approval') {
-    return {
-      unlocked: false,
-      reason: 'manual_approval',
-      empresaId: link.empresas_id,
-    };
   }
 
   const empresaId = link.empresas_id;
