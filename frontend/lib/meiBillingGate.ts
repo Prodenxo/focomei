@@ -3,7 +3,11 @@ import { useAuthStore } from '@/store/authStore'
 
 /**
  * Admin sem MEI pago precisa de /planos.
- * Também cobre falha da API: se role=admin e mei!==true, exige plano.
+ *
+ * Fonte da verdade: `GET /billing/mei/status` (`required`).
+ * NÃO usar `mei===false` para forçar /planos quando a empresa já tem
+ * max_mei/assinatura — admins de escritório (mei=false) entram em loop
+ * planos ↔ app.
  */
 export async function shouldRequireMeiBillingRoute (): Promise<boolean> {
   const { role, mei } = useAuthStore.getState()
@@ -12,12 +16,10 @@ export async function shouldRequireMeiBillingRoute (): Promise<boolean> {
 
   try {
     const status = await fetchMeiBillingStatus()
-    if (status?.required) return true
-    // Já pagou / tem max_mei: só libera se mei estiver true no vínculo
-    if (status && status.required === false && (status.maxMei ?? 0) > 0) {
-      return mei !== true
-    }
-    return Boolean(status?.required)
+    if (status?.required === true) return true
+    if (status?.required === false) return false
+    // Resposta incompleta: fail-closed só para admin sem flag MEI
+    return mei !== true
   } catch {
     // Fail-closed para admin sem MEI: manda escolher plano em vez de entrar no app vazio
     return mei !== true
