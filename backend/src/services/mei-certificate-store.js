@@ -61,6 +61,10 @@ export const decryptPassphrase = (passphraseEnc, passphraseIv) => {
 };
 
 const getSupabase = () => {
+  // AUTH local: cliente Postgres compatível (sem SUPABASE_URL).
+  if (String(env.AUTH_MODE || '').trim().toLowerCase() === 'local') {
+    return createSupabaseClient({ useServiceRole: true });
+  }
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
     throw badRequest('Supabase não configurado para persistência de certificado');
   }
