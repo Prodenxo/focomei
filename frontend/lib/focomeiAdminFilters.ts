@@ -31,9 +31,17 @@ export function filterFocoMeiAdminEmpresas (
   )
 }
 
-/** Lista da aba Usuários: só quem tem vaga MEI liberada. */
-export function filterFocoMeiAdminUsers (users: ManagedUser[]): ManagedUser[] {
-  return users.filter((user) => isMeiSlotUser(user.mei))
+/**
+ * Aba Usuários: todos os vínculos das empresas MEI (disponível ou em uso),
+ * com ou sem vaga MEI liberada.
+ */
+export function filterFocoMeiAdminUsers (
+  users: ManagedUser[],
+  focomeiEmpresas: Pick<EmpresaOption, 'id'>[] = [],
+): ManagedUser[] {
+  const empIds = new Set(focomeiEmpresas.map((e) => e.id))
+  if (empIds.size === 0) return []
+  return users.filter((user) => Boolean(user.empresaId && empIds.has(user.empresaId)))
 }
 
 /**
@@ -50,6 +58,20 @@ export function countFocoMeiEmpresaAdmins (
     if (user.status === false) return false
     return user.role === 'admin' || user.role === 'superadmin'
   }).length
+}
+
+/** Quantos vínculos têm vaga MEI liberada (métrica, não filtro da lista). */
+export function countFocoMeiSlotUsers (
+  users: ManagedUser[],
+  focomeiEmpresas: Pick<EmpresaOption, 'id'>[],
+): number {
+  const empIds = new Set(focomeiEmpresas.map((e) => e.id))
+  return users.filter(
+    (user) =>
+      user.empresaId
+      && empIds.has(user.empresaId)
+      && isMeiSlotUser(user.mei),
+  ).length
 }
 
 /** Membros de uma empresa MEI — inclui PF/Outros para o admin liberar vaga. */

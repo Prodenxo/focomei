@@ -55,27 +55,20 @@ describe('countFocoMeiEmpresaAdmins', () => {
     ]
     expect(countFocoMeiEmpresaAdmins(users, empresas)).toBe(0)
   })
-
-  it('não conta cliente MEI com nome Admin e role usuario', () => {
-    const users = [
-      user({
-        id: 'm1',
-        role: 'usuario',
-        empresaId: 'e1',
-        mei: true,
-        displayName: 'Admin FortCim',
-      }),
-    ]
-    expect(countFocoMeiEmpresaAdmins(users, empresas)).toBe(0)
-  })
 })
 
 describe('filterFocoMeiAdminUsers', () => {
-  it('aba Usuários continua só com vaga MEI', () => {
+  const empresas = [{ id: 'e1' }]
+
+  it('lista todos os vínculos da empresa MEI, com ou sem vaga', () => {
     const users = [
       user({ id: 'a1', role: 'admin', empresaId: 'e1', mei: false }),
       user({ id: 'm1', role: 'usuario', empresaId: 'e1', mei: true }),
+      user({ id: 'x1', role: 'usuario', empresaId: 'e-other', mei: false }),
     ]
-    expect(filterFocoMeiAdminUsers(users).map((u) => u.id)).toEqual(['m1'])
+    expect(filterFocoMeiAdminUsers(users, empresas).map((u) => u.id).sort()).toEqual([
+      'a1',
+      'm1',
+    ])
   })
 })

@@ -1138,10 +1138,13 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
     }
   };
 
-  const focomeiUsers = useMemo(() => filterFocoMeiAdminUsers(users), [users]);
   const focomeiEmpresas = useMemo(
     () => filterFocoMeiAdminEmpresas(empresas, users),
     [empresas, users],
+  );
+  const focomeiUsers = useMemo(
+    () => filterFocoMeiAdminUsers(users, focomeiEmpresas),
+    [users, focomeiEmpresas],
   );
 
   const empresaMembersList = useMemo(() => {
@@ -1573,7 +1576,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
     // Todos os Admins das empresas com MEI disponível (max_mei) ou em uso.
     const empresaAdminCount = countFocoMeiEmpresaAdmins(users, focomeiEmpresas);
     const items = [
-      { label: 'Usuários MEI', value: focomeiUsers.length },
+      { label: 'Usuários', value: focomeiUsers.length },
       { label: 'Ativos', value: activeCount },
       { label: 'Bloqueados', value: blockedCount },
       { label: 'Admins empresa', value: empresaAdminCount },
@@ -1657,7 +1660,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
             isDesktop={isDesktop}
             role={role}
             stats={pageStats}
-            subtitle="Somente empresas e usuários com MEI ativo no FocoMEI."
+            subtitle="Empresas com MEI disponível/em uso e todos os usuários vinculados a elas."
             loading={initialUsersLoading || (showEmpresasTab && initialEmpresasLoading)}
             rightAction={
               isDesktop && activeTab !== 'invites'
@@ -1955,7 +1958,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
 
               <View style={styles.empresaMeiFilterBlock}>
                 <Text style={styles.empresaMeiFilterHint}>
-                  Exibindo apenas empresas com MEI ativo e usuários com vaga MEI liberada.
+                  Exibindo empresas com MEI disponível ou em uso e todos os usuários vinculados (com ou sem vaga MEI).
                 </Text>
                 <View style={[styles.meiStatBadge, { borderColor: theme.success + '55', backgroundColor: theme.successLight }]}>
                   <Text style={[styles.meiStatBadgeText, { color: theme.success }]}>
