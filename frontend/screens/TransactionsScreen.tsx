@@ -46,6 +46,7 @@ import { TransactionsHeaderActions } from './Transactions/TransactionsHeaderActi
 import { TransactionsDateSectionHeader } from './Transactions/TransactionsDateSectionHeader';
 import { TransactionsMobileListHeader } from './Transactions/TransactionsMobileListHeader';
 import { TransactionsFilterPills } from './Transactions/TransactionsFilterPills';
+import { TransactionsFiltersModal } from './Transactions/TransactionsFiltersModal';
 import {
   matchesTransactionPeriod,
   periodToolbarLabel,
@@ -2786,6 +2787,8 @@ export default function TransactionsScreen() {
   const [dateRange, setDateRange] = useState<TransactionDateRange>({ start: '', end: '' });
   const [useCustomRange, setUseCustomRange] = useState(false);
   const [exporting, setExporting] = useState(false);
+  /** Modal de filtros (período, tipo, status, conta). */
+  const [filtersModalOpen, setFiltersModalOpen] = useState(false);
 
   const MONTH_NAMES_T = [
     'Janeiro',
@@ -3152,8 +3155,24 @@ export default function TransactionsScreen() {
     useCustomRange ||
     periodPreset !== 'Esse mês';
 
+  const filtersPanelActiveCount = [
+    typeFilter !== 'all',
+    statusFilter !== 'all',
+    contaFilter !== 'all',
+    useCustomRange || periodPreset !== 'Esse mês',
+  ].filter(Boolean).length;
+
   const clearAllFilters = () => {
     setSearch('');
+    setTypeFilter('all');
+    setStatusFilter('all');
+    setContaFilter('all');
+    setPeriodPreset('Esse mês');
+    setDateRange({ start: '', end: '' });
+    setUseCustomRange(false);
+  };
+
+  const clearPanelFilters = () => {
     setTypeFilter('all');
     setStatusFilter('all');
     setContaFilter('all');
@@ -3295,6 +3314,11 @@ export default function TransactionsScreen() {
               bare
               theme={theme}
               monthLabel={periodPreset === 'Esse mês' && !useCustomRange ? monthLabel : periodLabel}
+              periodHint={
+                periodPreset === 'Esse mês' && !useCustomRange
+                  ? undefined
+                  : periodLabel
+              }
               movementCount={filteredWithPills.length}
               monthsAhead={monthsAhead}
               onPrevMonth={
@@ -3307,6 +3331,8 @@ export default function TransactionsScreen() {
               onAddTransaction={openNewTransaction}
               onExport={() => void handleExportExcel()}
               exporting={exporting}
+              onOpenFilters={() => setFiltersModalOpen(true)}
+              filtersActiveCount={filtersPanelActiveCount}
             />
         ) : null}
         {!showPanelHeader && useSidePanelForm ? (
@@ -3429,20 +3455,6 @@ export default function TransactionsScreen() {
             <View style={showPanelHeader ? styles.commandStack : undefined}>
               {showPanelHeader ? (
                 <View style={[styles.commandWell, commandWellSurface]}>
-                  <TransactionsPeriodToolbar
-                    theme={theme}
-                    period={periodPreset}
-                    dateRange={dateRange}
-                    useCustomRange={useCustomRange}
-                    compact
-                    embedded
-                    onPeriodChange={handlePeriodPresetChange}
-                    onDateRangeChange={setDateRange}
-                    onClearRange={() => {
-                      setDateRange({ start: '', end: '' });
-                      setUseCustomRange(false);
-                    }}
-                  />
                   <View style={styles.searchContainerInPanel}>
                     <Ionicons name="search-outline" size={18} color={theme.textSecondary} style={styles.searchIcon} />
                     <TextInput
@@ -3469,6 +3481,8 @@ export default function TransactionsScreen() {
                     exporting={exporting}
                     onExport={() => void handleExportExcel()}
                     onAddTransaction={openNewTransaction}
+                    onOpenFilters={() => setFiltersModalOpen(true)}
+                    filtersActiveCount={filtersPanelActiveCount}
                   />
                 </View>
               ) : null}
@@ -3481,99 +3495,7 @@ export default function TransactionsScreen() {
                   countSaidas={kpis.countSaidas}
                 />
               </View>
-              {showPanelHeader ? (
-                <View style={[styles.filtersWell, commandWellSurface]}>
-              <FilterGroup label="Tipo" styles={styles}>
-              <ScrollView
-                horizontal
-                nestedScrollEnabled
-                showsHorizontalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                style={styles.pillsScrollView}
-                contentContainerStyle={styles.pillsRowContent}
-                {...(Platform.OS === 'web' ? { className: WEB_HIDE_X_SCROLL_CLASS } : {})}
-              >
-                {(
-                  [
-                    { key: 'all', label: 'Todos', icon: 'apps-outline' as const },
-                    { key: 'entrada', label: 'Entradas', icon: 'arrow-down-outline' as const },
-                    { key: 'saida', label: 'Saídas', icon: 'arrow-up-outline' as const },
-                  ]
-                ).map((opt) => {
-                  const active = typeFilter === opt.key;
-                  const typePill =
-                    !active
-                      ? { box: undefined as object | undefined, label: undefined as object | undefined, icon: theme.textSecondary }
-                      : opt.key === 'entrada'
-                        ? { box: styles.pillActiveEntrada, label: styles.pillTextActiveEntrada, icon: theme.success }
-                        : opt.key === 'saida'
-                          ? { box: styles.pillActiveSaida, label: styles.pillTextActiveSaida, icon: theme.error }
-                          : { box: styles.pillActive, label: styles.pillTextActive, icon: theme.primary };
-                  return (
-                    <TouchableOpacity
-                      key={opt.key}
-                      onPress={() => setTypeFilter(opt.key as any)}
-                      style={[styles.pill, typePill.box]}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: active }}
-                    >
-                      <Ionicons name={opt.icon} size={13} color={typePill.icon} />
-                      <Text style={[styles.pillText, typePill.label]}>{opt.label}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-              </FilterGroup>
-              <FilterGroup label="Status" styles={styles}>
-              <ScrollView
-                horizontal
-                nestedScrollEnabled
-                showsHorizontalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                style={styles.pillsScrollView}
-                contentContainerStyle={styles.pillsRowContent}
-                {...(Platform.OS === 'web' ? { className: WEB_HIDE_X_SCROLL_CLASS } : {})}
-              >
-                {(
-                  [
-                    { key: 'all', label: 'Todos status', icon: 'ellipse-outline' as const },
-                    { key: 'pago', label: 'Pagas', icon: 'checkmark-circle-outline' as const },
-                    { key: 'pendente', label: 'Pendentes', icon: 'time-outline' as const },
-                  ]
-                ).map((opt) => {
-                  const active = statusFilter === opt.key;
-                  const statusPill =
-                    !active
-                      ? { box: undefined as object | undefined, label: undefined as object | undefined, icon: theme.textSecondary }
-                      : opt.key === 'pago'
-                        ? { box: styles.pillActivePago, label: styles.pillTextActivePago, icon: theme.success }
-                        : opt.key === 'pendente'
-                          ? { box: styles.pillActivePendente, label: styles.pillTextActivePendente, icon: theme.warning }
-                          : { box: styles.pillActive, label: styles.pillTextActive, icon: theme.primary };
-                  return (
-                    <TouchableOpacity
-                      key={opt.key}
-                      onPress={() => setStatusFilter(opt.key as any)}
-                      style={[styles.pill, statusPill.box]}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: active }}
-                    >
-                      <Ionicons name={opt.icon} size={13} color={statusPill.icon} />
-                      <Text style={[styles.pillText, statusPill.label]}>{opt.label}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-              </FilterGroup>
-              <ContaFilterPillsRow
-                contasAtivas={contasAtivas}
-                contaFilter={contaFilter}
-                onChange={setContaFilter}
-                styles={styles}
-                theme={theme}
-              />
-                </View>
-              ) : (
+              {!showPanelHeader && !isDesktop ? (
                 <TransactionsFilterPills
                   theme={theme}
                   styles={styles}
@@ -3585,7 +3507,7 @@ export default function TransactionsScreen() {
                   onStatusChange={setStatusFilter}
                   onContaChange={setContaFilter}
                 />
-              )}
+              ) : null}
             </View>
             ))
           }
@@ -3796,8 +3718,21 @@ export default function TransactionsScreen() {
               </TouchableOpacity>
             );
           }}
-          ListFooterComponent={Platform.OS === 'web' ? AppLegalFooter : undefined}
-          contentContainerStyle={sections.length === 0 ? { flexGrow: 1 } : { paddingBottom: 16 }}
+          ListFooterComponent={
+            Platform.OS === 'web'
+              ? () => (
+                  <AppLegalFooter
+                    density="app"
+                    style={{ marginTop: 48 }}
+                  />
+                )
+              : undefined
+          }
+          contentContainerStyle={
+            sections.length === 0
+              ? { flexGrow: 1, paddingBottom: 8 }
+              : { paddingBottom: 8 }
+          }
           initialNumToRender={12}
           windowSize={7}
           removeClippedSubviews={Platform.OS !== 'web'}
@@ -3821,6 +3756,30 @@ export default function TransactionsScreen() {
           await handleSave(data);
           void refetchContas();
         }}
+      />
+
+      <TransactionsFiltersModal
+        visible={filtersModalOpen}
+        onClose={() => setFiltersModalOpen(false)}
+        theme={theme}
+        pillStyles={styles}
+        periodPreset={periodPreset}
+        dateRange={dateRange}
+        useCustomRange={useCustomRange}
+        typeFilter={typeFilter}
+        statusFilter={statusFilter}
+        contaFilter={contaFilter}
+        contasAtivas={contasAtivas}
+        onPeriodChange={handlePeriodPresetChange}
+        onDateRangeChange={setDateRange}
+        onClearRange={() => {
+          setDateRange({ start: '', end: '' });
+          setUseCustomRange(false);
+        }}
+        onTypeChange={setTypeFilter}
+        onStatusChange={setStatusFilter}
+        onContaChange={setContaFilter}
+        onClearAll={clearPanelFilters}
       />
 
       <MfConfirmDialog
@@ -4029,21 +3988,78 @@ const createStyles = (
   unifiedPanel: {
     flex: 1,
     minHeight: 0,
-    padding: mfSpacing.md,
-    gap: mfSpacing.sm,
+    padding: 12,
+    gap: 6,
   },
   commandStack: {
-    gap: mfSpacing.sm,
-    marginBottom: mfSpacing.sm,
+    gap: 6,
+    marginBottom: 6,
   },
   commandWell: {
-    gap: mfSpacing.sm,
-    padding: mfSpacing.sm,
+    gap: 6,
+    padding: 8,
   },
   filtersWell: {
-    gap: mfSpacing.xs,
-    padding: mfSpacing.sm,
-    marginBottom: mfSpacing.xs,
+    gap: 4,
+    paddingTop: 4,
+    marginBottom: 0,
+  },
+  filtersWellDesktop: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'flex-start',
+    columnGap: 12,
+    rowGap: 6,
+  },
+  filtersExpandedBody: {
+    gap: 10,
+    paddingTop: 2,
+    paddingHorizontal: 4,
+    paddingBottom: 4,
+  },
+  filtersPeriodBlock: {
+    gap: 4,
+  },
+  filtersToggleWell: {
+    padding: 6,
+    marginBottom: 4,
+    gap: 6,
+  },
+  filtersToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : {}),
+  },
+  filtersToggleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  filtersToggleRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  filtersToggleLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  filtersToggleHint: {
+    fontSize: 12,
+    fontWeight: '500',
+    maxWidth: 220,
+  },
+  filtersActiveDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
   },
   searchContainerInPanel: {
     flexDirection: 'row',
@@ -4177,17 +4193,20 @@ const createStyles = (
     marginBottom: 4,
   },
   filterGroup: {
-    marginBottom: 8,
+    marginBottom: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 160,
   },
     filterGroupLabel: {
-      fontSize: 10,
+      fontSize: 9,
       fontWeight: '700',
       color: tokens.accent,
-      letterSpacing: 1,
+      letterSpacing: 0.8,
       textTransform: 'uppercase',
       paddingHorizontal: mfSpacing.xs,
-      marginBottom: 6,
-      marginTop: 2,
+      marginBottom: 4,
+      marginTop: 0,
     },
   historyHeaderRow: {
     flexDirection: 'row',

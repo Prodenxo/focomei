@@ -21,6 +21,10 @@ type Props = {
   exporting?: boolean;
   onExport: () => void;
   onAddTransaction: () => void;
+  /** Abre o modal de filtros (período, tipo, status, conta). */
+  onOpenFilters?: () => void;
+  /** Quantidade de filtros ativos — badge no botão. */
+  filtersActiveCount?: number;
   /** `auto` escolhe rótulos conforme a largura — evita cortar texto em monitores estreitos. */
   variant?: ActionLayout | 'auto';
 };
@@ -37,6 +41,8 @@ export function TransactionsHeaderActions({
   exporting = false,
   onExport,
   onAddTransaction,
+  onOpenFilters,
+  filtersActiveCount = 0,
   variant = 'auto',
 }: Props) {
   const { width } = useWindowDimensions();
@@ -47,9 +53,51 @@ export function TransactionsHeaderActions({
   const isIcons = layout === 'icons';
   const exportLabel = layout === 'full' ? 'Exportar Excel' : 'Exportar';
   const addLabel = layout === 'full' ? 'Nova transação' : 'Nova';
+  const filtersActive = filtersActiveCount > 0;
 
   return (
     <View style={styles.row}>
+      {onOpenFilters ? (
+        <TouchableOpacity
+          onPress={onOpenFilters}
+          style={[
+            isIcons ? styles.iconBtn : styles.secondaryBtn,
+            filtersActive && styles.filterBtnActive,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={
+            filtersActive
+              ? `Filtros, ${filtersActiveCount} ativos`
+              : 'Filtros'
+          }
+          {...(Platform.OS === 'web' ? { title: 'Filtros' } : {})}
+        >
+          <Ionicons
+            name="options-outline"
+            size={isIcons ? 22 : 18}
+            color={filtersActive ? tokens.accent : isIcons ? tokens.accent : theme.text}
+          />
+          {!isIcons ? (
+            <Text
+              style={[
+                styles.secondaryText,
+                filtersActive && { color: tokens.accent },
+              ]}
+              numberOfLines={1}
+            >
+              Filtros
+            </Text>
+          ) : null}
+          {filtersActive ? (
+            <View style={[styles.badge, { backgroundColor: tokens.accent }]}>
+              <Text style={styles.badgeText}>
+                {filtersActiveCount > 9 ? '9+' : String(filtersActiveCount)}
+              </Text>
+            </View>
+          ) : null}
+        </TouchableOpacity>
+      ) : null}
+
       <TouchableOpacity
         onPress={onExport}
         disabled={exporting}
@@ -118,11 +166,29 @@ function createStyles(theme: Theme, tokens: ReturnType<typeof getTechTokens>) {
       maxWidth: '100%',
       ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : {}),
     },
+    filterBtnActive: {
+      borderColor: tokens.accent,
+      backgroundColor: tokens.accentSoft,
+    },
     secondaryText: {
       fontSize: 14,
       fontWeight: '600',
       color: theme.text,
       flexShrink: 0,
+    },
+    badge: {
+      minWidth: 18,
+      height: 18,
+      borderRadius: 9,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 4,
+      marginLeft: 2,
+    },
+    badgeText: {
+      color: '#FFFFFF',
+      fontSize: 10,
+      fontWeight: '800',
     },
     primaryBtn: {
       flexDirection: 'row',
@@ -138,26 +204,33 @@ function createStyles(theme: Theme, tokens: ReturnType<typeof getTechTokens>) {
     },
     primaryText: {
       fontSize: 14,
-      fontWeight: '600',
+      fontWeight: '700',
       color: '#FFFFFF',
       flexShrink: 0,
     },
     iconBtn: {
-      padding: 8,
+      width: 40,
+      height: 40,
       borderRadius: mfRadius.sm,
       borderWidth: 1,
       borderColor: tokens.insetBorder,
       backgroundColor: tokens.insetFill,
-      flexShrink: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+      position: 'relative',
+      ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : {}),
     },
     addIconBtn: {
-      backgroundColor: tokens.accent,
+      width: 40,
+      height: 40,
       borderRadius: mfRadius.sm,
-      padding: 8,
-      flexShrink: 0,
+      backgroundColor: tokens.accent,
+      alignItems: 'center',
+      justifyContent: 'center',
+      ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : {}),
     },
     disabled: {
-      opacity: 0.6,
+      opacity: 0.55,
     },
   });
 }

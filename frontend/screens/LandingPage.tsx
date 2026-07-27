@@ -627,7 +627,7 @@ export default function LandingPage() {
       </View>
 
       {/* Footer */}
-      <AppLegalFooter />
+      <AppLegalFooter density="marketing" />
     </ScrollView>
   );
 }

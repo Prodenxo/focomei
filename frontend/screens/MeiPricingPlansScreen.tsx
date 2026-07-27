@@ -244,7 +244,7 @@ export default function MeiPricingPlansScreen () {
           </Text>
         </View>
 
-        <AppLegalFooter />
+        <AppLegalFooter density="marketing" />
       </MfScrollView>
     </View>
   )

@@ -8,22 +8,33 @@ import { LegalWebLink } from '@/components/LegalWebLink'
 type Props = {
   /** Estilo extra no container (ex.: marginTop no fim do scroll). */
   style?: StyleProp<ViewStyle>
+  /**
+   * `app` — barra fina no fim das telas (padrão).
+   * `marketing` — bloco grande da landing / planos.
+   */
+  density?: 'app' | 'marketing'
 }
 
 /**
- * Rodapé legal estilo landing (azul marca + wordmark + links + ©).
+ * Rodapé legal (azul marca + wordmark + links + ©).
  * Só web. Fica no fim do conteúdo (fluxo do scroll) — não fixed/sticky.
  */
-export function AppLegalFooter ({ style }: Props) {
+export function AppLegalFooter ({ style, density = 'app' }: Props) {
   if (Platform.OS !== 'web') return null
+
+  const isMarketing = density === 'marketing'
 
   return (
     <View
       accessibilityRole="contentinfo"
-      style={[styles.root, style]}
+      style={[isMarketing ? styles.rootMarketing : styles.rootApp, style]}
     >
       <View style={styles.inner}>
-        <AppBrandLogo variant="wordmark" onDarkBackground height={44} />
+        <AppBrandLogo
+          variant={isMarketing ? 'wordmark' : 'wordmarkCompact'}
+          onDarkBackground
+          height={isMarketing ? 36 : 20}
+        />
         <View style={styles.links}>
           <LegalWebLink
             href="/privacidade"
@@ -38,7 +49,7 @@ export function AppLegalFooter ({ style }: Props) {
           />
         </View>
       </View>
-      <View style={styles.bottom}>
+      <View style={isMarketing ? styles.bottomMarketing : styles.bottomApp}>
         <Text style={styles.copyright}>
           © 2026 {APP_BRAND_NAME}. Todos os direitos reservados.
         </Text>
@@ -48,18 +59,27 @@ export function AppLegalFooter ({ style }: Props) {
 }
 
 const styles = StyleSheet.create({
-  root: {
+  rootApp: {
     width: '100%',
     backgroundColor: brandColors.primary,
-    paddingTop: 48,
-    paddingBottom: 28,
+    paddingTop: 14,
+    paddingBottom: 12,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  rootMarketing: {
+    width: '100%',
+    backgroundColor: brandColors.primary,
+    paddingTop: 40,
+    paddingBottom: 24,
     paddingHorizontal: 16,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.08)',
   },
   inner: {
     alignItems: 'center',
-    gap: 24,
+    gap: 10,
     maxWidth: 1280,
     width: '100%',
     alignSelf: 'center',
@@ -69,22 +89,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 10,
   },
   link: {
-    fontSize: 13,
+    fontSize: 12,
     color: 'rgba(255,255,255,0.62)',
     fontWeight: '500',
     textDecorationLine: 'underline',
   },
   sep: {
-    fontSize: 13,
+    fontSize: 12,
     color: 'rgba(255,255,255,0.28)',
     fontWeight: '400',
   },
-  bottom: {
-    marginTop: 28,
-    paddingTop: 20,
+  bottomApp: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.06)',
+    maxWidth: 1280,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  bottomMarketing: {
+    marginTop: 24,
+    paddingTop: 18,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.06)',
     maxWidth: 1280,
@@ -92,7 +121,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   copyright: {
-    fontSize: 12,
+    fontSize: 11,
     color: 'rgba(255,255,255,0.35)',
     textAlign: 'center',
     fontWeight: '400',

@@ -9,7 +9,8 @@ type Props = ScrollViewProps & {
   hideHorizontalBar?: boolean
   /**
    * Oculta rodapé legal no fim do scroll.
-   * Use em modais, pickers e scrolls aninhados (o scroll da página já tem o footer).
+   * Padrão false nas telas do app: footer no fim do conteúdo (scroll), não fixo.
+   * Use true em modais, pickers e scrolls aninhados.
    */
   hideLegalFooter?: boolean
 }
@@ -52,7 +53,7 @@ export function MfScrollView ({
     >
       {children}
       {showLegalFooter ? (
-        <AppLegalFooter style={{ marginTop: 32 }} />
+        <AppLegalFooter style={{ marginTop: 40 }} />
       ) : null}
     </ScrollView>
   )

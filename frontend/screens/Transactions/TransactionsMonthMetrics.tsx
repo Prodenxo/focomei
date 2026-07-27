@@ -29,8 +29,9 @@ const monoFont = Platform.select({
   default: undefined,
 }) as ViewStyle['fontFamily'];
 
-type MetricsLayout = 'stack' | 'heroMobile' | 'heroDesktop';
-
+/**
+ * KPIs em faixa horizontal — legível sem comer a lista.
+ */
 export function TransactionsMonthMetrics({
   entradas,
   saidas,
@@ -41,117 +42,64 @@ export function TransactionsMonthMetrics({
   const { theme } = useMfTheme();
   const [containerWidth, setContainerWidth] = useState(0);
   const layout = useLayoutProfile(containerWidth);
+  const isWide = layout.isWide;
 
   const onLayout = useCallback((event: LayoutChangeEvent) => {
     const next = Math.round(event.nativeEvent.layout.width);
     setContainerWidth((prev) => (prev === next ? prev : next));
   }, []);
 
-  const metricsLayout: MetricsLayout = useMemo(() => {
-    if (layout.isWide) return 'heroDesktop';
-    return 'heroMobile';
-  }, [layout.isWide]);
-
-  const styles = useMemo(
-    () => createStyles(theme, metricsLayout === 'heroDesktop'),
-    [theme, metricsLayout],
-  );
+  const styles = useMemo(() => createStyles(theme, isWide), [theme, isWide]);
 
   const saldoColor = getFinanceSemanticColor(theme, saldo >= 0 ? 'received' : 'overdue');
   const incomeColor = getFinanceSemanticColor(theme, 'received');
   const expenseColor = getFinanceSemanticColor(theme, 'overdue');
 
-  const entradasHint = countEntradas === 1 ? '1 lançamento' : `${countEntradas} lançamentos`;
-  const saidasHint = countSaidas === 1 ? '1 lançamento' : `${countSaidas} lançamentos`;
+  const entradasHint = countEntradas === 1 ? '1 lanç.' : `${countEntradas} lanç.`;
+  const saidasHint = countSaidas === 1 ? '1 lanç.' : `${countSaidas} lanç.`;
   const saldoHint = saldo >= 0 ? 'Positivo' : 'Negativo';
-
-  const useHeroDesktop = metricsLayout === 'heroDesktop';
-  const useCompactMetrics = metricsLayout !== 'heroDesktop';
-
-  const saldoValueStyle = useHeroDesktop ? styles.heroValue : styles.heroValueMobile;
-
-  const saldoCard = (
-    <MfTechKpiCard level="featured" style={styles.heroPrimaryShell}>
-      <Text style={styles.metricEyebrow}>Saldo do período</Text>
-      <View style={styles.heroValueWrap}>
-        <Text
-          style={[saldoValueStyle, { color: saldoColor }]}
-          numberOfLines={1}
-          {...(Platform.OS === 'web'
-            ? { adjustsFontSizeToFit: true, minimumFontScale: 0.75 }
-            : { allowFontScaling: false })}
-        >
-          {formatCurrencyBR(saldo)}
-        </Text>
-      </View>
-      <Text style={styles.metricHint}>{saldoHint}</Text>
-    </MfTechKpiCard>
-  );
-
-  const entradasCard = (
-    <HeroMetric
-      label="Entradas"
-      value={formatCurrencyBR(entradas)}
-      hint={entradasHint}
-      color={incomeColor}
-      icon="trending-up-outline"
-      styles={styles}
-      compact={useCompactMetrics}
-      noFlex={useHeroDesktop}
-    />
-  );
-
-  const saidasCard = (
-    <HeroMetric
-      label="Saídas"
-      value={formatCurrencyBR(saidas)}
-      hint={saidasHint}
-      color={expenseColor}
-      icon="trending-down-outline"
-      styles={styles}
-      compact={useCompactMetrics}
-      noFlex={useHeroDesktop}
-    />
-  );
 
   return (
     <View style={styles.root} onLayout={onLayout}>
-      {metricsLayout === 'stack' ? (
-        <View style={styles.stack}>
-          {saldoCard}
-          {entradasCard}
-          {saidasCard}
-        </View>
-      ) : metricsLayout === 'heroDesktop' ? (
-        <View style={styles.heroDesktop}>
-          {saldoCard}
-          <View style={styles.heroMetrics}>
-            {entradasCard}
-            {saidasCard}
-          </View>
-        </View>
-      ) : (
-        <View style={styles.heroMobile}>
-          {saldoCard}
-          <View style={styles.heroMetricsMobile}>
-            {entradasCard}
-            {saidasCard}
-          </View>
-        </View>
-      )}
+      <View style={isWide ? styles.row : styles.stack}>
+        <Kpi
+          label="Saldo"
+          value={formatCurrencyBR(saldo)}
+          hint={saldoHint}
+          color={saldoColor}
+          icon="wallet-outline"
+          styles={styles}
+          featured
+        />
+        <Kpi
+          label="Entradas"
+          value={formatCurrencyBR(entradas)}
+          hint={entradasHint}
+          color={incomeColor}
+          icon="trending-up-outline"
+          styles={styles}
+        />
+        <Kpi
+          label="Saídas"
+          value={formatCurrencyBR(saidas)}
+          hint={saidasHint}
+          color={expenseColor}
+          icon="trending-down-outline"
+          styles={styles}
+        />
+      </View>
     </View>
   );
 }
 
-function HeroMetric({
+function Kpi({
   label,
   value,
   hint,
   color,
   icon,
   styles,
-  compact = false,
-  noFlex = false,
+  featured = false,
 }: {
   label: string;
   value: string;
@@ -159,154 +107,88 @@ function HeroMetric({
   color: string;
   icon: keyof typeof Ionicons.glyphMap;
   styles: ReturnType<typeof createStyles>;
-  compact?: boolean;
-  noFlex?: boolean;
+  featured?: boolean;
 }) {
   return (
     <MfTechKpiCard
-      level="metric"
-      style={[styles.metricShell, noFlex && styles.metricShellNatural]}
-      innerStyle={compact ? styles.metricTileCompact : undefined}
+      level={featured ? 'featured' : 'metric'}
+      style={styles.card}
+      innerStyle={styles.cardInner}
     >
-      <View style={styles.metricTileHead}>
-        <View style={[styles.metricIcon, { backgroundColor: `${color}22` }]}>
-          <Ionicons name={icon} size={14} color={color} />
+      <View style={styles.head}>
+        <View style={[styles.iconWrap, { backgroundColor: `${color}22` }]}>
+          <Ionicons name={icon} size={13} color={color} />
         </View>
-        <Text style={styles.metricEyebrow}>{label}</Text>
+        <Text style={styles.label}>{label}</Text>
+        <Text style={styles.hint}>{hint}</Text>
       </View>
-      <Text
-        style={[compact ? styles.metricValueCompact : styles.metricValue, { color }]}
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.65}
-      >
+      <Text style={[styles.value, { color }]} numberOfLines={1}>
         {value}
       </Text>
-      <Text style={styles.metricHint}>{hint}</Text>
     </MfTechKpiCard>
   );
 }
 
-function createStyles(theme: Theme, isDesktop: boolean) {
-  const isNative = Platform.OS !== 'web';
-
+function createStyles(theme: Theme, isWide: boolean) {
   return StyleSheet.create({
     root: {
       width: '100%',
-      marginBottom: mfSpacing.md,
+      marginBottom: 4,
+      overflow: 'visible',
+    },
+    row: {
+      flexDirection: 'row',
+      gap: mfSpacing.sm,
       overflow: 'visible',
     },
     stack: {
-      gap: isNative ? mfSpacing.md : mfSpacing.sm,
-      overflow: 'visible',
-    },
-    heroDesktop: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      gap: mfSpacing.md,
-      overflow: 'visible',
-    },
-    heroMobile: {
       gap: mfSpacing.sm,
       overflow: 'visible',
     },
-    heroPrimaryShell: {
-      flex: isDesktop ? 1.35 : undefined,
-      width: isDesktop ? undefined : '100%',
+    card: {
+      flex: isWide ? 1 : undefined,
+      width: isWide ? undefined : '100%',
       minWidth: 0,
-      overflow: 'visible',
-      marginVertical: 4,
-      marginHorizontal: 2,
-    },
-    heroValue: {
-      fontSize: 34,
-      fontWeight: '800',
-      lineHeight: 40,
-      letterSpacing: -1.2,
-      fontFamily: monoFont,
-      fontVariant: ['tabular-nums'],
-    },
-    heroValueWrap: {
-      width: '100%',
-      alignSelf: 'stretch',
-      minWidth: 0,
-    },
-    heroValueMobile: {
-      fontSize: 28,
-      fontWeight: '800',
-      lineHeight: 34,
-      letterSpacing: -0.8,
-      fontFamily: monoFont,
-      fontVariant: ['tabular-nums'],
-      flexShrink: 0,
-    },
-    heroMetrics: {
-      flex: 1,
-      minWidth: 200,
-      gap: mfSpacing.md,
-      paddingVertical: 4,
-      paddingHorizontal: 4,
+      marginVertical: 0,
+      marginHorizontal: 0,
       overflow: 'visible',
     },
-    heroMetricsMobile: {
-      flexDirection: 'row',
-      gap: mfSpacing.sm,
-      paddingVertical: 4,
-      paddingHorizontal: 2,
-      overflow: 'visible',
+    cardInner: {
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      gap: 4,
     },
-    metricShell: {
-      overflow: 'visible',
-      marginVertical: 2,
-      minWidth: 0,
-      flex: 1,
-    },
-    metricShellNatural: {
-      flex: 0,
-      flexGrow: 0,
-      flexShrink: 0,
-      alignSelf: 'stretch',
-    },
-    metricTileCompact: {
-      minWidth: 0,
-    },
-    metricTileHead: {
+    head: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 6,
     },
-    metricIcon: {
-      width: 26,
-      height: 26,
-      borderRadius: 8,
+    iconWrap: {
+      width: 22,
+      height: 22,
+      borderRadius: 6,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    metricEyebrow: {
-      fontSize: 9,
+    label: {
+      fontSize: 10,
       fontWeight: '700',
-      letterSpacing: 1,
+      letterSpacing: 0.6,
       textTransform: 'uppercase',
       color: theme.textSecondary,
-      flex: 1,
     },
-    metricValue: {
-      fontSize: 22,
-      fontWeight: '700',
+    hint: {
+      marginLeft: 'auto',
+      fontSize: 10,
+      color: theme.textTertiary,
+      fontWeight: '500',
+    },
+    value: {
+      fontSize: isWide ? 20 : 22,
+      fontWeight: '800',
       letterSpacing: -0.6,
       fontFamily: monoFont,
       fontVariant: ['tabular-nums'],
-    },
-    metricValueCompact: {
-      fontSize: isNative ? 15 : 16,
-      fontWeight: '700',
-      letterSpacing: -0.4,
-      fontFamily: monoFont,
-      fontVariant: ['tabular-nums'],
-    },
-    metricHint: {
-      fontSize: 10,
-      color: theme.textTertiary,
     },
   });
 }

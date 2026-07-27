@@ -17,6 +17,11 @@ type Props = {
   showTopNav?: boolean;
 };
 
+/**
+ * Shell do app: nav + área da rota.
+ * O rodapé legal NÃO fica aqui (evita “fixo” na viewport) —
+ * cada tela coloca `AppLegalFooter` no fim do próprio scroll.
+ */
 export default function AppShell({
   showMeiTab,
   navigateTo,
