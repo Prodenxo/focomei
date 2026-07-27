@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { supabase } from '../lib/supabase'
+import { apiClient } from '../lib/apiClient'
 import { useAuthStore } from './authStore'
 import { formatContaMoedaGlobalDbError } from '../lib/errors'
 import {
@@ -18,11 +18,8 @@ interface ContaMoedaGlobalState {
   deleteConta: (id: string) => Promise<{ error: string | null }>
 }
 
-function toDbPayload(input: ContaMoedaGlobalInput | Partial<ContaMoedaGlobalInput>) {
-  const payload: Record<string, unknown> = {
-    ...input,
-    atualizado_em: new Date().toISOString(),
-  }
+function toApiPayload(input: ContaMoedaGlobalInput | Partial<ContaMoedaGlobalInput>) {
+  const payload: Record<string, unknown> = { ...input }
   if ('moeda' in payload && payload.moeda != null) {
     payload.moeda = String(payload.moeda).trim().toUpperCase()
   }
@@ -49,15 +46,11 @@ export const useContaMoedaGlobalStore = create<ContaMoedaGlobalState>((set, get)
     }
     set({ loading: true, error: null })
     try {
-      const { data, error } = await supabase
-        .from('contas_moeda_global')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('ativo', true)
-        .order('moeda', { ascending: true })
-      if (error) throw error
+      const data = await apiClient.get<{ contas: Record<string, unknown>[] }>(
+        '/contas-moeda-global',
+      )
       set({
-        contas: (data || []).map((row) => normalizeContaMoedaGlobalRow(row as Record<string, unknown>)),
+        contas: (data?.contas || []).map((row) => normalizeContaMoedaGlobalRow(row)),
         loading: false,
       })
     } catch (err: unknown) {
@@ -72,14 +65,12 @@ export const useContaMoedaGlobalStore = create<ContaMoedaGlobalState>((set, get)
       return null
     }
     try {
-      const { data, error } = await supabase
-        .from('contas_moeda_global')
-        .insert([{ ...toDbPayload(input), user_id: userId }])
-        .select('*')
-        .single()
-      if (error) throw error
+      const data = await apiClient.post<{ conta: Record<string, unknown> }>(
+        '/contas-moeda-global',
+        toApiPayload(input),
+      )
       await get().fetchContas()
-      return data ? normalizeContaMoedaGlobalRow(data as Record<string, unknown>) : null
+      return data?.conta ? normalizeContaMoedaGlobalRow(data.conta) : null
     } catch (err: unknown) {
       set({ error: formatContaMoedaGlobalDbError(err) })
       return null
@@ -90,12 +81,10 @@ export const useContaMoedaGlobalStore = create<ContaMoedaGlobalState>((set, get)
     const userId = useAuthStore.getState().userId
     if (!userId) return { error: 'Usuário não autenticado' }
     try {
-      const { error } = await supabase
-        .from('contas_moeda_global')
-        .update(toDbPayload(input))
-        .eq('id', id)
-        .eq('user_id', userId)
-      if (error) throw error
+      await apiClient.put(
+        `/contas-moeda-global/${encodeURIComponent(id)}`,
+        toApiPayload(input),
+      )
       await get().fetchContas()
       return { error: null }
     } catch (err: unknown) {
@@ -109,12 +98,7 @@ export const useContaMoedaGlobalStore = create<ContaMoedaGlobalState>((set, get)
     const userId = useAuthStore.getState().userId
     if (!userId) return { error: 'Usuário não autenticado' }
     try {
-      const { error } = await supabase
-        .from('contas_moeda_global')
-        .delete()
-        .eq('id', id)
-        .eq('user_id', userId)
-      if (error) throw error
+      await apiClient.delete(`/contas-moeda-global/${encodeURIComponent(id)}`)
       await get().fetchContas()
       return { error: null }
     } catch (err: unknown) {

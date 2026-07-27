@@ -289,6 +289,96 @@ export const listRecorrenciaSkips = async (userId) => {
   return data || [];
 };
 
+const validateFromDate = (from) => {
+  const s = String(from || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    throw badRequest('from deve estar no formato YYYY-MM-DD');
+  }
+  return s;
+};
+
+export const purgeRecorrencia = async (userId, id, options = {}) => {
+  if (!id) throw badRequest('ID da recorrência é obrigatório');
+
+  const mode = String(options.mode || '').trim();
+  if (mode !== 'future' && mode !== 'all') {
+    throw badRequest("mode deve ser 'future' ou 'all'");
+  }
+
+  if (isLocalAuthMode()) {
+    const { rows: owned } = await query(
+      `SELECT id FROM public.recorrencias WHERE id = $1 AND user_id = $2`,
+      [id, userId],
+    );
+    if (!owned[0]) throw badRequest('Recorrência não encontrada');
+
+    if (mode === 'future') {
+      const from = validateFromDate(options.from);
+      await query(
+        `DELETE FROM public.lancamentos_id
+         WHERE user_id = $1 AND recorrencia_id = $2 AND data >= $3::date`,
+        [userId, id, from],
+      );
+      const { rows } = await query(
+        `UPDATE public.recorrencias
+         SET ativo = false, atualizado_em = now()
+         WHERE id = $1 AND user_id = $2
+         RETURNING id`,
+        [id, userId],
+      );
+      if (!rows[0]) throw badRequest('Recorrência não encontrada');
+      return { mode: 'future' };
+    }
+
+    await query(
+      `DELETE FROM public.lancamentos_id
+       WHERE user_id = $1 AND recorrencia_id = $2`,
+      [userId, id],
+    );
+    const deleteResult = await deleteRecorrencia(userId, id);
+    return { mode: 'all', deleteMode: deleteResult.mode };
+  }
+
+  const db = createSupabaseClient({ useServiceRole: true });
+  const { data: owned, error: ownErr } = await db
+    .from(RECORRENCIAS_TABLE)
+    .select('id')
+    .eq('id', id)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (ownErr) throw badRequest(ownErr.message);
+  if (!owned) throw badRequest('Recorrência não encontrada');
+
+  if (mode === 'future') {
+    const from = validateFromDate(options.from);
+    const { error: delErr } = await db
+      .from('lancamentos_id')
+      .delete()
+      .eq('user_id', userId)
+      .eq('recorrencia_id', id)
+      .gte('data', from);
+    if (delErr) throw badRequest(delErr.message);
+
+    const { error: updErr } = await db
+      .from(RECORRENCIAS_TABLE)
+      .update({ ativo: false, atualizado_em: new Date().toISOString() })
+      .eq('id', id)
+      .eq('user_id', userId);
+    if (updErr) throw badRequest(updErr.message);
+    return { mode: 'future' };
+  }
+
+  const { error: delAllErr } = await db
+    .from('lancamentos_id')
+    .delete()
+    .eq('user_id', userId)
+    .eq('recorrencia_id', id);
+  if (delAllErr) throw badRequest(delAllErr.message);
+
+  const deleteResult = await deleteRecorrencia(userId, id);
+  return { mode: 'all', deleteMode: deleteResult.mode };
+};
+
 export const addRecorrenciaSkip = async (userId, payload = {}) => {
   const recorrenciaId = payload.recorrencia_id || payload.recorrenciaId;
   const anoMes = validateAnoMes(payload.ano_mes || payload.anoMes);

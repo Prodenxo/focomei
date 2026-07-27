@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { supabase } from '../lib/supabase'
+import { apiClient } from '../lib/apiClient'
 import { useAuthStore } from './authStore'
 import { formatContaFinanceiraDbError } from '../lib/errors'
 import {
@@ -18,8 +18,8 @@ interface ContaFinanceiraState {
   deleteConta: (id: string) => Promise<{ error: string | null }>
 }
 
-function toDbPayload(input: ContaFinanceiraInput | Partial<ContaFinanceiraInput>) {
-  const payload: Record<string, unknown> = { ...input, atualizado_em: new Date().toISOString() }
+function toApiPayload (input: ContaFinanceiraInput | Partial<ContaFinanceiraInput>) {
+  const payload: Record<string, unknown> = { ...input }
   if ('saldo_inicial' in payload && payload.saldo_inicial != null) {
     payload.saldo_inicial = Number(payload.saldo_inicial)
   }
@@ -45,14 +45,11 @@ export const useContaFinanceiraStore = create<ContaFinanceiraState>((set, get) =
     }
     set({ loading: true, error: null })
     try {
-      const { data, error } = await supabase
-        .from('contas_financeiras')
-        .select('*')
-        .eq('user_id', userId)
-        .order('nome', { ascending: true })
-      if (error) throw error
+      const data = await apiClient.get<{ contas: Record<string, unknown>[] }>(
+        '/contas-financeiras?includeInactive=1',
+      )
       set({
-        contas: (data || []).map((row) => normalizeContaRow(row as Record<string, unknown>)),
+        contas: (data?.contas || []).map((row) => normalizeContaRow(row)),
         loading: false,
       })
     } catch (err: unknown) {
@@ -67,14 +64,12 @@ export const useContaFinanceiraStore = create<ContaFinanceiraState>((set, get) =
       return null
     }
     try {
-      const { data, error } = await supabase
-        .from('contas_financeiras')
-        .insert([{ ...toDbPayload(input), user_id: userId }])
-        .select('*')
-        .single()
-      if (error) throw error
+      const data = await apiClient.post<{ conta: Record<string, unknown> }>(
+        '/contas-financeiras',
+        toApiPayload(input),
+      )
       await get().fetchContas()
-      return data ? normalizeContaRow(data as Record<string, unknown>) : null
+      return data?.conta ? normalizeContaRow(data.conta) : null
     } catch (err: unknown) {
       set({ error: formatContaFinanceiraDbError(err) })
       return null
@@ -85,12 +80,7 @@ export const useContaFinanceiraStore = create<ContaFinanceiraState>((set, get) =
     const userId = useAuthStore.getState().userId
     if (!userId) return { error: 'Usuário não autenticado' }
     try {
-      const { error } = await supabase
-        .from('contas_financeiras')
-        .update(toDbPayload(input))
-        .eq('id', id)
-        .eq('user_id', userId)
-      if (error) throw error
+      await apiClient.put(`/contas-financeiras/${encodeURIComponent(id)}`, toApiPayload(input))
       await get().fetchContas()
       return { error: null }
     } catch (err: unknown) {
@@ -104,12 +94,7 @@ export const useContaFinanceiraStore = create<ContaFinanceiraState>((set, get) =
     const userId = useAuthStore.getState().userId
     if (!userId) return { error: 'Usuário não autenticado' }
     try {
-      const { error } = await supabase
-        .from('contas_financeiras')
-        .delete()
-        .eq('id', id)
-        .eq('user_id', userId)
-      if (error) throw error
+      await apiClient.delete(`/contas-financeiras/${encodeURIComponent(id)}`)
       await get().fetchContas()
       return { error: null }
     } catch (err: unknown) {

@@ -103,44 +103,68 @@ export default function AppLayout() {
     }
     let cancelled = false;
     setAccessStatus('checking');
-    supabase
-      .from('role_x_user_x_empresa')
-      .select('status')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-      .then(
-        async ({ data }) => {
+
+    // AUTH local: supabase.from bloqueado — vínculo já validado no login/unlock.
+    void (async () => {
+      const { isLocalApiAuthMode } = await import('@/lib/authMode');
+      if (cancelled) return;
+      if (isLocalApiAuthMode()) {
+        try {
+          const { apiClient } = await import('@/lib/apiClient');
+          const unlock = await apiClient.post<{
+            unlocked?: boolean
+            reason?: string
+          }>('/billing/mei/unlock-pending', {});
           if (cancelled) return;
-          if (data?.status === false) {
-            try {
-              const { apiClient } = await import('@/lib/apiClient');
-              const unlock = await apiClient.post<{
-                unlocked?: boolean
-                reason?: string
-              }>('/billing/mei/unlock-pending', {});
-              if (cancelled) return;
-              // Pedido manual (Quero ser cliente / solicitar-acesso) permanece em análise.
-              if (!unlock?.unlocked) {
-                setAccessStatus('pending');
+          if (unlock?.unlocked) {
+            await useAuthStore.getState().initAuth();
+          }
+        } catch {
+          // já ativo ou sem vínculo pendente
+        }
+        if (!cancelled) setAccessStatus('ok');
+        return;
+      }
+
+      supabase
+        .from('role_x_user_x_empresa')
+        .select('status')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+        .then(
+          async ({ data }) => {
+            if (cancelled) return;
+            if (data?.status === false) {
+              try {
+                const { apiClient } = await import('@/lib/apiClient');
+                const unlock = await apiClient.post<{
+                  unlocked?: boolean
+                  reason?: string
+                }>('/billing/mei/unlock-pending', {});
+                if (cancelled) return;
+                if (!unlock?.unlocked) {
+                  setAccessStatus('pending');
+                  return;
+                }
+                await useAuthStore.getState().initAuth();
+                if (cancelled) return;
+                setAccessStatus('ok');
+                return;
+              } catch {
+                if (!cancelled) setAccessStatus('pending');
                 return;
               }
-              await useAuthStore.getState().initAuth();
-              if (cancelled) return;
-              setAccessStatus('ok');
-              return;
-            } catch {
-              if (!cancelled) setAccessStatus('pending');
-              return;
             }
-          }
-          setAccessStatus('ok');
-        },
-        () => {
-          if (!cancelled) setAccessStatus('ok');
-        }
-      );
+            setAccessStatus('ok');
+          },
+          () => {
+            if (!cancelled) setAccessStatus('ok');
+          },
+        );
+    })();
+
     return () => {
       cancelled = true;
     };

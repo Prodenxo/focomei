@@ -1,17 +1,17 @@
 import { create } from 'zustand';
-import { supabase } from '../lib/supabase';
+import { apiClient } from '../lib/apiClient';
 import { useAuthStore } from './authStore';
 import { useRecorrenciaStore } from './recorrenciaStore';
 import { createCalendarEvent } from '../lib/google-calendar';
 import { getErrorMessage } from '../lib/errors';
 
 interface Transaction {
-  id: string; // UUID no Supabase
+  id: string;
   tipo: 'saída' | 'entrada';
   valor: number;
   classificacao: string;
   criado_em: string;
-  user_id: string | null; // UUID do usuário (null para transações globais)
+  user_id: string | null;
   status: string;
   data?: string | null;
   categoria?: string | number | null;
@@ -36,11 +36,35 @@ interface TransactionState {
   clearGoogleAuthRequired: () => void;
 }
 
+function normalizeTransactionRow (t: Record<string, unknown>): Transaction {
+  return {
+    ...t,
+    id: String(t.id || ''),
+    valor: typeof t.valor === 'string' ? parseFloat(t.valor) : Number(t.valor),
+    tipo: (String(t.tipo) === 'saida' ? 'saída' : String(t.tipo)) as Transaction['tipo'],
+    classificacao: String(t.classificacao || ''),
+    status: String(t.status || ''),
+    user_id: t.user_id ? String(t.user_id) : null,
+    criado_em: String(t.criado_em || ''),
+    data: t.data ? String(t.data) : null,
+    categoria: t.categoria !== null && t.categoria !== undefined
+      ? (typeof t.categoria === 'string'
+        ? (isNaN(Number(t.categoria)) ? t.categoria : Number(t.categoria))
+        : t.categoria as string | number)
+      : null,
+    obs: t.obs ? String(t.obs) : null,
+    conta_id: t.conta_id ? String(t.conta_id) : null,
+    recorrencia_id: t.recorrencia_id ? String(t.recorrencia_id) : null,
+    recorrencia_ano_mes: t.recorrencia_ano_mes ? String(t.recorrencia_ano_mes) : null,
+  } as Transaction;
+}
+
 export const useTransactionStore = create<TransactionState>((set, get) => ({
   transactions: [],
   loading: false,
   error: null,
   googleAuthRequired: false,
+
   fetchTransactions: async () => {
     const userId = useAuthStore.getState().userId;
     if (!userId) {
@@ -50,37 +74,14 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
 
     set({ loading: true, error: null });
     try {
-      const { data, error } = await supabase
-        .from('lancamentos_id')
-        .select('*')
-        .eq('user_id', userId)
-        .order('criado_em', { ascending: false });
-      
-      if (error) throw error;
-      
-      // Normalizar dados do banco para garantir tipos corretos
-      const normalizedData = (data || []).map((t: any) => ({
-        ...t,
-        id: String(t.id || ''), // UUID sempre como string
-        valor: typeof t.valor === 'string' ? parseFloat(t.valor) : Number(t.valor),
-        tipo: String(t.tipo) === 'saida' ? 'saída' : String(t.tipo),
-        classificacao: String(t.classificacao || ''),
-        status: String(t.status || ''),
-        user_id: t.user_id ? String(t.user_id) : null, // Permitir null para transações globais
-        criado_em: String(t.criado_em || ''),
-        data: t.data ? String(t.data) : null,
-        categoria: t.categoria !== null && t.categoria !== undefined 
-          ? (typeof t.categoria === 'string' ? (isNaN(Number(t.categoria)) ? t.categoria : Number(t.categoria)) : t.categoria)
-          : null,
-        obs: t.obs ? String(t.obs) : null,
-        conta_id: t.conta_id ? String(t.conta_id) : null,
-      }));
-      
+      const data = await apiClient.get<Record<string, unknown>[]>('/transactions');
+      const normalizedData = (data || []).map((t) => normalizeTransactionRow(t));
       set({ transactions: normalizedData, loading: false });
-    } catch (error: any) {
-      set({ error: error.message, loading: false });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error), loading: false });
     }
   },
+
   addTransaction: async (transaction, options) => {
     const userId = useAuthStore.getState().userId;
     if (!userId) {
@@ -89,22 +90,16 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
     }
 
     try {
-      // Garantir que valor seja sempre um número
       const transactionData = {
         ...transaction,
-        valor: typeof transaction.valor === 'number' ? transaction.valor : parseFloat(String(transaction.valor)),
-        user_id: userId
+        valor: typeof transaction.valor === 'number'
+          ? transaction.valor
+          : parseFloat(String(transaction.valor)),
       };
 
-      const { error } = await supabase
-        .from('lancamentos_id')
-        .insert([transactionData]);
-
-      if (error) throw error;
+      await apiClient.post('/transactions', transactionData);
       await get().fetchTransactions();
 
-      // Google Calendar agora é opt-in via options.addToCalendar.
-      // O caller decide quando criar o evento (ex.: toggle no formulário).
       const wantsCalendar = options?.addToCalendar === true;
       const isPlanned = transaction.status === 'a_receber' || transaction.status === 'a_pagar';
       if (wantsCalendar && isPlanned) {
@@ -117,14 +112,15 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
               console.warn('Erro ao criar evento no calendário:', calendarResult.error);
             }
           }
-        } catch (calendarError: any) {
+        } catch (calendarError: unknown) {
           console.warn('Erro ao criar evento no calendário:', calendarError);
         }
       }
-    } catch (error: any) {
-      set({ error: error.message });
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error) });
     }
   },
+
   updateTransaction: async (id, transaction) => {
     const userId = useAuthStore.getState().userId;
     if (!userId) {
@@ -133,7 +129,6 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
       return { data: null, error: errorMsg };
     }
 
-    // Validar ID - UUID (string)
     const idString = String(id || '');
     if (!idString || idString.trim() === '') {
       const errorMsg = 'ID da transação inválido';
@@ -142,18 +137,17 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
     }
 
     try {
-      // Garantir que valor seja sempre um número
       const transactionData = {
+        id: idString,
         ...transaction,
-        valor: typeof transaction.valor === 'number' ? transaction.valor : parseFloat(String(transaction.valor))
+        valor: typeof transaction.valor === 'number'
+          ? transaction.valor
+          : transaction.valor != null
+            ? parseFloat(String(transaction.valor))
+            : undefined,
       };
-      
-      const { data, error } = await supabase
-        .from('lancamentos_id')
-        .update(transactionData)
-        .eq('id', idString) // UUID como string
-        .eq('user_id', userId);
-      if (error) throw error;
+
+      const data = await apiClient.put('/transactions', transactionData);
       await get().fetchTransactions();
       return { data, error: null };
     } catch (error: unknown) {
@@ -162,6 +156,7 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
       return { data: null, error: msg };
     }
   },
+
   deleteTransaction: async (id) => {
     const userId = useAuthStore.getState().userId;
     if (!userId) {
@@ -170,7 +165,6 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
       return { data: null, error: errorMsg };
     }
 
-    // Validar ID - UUID (string)
     const idString = String(id || '');
     if (!idString || idString.trim() === '') {
       const errorMsg = 'ID da transação inválido';
@@ -179,10 +173,6 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
     }
 
     try {
-      // Se a transação está vinculada a uma recorrência (recorrencia_id +
-      // recorrencia_ano_mes), registramos um "skip" antes do DELETE. Sem isso,
-      // o frontend regenera a projeção virtual no mesmo mês (perda da chave de
-      // deduplicação). Pega do estado local — evita round-trip.
       const targetTx = get().transactions.find((t) => t.id === idString);
       if (targetTx?.recorrencia_id && targetTx?.recorrencia_ano_mes) {
         await useRecorrenciaStore
@@ -190,22 +180,15 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
           .addSkip(targetTx.recorrencia_id, targetTx.recorrencia_ano_mes);
       }
 
-      const { data, error } = await supabase
-        .from('lancamentos_id')
-        .delete()
-        .eq('id', idString)
-        .eq('user_id', userId);
-      if (error) throw error;
+      await apiClient.delete(`/transactions?id=${encodeURIComponent(idString)}`);
       await get().fetchTransactions();
-      return { data, error: null };
+      return { data: { success: true }, error: null };
     } catch (error: unknown) {
       const msg = getErrorMessage(error);
       set({ error: msg });
       return { data: null, error: msg };
     }
   },
-  clearGoogleAuthRequired: () => {
-    set({ googleAuthRequired: false });
-  },
-}));
 
+  clearGoogleAuthRequired: () => set({ googleAuthRequired: false }),
+}));

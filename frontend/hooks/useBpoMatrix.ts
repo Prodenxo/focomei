@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
 import {
   fetchCategoryBudgetsDreMatrix,
+  fetchUserCategories,
   type DreMatrixCell,
 } from '../lib/categoryService';
 import type { BpoCategory } from '../lib/bpoMatrix';
@@ -17,16 +17,13 @@ export function useBpoMatrix(userId: string | null, year: number) {
     setLoading(true);
     setError(null);
     try {
-      const [{ data: cats }, matrix] = await Promise.all([
-        supabase
-          .from('categorias_id')
-          .select('id, nome, tipo')
-          .or(`user_id.eq.${userId},user_id.is.null`),
+      const [cats, matrix] = await Promise.all([
+        fetchUserCategories(userId),
         fetchCategoryBudgetsDreMatrix(userId, year),
       ]);
 
       const normalized: BpoCategory[] = (cats || [])
-        .map((row: { id?: number; nome?: string; tipo?: string }) => ({
+        .map((row) => ({
           id: Number(row.id),
           nome: String(row.nome || ''),
           tipo: String(row.tipo || ''),
@@ -40,7 +37,7 @@ export function useBpoMatrix(userId: string | null, year: number) {
       setError(
         err instanceof Error && err.message
           ? err.message
-          : 'Não foi possível carregar a matriz BPO.'
+          : 'Não foi possível carregar a matriz BPO.',
       );
     } finally {
       setLoading(false);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { apiClient } from '../lib/apiClient';
 import {
   fetchCategoryBudgetsSummary,
   type CategoryBudgetSummary,
@@ -26,6 +26,16 @@ export type CategorySpendingRow = {
   transactions: CategoryTransactionLine[];
 };
 
+type ApiTransactionRow = {
+  id?: string | number;
+  classificacao?: string;
+  valor?: number | string;
+  tipo?: string;
+  data?: string | null;
+  status?: string;
+  obs?: string | null;
+};
+
 function getMonthRange({ year, month }: MonthRef) {
   const start = new Date(year, month - 1, 1);
   const end = new Date(year, month, 0);
@@ -35,9 +45,21 @@ function getMonthRange({ year, month }: MonthRef) {
   };
 }
 
+function mapTransactionRow(row: ApiTransactionRow): CategoryTransactionLine {
+  return {
+    id: String(row.id ?? ''),
+    data: String(row.data ?? ''),
+    valor: Number(row.valor ?? 0),
+    tipo: String(row.tipo ?? ''),
+    classificacao: String(row.classificacao ?? ''),
+    status: String(row.status ?? ''),
+    obs: row.obs != null ? String(row.obs) : null,
+  };
+}
+
 export function useCategoryMonthSpending(
   userId: string | null,
-  monthRef: MonthRef
+  monthRef: MonthRef,
 ) {
   const [budgetSummary, setBudgetSummary] = useState<CategoryBudgetSummary[]>([]);
   const [monthTransactions, setMonthTransactions] = useState<CategoryTransactionLine[]>([]);
@@ -54,33 +76,23 @@ export function useCategoryMonthSpending(
 
     const { startOfMonth, endOfMonth } = getMonthRange(monthRef);
 
-    const [summary, txResult] = await Promise.all([
-      fetchCategoryBudgetsSummary(userId, monthRef),
-      supabase
-        .from('lancamentos_id')
-        .select('id, classificacao, valor, tipo, data, status, obs')
-        .eq('user_id', userId)
-        .gte('data', startOfMonth)
-        .lte('data', endOfMonth)
-        .order('data', { ascending: false }),
-    ]);
+    try {
+      const [summary, allTransactions] = await Promise.all([
+        fetchCategoryBudgetsSummary(userId, monthRef),
+        apiClient.get<ApiTransactionRow[]>('/transactions'),
+      ]);
 
-    setBudgetSummary(summary);
+      setBudgetSummary(summary);
 
-    if (txResult.error || !txResult.data) {
+      const filtered = (allTransactions || []).filter((row) => {
+        const date = String(row.data ?? '').slice(0, 10);
+        return date >= startOfMonth && date <= endOfMonth;
+      });
+
+      setMonthTransactions(filtered.map(mapTransactionRow));
+    } catch {
+      setBudgetSummary([]);
       setMonthTransactions([]);
-    } else {
-      setMonthTransactions(
-        txResult.data.map((row: Record<string, unknown>) => ({
-          id: String(row.id ?? ''),
-          data: String(row.data ?? ''),
-          valor: Number(row.valor ?? 0),
-          tipo: String(row.tipo ?? ''),
-          classificacao: String(row.classificacao ?? ''),
-          status: String(row.status ?? ''),
-          obs: row.obs != null ? String(row.obs) : null,
-        }))
-      );
     }
   }, [userId, monthRef.year, monthRef.month]);
 
@@ -107,7 +119,7 @@ export function useCategoryMonthSpending(
       acc[item.categorias_id] = item;
       return acc;
     },
-    {}
+    {},
   );
 
   function transactionsForCategory(nome: string, tipo: 'entrada' | 'saida') {
@@ -121,7 +133,7 @@ export function useCategoryMonthSpending(
   function amountForCategory(
     catId: number,
     nome: string,
-    tipo: 'entrada' | 'saida'
+    tipo: 'entrada' | 'saida',
   ): number {
     const summary = summaryByCategoryId[catId];
     if (tipo === 'entrada') {
@@ -134,7 +146,7 @@ export function useCategoryMonthSpending(
 
   function buildRows(
     categorias: { id: number; nome: string; tipo: string }[],
-    viewTipo: 'entrada' | 'saida'
+    viewTipo: 'entrada' | 'saida',
   ): CategorySpendingRow[] {
     return categorias
       .filter((cat) => {

@@ -16,11 +16,15 @@ import zapiRoutes from './zapi.routes.js';
 import internalAccessRequestsRoutes from './internal-access-requests.routes.js';
 import moedasGlobaisRoutes from './moedas-globais.routes.js';
 import billingRoutes from './billing.routes.js';
+import contasFinanceirasRoutes from './contas-financeiras.routes.js';
+import contasMoedaGlobalRoutes from './contas-moeda-global.routes.js';
 const router = Router();
 
 router.use('/auth', authRoutes);
 router.use('/categories', categoriesRoutes);
 router.use('/transactions', transactionsRoutes);
+router.use('/contas-financeiras', contasFinanceirasRoutes);
+router.use('/contas-moeda-global', contasMoedaGlobalRoutes);
 router.use('/users', usersRoutes);
 router.use('/invites', empresaInvitesRoutes);
 router.use('/admin', adminRoutes);

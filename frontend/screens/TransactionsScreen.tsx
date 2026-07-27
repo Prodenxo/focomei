@@ -26,7 +26,8 @@ import { projectRecurrences, isProjecao, buildMaterializationPayload, type Proje
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
 import { getTheme } from '../lib/theme';
-import { supabase } from '../lib/supabase';
+import { apiClient } from '../lib/apiClient';
+import { fetchUserCategories } from '../lib/categoryService';
 import { Ionicons } from '@expo/vector-icons';
 import { promptGoogleAuth } from '../lib/google-auth-flow';
 import { formatNumberBR, parseNumberBR, formatCurrencyInput, formatCurrencyBR } from '../lib/numberFormat';
@@ -545,24 +546,16 @@ function TransactionModal({
 
       // Carregar categorias
       if (!userId) return;
-      supabase
-        .from('categorias_id')
-        .select('id, nome, tipo')
-        .eq('user_id', userId)
-        .order('nome')
-        .then(({ data, error }) => {
-          if (!error && data) {
-            // Normalizar dados do banco para garantir tipos corretos
-            const normalizedData = (data || []).map((cat: any) => ({
-              id: Number(cat.id) || 0,
-              nome: String(cat.nome || ''),
-              tipo: String(cat.tipo || ''),
-            }));
-            setCategorias(normalizedData);
-          } else {
-            setCategorias([]);
-          }
-        });
+      fetchUserCategories(userId)
+        .then((data) => {
+          const normalizedData = (data || []).map((cat) => ({
+            id: Number(cat.id) || 0,
+            nome: String(cat.nome || ''),
+            tipo: String(cat.tipo || ''),
+          }));
+          setCategorias(normalizedData);
+        })
+        .catch(() => setCategorias([]));
     }
   }, [visible, transaction, userId]);
 
@@ -1596,22 +1589,17 @@ function InlineTransactionForm({
   // Carregar categorias
   useEffect(() => {
     if (!userId) return;
-    supabase
-      .from('categorias_id')
-      .select('id, nome, tipo')
-      .eq('user_id', userId)
-      .order('nome')
-      .then(({ data: rows, error }) => {
-        if (!error && rows) {
-          setCategorias(
-            (rows || []).map((cat: any) => ({
-              id: Number(cat.id) || 0,
-              nome: String(cat.nome || ''),
-              tipo: String(cat.tipo || ''),
-            })),
-          );
-        }
-      });
+    fetchUserCategories(userId)
+      .then((data) => {
+        setCategorias(
+          (data || []).map((cat) => ({
+            id: Number(cat.id) || 0,
+            nome: String(cat.nome || ''),
+            tipo: String(cat.tipo || ''),
+          })),
+        );
+      })
+      .catch(() => setCategorias([]));
   }, [userId]);
 
   const categoriasFiltradas = categorias.filter((cat) => {
@@ -3000,19 +2988,10 @@ export default function TransactionsScreen() {
     }
     setDeletingScope(true);
     try {
-      const { error: delErr } = await supabase
-        .from('lancamentos_id')
-        .delete()
-        .eq('user_id', userId)
-        .eq('recorrencia_id', recId)
-        .gte('data', fromDate);
-      if (delErr) throw delErr;
-      const { error: updErr } = await supabase
-        .from('recorrencias')
-        .update({ ativo: false })
-        .eq('id', recId)
-        .eq('user_id', userId);
-      if (updErr) throw updErr;
+      await apiClient.post(`/recorrencias/${encodeURIComponent(recId)}/purge`, {
+        mode: 'future',
+        from: fromDate,
+      });
       await Promise.all([fetchTransactions(), fetchRecorrencias(), fetchSkips()]);
       setDeleteScopeTx(null);
     } catch (error: any) {
@@ -3032,18 +3011,9 @@ export default function TransactionsScreen() {
     }
     setDeletingScope(true);
     try {
-      const { error: delErr } = await supabase
-        .from('lancamentos_id')
-        .delete()
-        .eq('user_id', userId)
-        .eq('recorrencia_id', recId);
-      if (delErr) throw delErr;
-      const { error: recErr } = await supabase
-        .from('recorrencias')
-        .delete()
-        .eq('id', recId)
-        .eq('user_id', userId);
-      if (recErr) throw recErr;
+      await apiClient.post(`/recorrencias/${encodeURIComponent(recId)}/purge`, {
+        mode: 'all',
+      });
       await Promise.all([fetchTransactions(), fetchRecorrencias(), fetchSkips()]);
       setDeleteScopeTx(null);
     } catch (error: any) {

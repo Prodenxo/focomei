@@ -129,6 +129,14 @@ export { formatGetSaldoMessage };
 
 const resolveContaRow = async (userId, payload = {}) => {
   const contas = await listContasFinanceiras(userId, { activeOnly: false });
+  const explicitId = String(
+    payload?.conta_id ?? payload?.contaId ?? payload?.id ?? '',
+  ).trim();
+  if (explicitId) {
+    const row = contas.find((c) => String(c.id) === explicitId);
+    if (!row) throw notFound('Carteira não encontrada');
+    return row;
+  }
   const id = resolveContaIdFromPayload(contas, payload);
   if (!id) {
     throw badRequest('Informe conta_id (UUID) ou carteira/conta com o nome exacto. Use list_contas.');

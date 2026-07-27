@@ -133,15 +133,19 @@ export default function ContasScreen() {
   const handleSave = async (input: ContaFinanceiraInput, id?: string) => {
     if (id) {
       const { error } = await updateConta(id, input);
-      if (error) Alert.alert('Erro', error);
-    } else {
-      const created = await addConta(input);
-      if (!created) {
-        const msg =
-          useContaFinanceiraStore.getState().error ||
-          'Não foi possível criar a conta.';
-        Alert.alert('Erro', msg);
+      if (error) {
+        Alert.alert('Erro', error);
+        throw new Error(error);
       }
+      return;
+    }
+    const created = await addConta(input);
+    if (!created) {
+      const msg =
+        useContaFinanceiraStore.getState().error ||
+        'Não foi possível criar a conta.';
+      Alert.alert('Erro', msg);
+      throw new Error(msg);
     }
   };
 

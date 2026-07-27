@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { supabase } from '../lib/supabase';
+import { apiClient } from '../lib/apiClient';
 import { useAuthStore } from './authStore';
 
 export interface Recorrencia {
@@ -75,19 +75,14 @@ export const useRecorrenciaStore = create<RecorrenciaState>((set, get) => ({
     const userId = useAuthStore.getState().userId;
     if (!userId) return;
     try {
-      const { data, error } = await supabase
-        .from('recorrencia_skips')
-        .select('recorrencia_id, ano_mes')
-        .eq('user_id', userId);
-      if (error) throw error;
+      const data = await apiClient.get<Record<string, unknown>[]>('/recorrencias/skips');
       set({
         skips: (data || []).map((row) => ({
-          recorrencia_id: String((row as Record<string, unknown>).recorrencia_id ?? ''),
-          ano_mes: String((row as Record<string, unknown>).ano_mes ?? ''),
+          recorrencia_id: String(row.recorrencia_id ?? ''),
+          ano_mes: String(row.ano_mes ?? ''),
         })),
       });
     } catch (e: unknown) {
-      // Skips são auxiliares — não bloqueamos UI se falhar. Apenas log.
       console.warn('[recorrenciaStore] fetchSkips error:', e);
     }
   },
@@ -96,13 +91,10 @@ export const useRecorrenciaStore = create<RecorrenciaState>((set, get) => ({
     const userId = useAuthStore.getState().userId;
     if (!userId) return false;
     try {
-      // INSERT idempotente: UNIQUE constraint cuida de duplicidade.
-      const { error } = await supabase
-        .from('recorrencia_skips')
-        .insert([{ user_id: userId, recorrencia_id: recorrenciaId, ano_mes: anoMes }]);
-      // Código 23505 (unique_violation) é OK — já estava skipado.
-      if (error && error.code !== '23505') throw error;
-      // Atualiza o estado local imediatamente (sem refetch).
+      await apiClient.post('/recorrencias/skips', {
+        recorrencia_id: recorrenciaId,
+        ano_mes: anoMes,
+      });
       const current = get().skips;
       const already = current.some(
         (s) => s.recorrencia_id === recorrenciaId && s.ano_mes === anoMes,
@@ -125,14 +117,9 @@ export const useRecorrenciaStore = create<RecorrenciaState>((set, get) => ({
     }
     set({ loading: true, error: null });
     try {
-      const { data, error } = await supabase
-        .from('recorrencias')
-        .select('*')
-        .eq('user_id', userId)
-        .order('dia_do_mes', { ascending: true });
-      if (error) throw error;
+      const data = await apiClient.get<Record<string, unknown>[]>('/recorrencias');
       set({
-        recorrencias: (data || []).map((r) => normalizeRow(r as Record<string, unknown>)),
+        recorrencias: (data || []).map((r) => normalizeRow(r)),
         loading: false,
       });
     } catch (e: unknown) {
@@ -152,16 +139,10 @@ export const useRecorrenciaStore = create<RecorrenciaState>((set, get) => ({
       const payload = {
         ...row,
         valor: typeof row.valor === 'number' ? row.valor : parseFloat(String(row.valor)),
-        user_id: userId,
       };
-      const { data, error } = await supabase
-        .from('recorrencias')
-        .insert([payload])
-        .select()
-        .single();
-      if (error) throw error;
+      const data = await apiClient.post<Record<string, unknown>>('/recorrencias', payload);
       await get().fetchRecorrencias();
-      return data ? normalizeRow(data as Record<string, unknown>) : null;
+      return data ? normalizeRow(data) : null;
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao criar recorrência';
       set({ error: msg });
@@ -182,12 +163,7 @@ export const useRecorrenciaStore = create<RecorrenciaState>((set, get) => ({
         data.valor =
           typeof patch.valor === 'number' ? patch.valor : parseFloat(String(patch.valor));
       }
-      const { error } = await supabase
-        .from('recorrencias')
-        .update(data)
-        .eq('id', id)
-        .eq('user_id', userId);
-      if (error) throw error;
+      await apiClient.put(`/recorrencias/${encodeURIComponent(id)}`, data);
       await get().fetchRecorrencias();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao atualizar recorrência';
@@ -204,31 +180,11 @@ export const useRecorrenciaStore = create<RecorrenciaState>((set, get) => ({
     }
     set({ error: null });
     try {
-      const { error } = await supabase
-        .from('recorrencias')
-        .delete()
-        .eq('id', id)
-        .eq('user_id', userId);
-
-      if (error) {
-        // Fallback: lançamentos materializados podem ter FK em recorrencia_id (ON DELETE
-        // RESTRICT). Nesse caso, marcamos como inativa — projeções somem e os lançamentos
-        // antigos ficam preservados (que é o que prometemos ao usuário).
-        const isConstraintError = /foreign key|violates|constraint|23503/i.test(
-          error.message || '',
-        );
-        if (!isConstraintError) throw error;
-        const { error: updErr } = await supabase
-          .from('recorrencias')
-          .update({ ativo: false })
-          .eq('id', id)
-          .eq('user_id', userId);
-        if (updErr) throw updErr;
-        await get().fetchRecorrencias();
-        return { ok: true, mode: 'soft' };
-      }
+      const result = await apiClient.delete<{ mode: 'hard' | 'soft' }>(
+        `/recorrencias/${encodeURIComponent(id)}`,
+      );
       await get().fetchRecorrencias();
-      return { ok: true, mode: 'hard' };
+      return { ok: true, mode: result?.mode ?? 'hard' };
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao excluir recorrência';
       set({ error: msg });

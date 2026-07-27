@@ -15,6 +15,7 @@ import { useAuthStore } from "../store/authStore";
 import { useRouter } from "expo-router";
 import { SETTINGS_ROUTES } from "../lib/settingsRoutes";
 import { hasRole, normalizeRoleValue, type UserRole } from "../lib/auth-roles";
+import { isLocalApiAuthMode } from "../lib/authMode";
 import { useThemeStore } from "../store/themeStore";
 import { getTheme } from "../lib/theme";
 import { startGoogleAuthFlow } from "../lib/google-auth-flow";
@@ -57,7 +58,7 @@ type GoogleDialogState =
   | null;
 
 export default function SettingsScreen() {
-  const { user, phone, displayName, updatePhone, updateDisplayName } =
+  const { user, phone, displayName, role, updatePhone, updateDisplayName } =
     useAuthStore();
   const { isDarkMode, preference, setPreference } = useThemeStore();
   const { isDarkMode: mfDark } = useMfTheme();
@@ -131,6 +132,12 @@ export default function SettingsScreen() {
         return;
       }
 
+      // AUTH_MODE=local: supabase.from está bloqueado — usa role da sessão/API.
+      if (isLocalApiAuthMode()) {
+        setResolvedRole(normalizeRoleValue(role) || (role as UserRole | null));
+        return;
+      }
+
       const { data: linkData, error: linkError } = await supabase
         .from("role_x_user_x_empresa")
         .select("roles_id, status")
@@ -179,13 +186,17 @@ export default function SettingsScreen() {
         return;
       }
 
-      const normalizedRole = normalizeRoleValue(roleData?.roles);
+      // Prefer profile superadmin when present in auth store
+      const fromLink = normalizeRoleValue(roleData?.roles);
+      const fromStore = normalizeRoleValue(role);
+      const normalizedRole =
+        fromStore === "superadmin" ? fromStore : fromLink;
       logger.debug("[Roles] role normalizado:", normalizedRole);
       setResolvedRole(normalizedRole);
     };
 
     loadRoleFromLink();
-  }, [user?.id]);
+  }, [user?.id, role]);
 
   const checkGoogleAgendaIntegration = async () => {
     setCheckingIntegration(true);

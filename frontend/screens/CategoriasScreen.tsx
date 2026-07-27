@@ -11,7 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { supabase } from '../lib/supabase';
+import { apiClient } from '../lib/apiClient';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
 import { getTheme, mfRadius, mfSpacing, mfTypography } from '../lib/theme';
@@ -299,11 +299,11 @@ export default function CategoriasScreen() {
       Alert.alert('Erro', 'Usuário não autenticado');
       return;
     }
-    const { error } = await supabase
-      .from('categorias_id')
-      .insert({ nome, tipo, user_id: userId });
-    if (error) {
-      Alert.alert('Erro', `Não foi possível criar a categoria: ${error.message}`);
+    try {
+      await apiClient.post('/categories', { nome, tipo });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Não foi possível criar a categoria';
+      Alert.alert('Erro', message);
       return;
     }
     await fetchCategorias();
@@ -317,23 +317,26 @@ export default function CategoriasScreen() {
       Alert.alert('Erro', 'Você não tem permissão para editar esta categoria');
       return;
     }
-    await supabase
-      .from('categorias_id')
-      .update({ nome, tipo })
-      .eq('id', id)
-      .eq('user_id', userId);
+    try {
+      await apiClient.put('/categories', { id, nome, tipo });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Não foi possível atualizar a categoria';
+      Alert.alert('Erro', message);
+      return;
+    }
     await fetchCategorias();
     await refresh();
   }
 
   async function buscarNomeCategoriaPorId(id: number): Promise<string | null> {
-    const { data, error } = await supabase
-      .from('categorias_id')
-      .select('nome')
-      .eq('id', id)
-      .single();
-    if (error || !data) return null;
-    return data.nome;
+    if (!userId) return null;
+    try {
+      const data = await fetchUserCategories(userId);
+      const found = data.find((cat) => Number(cat.id) === id);
+      return found?.nome ?? null;
+    } catch {
+      return null;
+    }
   }
 
   async function handleDeleteCategoria(categoria: Categoria) {
@@ -349,25 +352,15 @@ export default function CategoriasScreen() {
         return;
       }
 
-      const { error: updateError } = await supabase
-        .from('lancamentos_id')
-        .update({ classificacao: nomeCategoriaPadrao })
-        .eq('classificacao', categoria.nome)
-        .eq('user_id', userId);
-
-      if (updateError) {
-        Alert.alert('Erro', 'Não foi possível atualizar as transações relacionadas');
-        return;
-      }
-
-      const { error: deleteError } = await supabase
-        .from('categorias_id')
-        .delete()
-        .eq('id', categoria.id)
-        .eq('user_id', userId);
-
-      if (deleteError) {
-        Alert.alert('Erro', 'Não foi possível excluir a categoria');
+      try {
+        const params = new URLSearchParams({
+          id: String(categoria.id),
+          reassign_to: nomeCategoriaPadrao,
+        });
+        await apiClient.delete(`/categories?${params.toString()}`);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Não foi possível excluir a categoria';
+        Alert.alert('Erro', message);
         return;
       }
 

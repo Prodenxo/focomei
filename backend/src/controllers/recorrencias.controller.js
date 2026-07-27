@@ -32,8 +32,36 @@ export const updateRecorrencia = async (req, res, next) => {
 export const deleteRecorrencia = async (req, res, next) => {
   try {
     const id = req.params.id ?? req.query?.id ?? req.body?.id;
-    await recorrenciasService.deleteRecorrencia(req.user.id, id);
-    return sendSuccess(res, { success: true }, 'Recorrência removida');
+    const result = await recorrenciasService.deleteRecorrencia(req.user.id, id);
+    return sendSuccess(res, { mode: result.mode }, 'Recorrência removida');
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const listSkips = async (req, res, next) => {
+  try {
+    const data = await recorrenciasService.listRecorrenciaSkips(req.user.id);
+    return sendSuccess(res, data, 'Skips listados');
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const addSkip = async (req, res, next) => {
+  try {
+    const data = await recorrenciasService.addRecorrenciaSkip(req.user.id, req.body);
+    return sendSuccess(res, data, 'Skip registrado');
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const purgeRecorrencia = async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    const data = await recorrenciasService.purgeRecorrencia(req.user.id, id, req.body ?? {});
+    return sendSuccess(res, data, 'Recorrência purgada');
   } catch (error) {
     return next(error);
   }
