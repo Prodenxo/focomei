@@ -21,3 +21,10 @@ test('PATCH /certificate/emitente-nfse exige auth e MEI habilitado', () => {
   assert.equal(handlers.includes(requireMeiEnabled), true);
   assert.equal(handlers.includes(controller.patchCertificateEmitenteNfse), true);
 });
+
+test('GET /prestador-prefill exige auth e MEI habilitado', () => {
+  const handlers = getRouteHandlers('/prestador-prefill', 'get');
+  assert.equal(handlers.includes(requireAuth), true);
+  assert.equal(handlers.includes(requireMeiEnabled), true);
+  assert.equal(handlers.includes(controller.getPrestadorPrefill), true);
+});

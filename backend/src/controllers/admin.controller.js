@@ -11,6 +11,7 @@ import { parseCatalogLimit } from '../utils/mei-catalog-query.js';
 import { sendCreated, sendSuccess } from '../utils/response.js';
 import { buildAccessRequestReport } from '../services/access-request-report.service.js';
 import { upsertDocumentosAtivosMirrorForAdmin } from '../services/mei-certificate-store.js';
+import { getNfsePrestadorPrefill } from '../services/mei-prestador-prefill.service.js';
 import {
   assertAtLeastOneDocumentoAtivo,
   normalizeDocumentosAtivosShape,
@@ -201,6 +202,18 @@ export const getAdminMeiCertificateStatus = async (req, res, next) => {
     await ensureMeiEnabledForUser(req.accessToken, userId);
     const data = await meiGuideServiceRef.getCertificateStatus(userId);
     return sendSuccess(res, data, 'Status do certificado obtido');
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const getAdminMeiPrestadorPrefill = async (req, res, next) => {
+  try {
+    const userId = req.params.userId;
+    await ensureCanViewUser(req.accessToken, userId);
+    await ensureMeiEnabledForUser(req.accessToken, userId);
+    const data = await getNfsePrestadorPrefill(userId);
+    return sendSuccess(res, data, 'Prefill do prestador obtido');
   } catch (error) {
     return next(error);
   }

@@ -1,6 +1,7 @@
 import * as openclawBotService from '../services/openclaw-bot.service.js';
 import { sendSuccess } from '../utils/response.js';
 import { badRequest } from '../utils/errors.js';
+import { mergeOpenclawActionPayload } from '../utils/openclaw-action-payload.js';
 
 export const postOpenclawAction = async (req, res, next) => {
   try {
@@ -23,7 +24,8 @@ export const postOpenclawAction = async (req, res, next) => {
       phone,
       senderPhone: typeof senderPhone === 'string' ? senderPhone : String(senderPhone || ''),
       action: body.action,
-      payload: body.payload,
+      // Aceita campos no topo (valor, confirm, cliente_id…) ou em body.payload.
+      payload: mergeOpenclawActionPayload(body),
     });
 
     if (result.ok === false) {

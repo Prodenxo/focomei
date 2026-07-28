@@ -47,6 +47,7 @@ import {
 } from './openclaw-nf-user-messages.js';
 import { lookupCnpjBrasilApi } from './cnpj-lookup.service.js';
 import { isValidCpfOrCnpj, normalizeDocDigits } from '../utils/cpf-cnpj.js';
+import { normalizeOpenclawNfsePayloadAliases } from '../utils/openclaw-action-payload.js';
 
 const normalizeDoc = (value) => normalizeDocDigits(value);
 
@@ -80,8 +81,11 @@ export const normalizeCatalogDiscriminacao = (value) =>
 export const hasExplicitNfseServicoSelection = (payload = {}) => Boolean(
   firstNonEmpty(
     payload?.codigoServico,
+    payload?.servico_codigo,
+    payload?.codigo_servico,
     payload?.codigo,
     payload?.servicoIndice,
+    payload?.servico_indice,
     payload?.servicoNumero,
     payload?.indice,
     payload?.produtoId,
@@ -353,7 +357,12 @@ const resolveServicoDefaults = async (userId, payload, emitente) => {
   );
   if (isVagueNfItemLabel(discriminacao)) discriminacao = '';
 
-  let codigo = firstNonEmpty(payload?.codigoServico, payload?.codigo);
+  let codigo = firstNonEmpty(
+    payload?.codigoServico,
+    payload?.servico_codigo,
+    payload?.codigo_servico,
+    payload?.codigo,
+  );
   let cnae = firstNonEmpty(payload?.cnae);
   let codigoNbs = firstNonEmpty(payload?.codigoNbs, payload?.codigo_nbs);
   let aliquotaRaw = payload?.aliquota ?? payload?.aliquotaIss;
@@ -631,6 +640,17 @@ const findClienteCatalogoByDocumento = async (userId, documento) => {
   return (rows || []).find((r) => normalizeDoc(r.documento) === doc) || null;
 };
 
+const findClienteCatalogoById = async (userId, id) => {
+  const raw = String(id || '').trim();
+  if (!raw) return null;
+  const rows = await listarCatalogoClientes(userId, {
+    limit: 100,
+    includeInactive: true,
+    ...NFSE_CATALOG_CLIENTES_OPTS,
+  });
+  return (rows || []).find((r) => String(r.id) === raw) || null;
+};
+
 const findClienteCatalogoByNome = async (userId, nome) => {
   const q = String(nome || '').trim();
   if (!q) return { kind: 'missing' };
@@ -671,6 +691,40 @@ const assertTomadorDocumentoValido = (tomadorDoc) => {
 };
 
 const resolveTomador = async (userId, payload) => {
+  const catalogoClienteId = String(
+    payload?.catalogoClienteId
+      || payload?.clienteId
+      || payload?.cliente_id
+      || payload?.tomadorId
+      || '',
+  ).trim();
+
+  if (catalogoClienteId) {
+    const byId = await findClienteCatalogoById(userId, catalogoClienteId);
+    if (!byId) {
+      throw badRequest('Cliente do catálogo não encontrado (id inválido).', {
+        code: 'NFSE_TOMADOR_NOT_IN_CATALOG',
+        catalogoClienteId,
+        botHint: 'Use list_nfse_clientes e tomadorNome (ou o id correcto do catálogo).',
+      });
+    }
+    const tomadorDoc = normalizeDoc(byId.documento || '');
+    assertTomadorDocumentoValido(tomadorDoc);
+    const razaoSocial = String(byId.nome || byId.metadata_json?.razaoSocial || '').trim();
+    if (!razaoSocial) {
+      throw badRequest('Cliente no catálogo sem nome. Atualize o cadastro na app ou register_nfse_cliente.', {
+        code: 'NFSE_TOMADOR_NOME_MISSING',
+        catalogoClienteId: byId.id,
+      });
+    }
+    return {
+      tomadorCpfCnpj: tomadorDoc,
+      tomadorRazaoSocial: razaoSocial,
+      tomadorEmail: byId.email ? String(byId.email).trim() : undefined,
+      catalogoClienteId: byId.id,
+    };
+  }
+
   let tomadorDoc = normalizeDoc(
     payload?.tomadorCpfCnpj
       || payload?.tomadorCnpj
@@ -1118,8 +1172,10 @@ export const buildOpenclawNfseEmitInput = async (userId, payload = {}) => {
     });
   }
 
+  const normalizedPayload = normalizeOpenclawNfsePayloadAliases(payload);
+
   const valorServico = parseValorReais(
-    payload?.valorServico ?? payload?.valor ?? payload?.valorReais,
+    normalizedPayload?.valorServico ?? normalizedPayload?.valor ?? normalizedPayload?.valorReais,
   );
   if (valorServico === null) {
     throw badRequest('Valor do serviço inválido ou ausente.', {
@@ -1128,12 +1184,12 @@ export const buildOpenclawNfseEmitInput = async (userId, payload = {}) => {
     });
   }
 
-  const servicoBase = await resolveServicoDefaults(userId, payload, emitente);
-  const tomador = await resolveTomador(userId, payload);
+  const servicoBase = await resolveServicoDefaults(userId, normalizedPayload, emitente);
+  const tomador = await resolveTomador(userId, normalizedPayload);
   const prestador = emitenteToPrestadorInput(emitente);
   const tomadorDoc = normalizeDoc(tomador.tomadorCpfCnpj || '');
   const tomadorEndereco = tomadorDoc.length === 14
-    ? await resolveTomadorEmitEndereco(userId, tomadorDoc, payload)
+    ? await resolveTomadorEmitEndereco(userId, tomadorDoc, normalizedPayload)
     : null;
 
   if (tomadorDoc.length === 14 && !hasCompleteTomadorEndereco(tomadorEndereco)) {
@@ -1284,8 +1340,9 @@ export const previewOpenclawNfseEmit = async (userId, payload = {}) => {
  * Emite NFSe (Plugnotas) para utilizador identificado pelo telefone.
  */
 export const emitOpenclawNfse = async (userId, payload = {}) => {
-  const input = await buildOpenclawNfseEmitInput(userId, payload);
-  if (!isNfEmitConfirmed(payload)) {
+  const normalizedPayload = normalizeOpenclawNfsePayloadAliases(payload);
+  const input = await buildOpenclawNfseEmitInput(userId, normalizedPayload);
+  if (!isNfEmitConfirmed(normalizedPayload)) {
     const preview = {
       documentType: 'NFSE',
       tomadorCpfCnpj: input.tomadorCpfCnpj,

@@ -1,6 +1,4 @@
 import { apiClient, downloadToFile } from '../lib/apiClient';
-import { supabase } from '../lib/supabase';
-import { handleFunctionError } from '../lib/user-management';
 import type { NfsePrestadorPrefillDto } from '../lib/nfsePrestadorPrefillDto';
 import type { EmitirNotaInput } from './meiNotasService';
 
@@ -336,17 +334,13 @@ export async function emitirNotaAsAdmin(
 }
 
 /**
- * Prefill prestador NFSe para utilizador alvo (admin/superadmin). Edge `mei-prestador-prefill` + body.userId.
+ * Prefill prestador NFSe para utilizador alvo (admin/superadmin).
+ * `GET /admin/mei-guide/:userId/prestador-prefill`
  */
 export async function fetchAdminNfsePrestadorPrefill(userId: string): Promise<NfsePrestadorPrefillDto> {
-  const { data, error } = await supabase.functions.invoke<{
-    prefill?: NfsePrestadorPrefillDto;
-    error?: string;
-  }>('mei-prestador-prefill', { body: { userId } });
-  if (error) await handleFunctionError(error, 'Não foi possível carregar dados do prestador (admin)');
-  if (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string') {
-    throw new Error(data.error);
-  }
+  const data = await apiClient.get<{ prefill?: NfsePrestadorPrefillDto }>(
+    `/admin/mei-guide/${encodeURIComponent(userId)}/prestador-prefill`,
+  );
   return (
     data?.prefill ?? {
       prestadorCpfCnpj: null,

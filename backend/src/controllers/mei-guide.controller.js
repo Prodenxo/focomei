@@ -1,5 +1,6 @@
 import * as meiGuideService from '../services/mei-guide.service.js';
 import * as meiGuideDasBase64Service from '../services/mei-guide-das-base64.service.js';
+import { getNfsePrestadorPrefill } from '../services/mei-prestador-prefill.service.js';
 import { sendSuccess } from '../utils/response.js';
 
 export const createGuide = async (req, res, next) => {
@@ -131,6 +132,16 @@ export const getCertificateStatus = async (req, res, next) => {
   try {
     const data = await meiGuideService.getCertificateStatus(req.user.id);
     return sendSuccess(res, data, 'Status do certificado obtido');
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/** Prefill do prestador NFS-e (substitui Edge `mei-prestador-prefill` em AUTH_MODE=local). */
+export const getPrestadorPrefill = async (req, res, next) => {
+  try {
+    const data = await getNfsePrestadorPrefill(req.user.id);
+    return sendSuccess(res, data, 'Prefill do prestador obtido');
   } catch (error) {
     return next(error);
   }
