@@ -90,31 +90,33 @@ export const isAgendaWhatsappRemindersEnabled = () =>
   String(env.AGENDA_WHATSAPP_REMINDERS_ENABLED || '').toLowerCase() === 'true';
 
 export const listUsersWithWhatsappLink = async () => {
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY não configurada');
+  // AUTH_MODE=local: Postgres compat (não exige SERVICE_ROLE_KEY real do Supabase).
+  const { isLocalAuthMode } = await import('./local-auth.service.js')
+  if (!isLocalAuthMode() && !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY não configurada')
   }
-  const admin = createSupabaseClient({ useServiceRole: true });
+  const admin = createSupabaseClient({ useServiceRole: true })
   const { data, error } = await admin
     .from('n8n_link')
     .select('user_id, user_number')
     .not('user_id', 'is', null)
-    .not('user_number', 'is', null);
-  if (error) throw new Error(error.message);
-  const seenUsers = new Set();
-  const seenPhones = new Set();
-  const out = [];
+    .not('user_number', 'is', null)
+  if (error) throw new Error(error.message)
+  const seenUsers = new Set()
+  const seenPhones = new Set()
+  const out = []
   for (const row of data || []) {
-    const userId = String(row.user_id || '').trim();
-    if (!userId || seenUsers.has(userId)) continue;
-    const phone = resolveOpenclawWhatsappPhone(row.user_number, row.user_number);
-    if (!phone) continue;
-    if (seenPhones.has(phone)) continue;
-    seenUsers.add(userId);
-    seenPhones.add(phone);
-    out.push({ userId, phone });
+    const userId = String(row.user_id || '').trim()
+    if (!userId || seenUsers.has(userId)) continue
+    const phone = resolveOpenclawWhatsappPhone(row.user_number, row.user_number)
+    if (!phone) continue
+    if (seenPhones.has(phone)) continue
+    seenUsers.add(userId)
+    seenPhones.add(phone)
+    out.push({ userId, phone })
   }
-  return out;
-};
+  return out
+}
 
 /**
  * Mensagem WhatsApp só quando há compromissos; caso contrário `null` (não enviar).

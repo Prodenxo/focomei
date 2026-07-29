@@ -96,8 +96,11 @@ export const tryAcquireUpcomingReminderSlot = async (userId, dateIso, eventKey) 
   if (sentThisProcess.has(localKey)) return false;
 
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    sentThisProcess.add(localKey);
-    return true;
+    const { isLocalAuthMode } = await import('./local-auth.service.js');
+    if (!isLocalAuthMode()) {
+      sentThisProcess.add(localKey);
+      return true;
+    }
   }
 
   const admin = createSupabaseClient({ useServiceRole: true });

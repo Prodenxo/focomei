@@ -143,6 +143,22 @@ class PgQueryBuilder {
     return this
   }
 
+  /**
+   * PostgREST/Supabase: `.not('col', 'is', null)` → `col IS NOT NULL`
+   * @param {string} column
+   * @param {string} operator
+   * @param {unknown} value
+   */
+  not(column, operator, value) {
+    this.filters.push({
+      type: 'not',
+      column,
+      operator: String(operator || '').toLowerCase(),
+      value,
+    })
+    return this
+  }
+
   in(column, values) {
     this.filters.push({ type: 'in', column, value: values })
     return this
@@ -241,6 +257,45 @@ class PgQueryBuilder {
           sqlParts.push(`${col} IS $${params.length}`)
         }
         break
+      case 'not': {
+        const op = String(filter.operator || '').toLowerCase()
+        if (op === 'is') {
+          if (filter.value === null) sqlParts.push(`${col} IS NOT NULL`)
+          else if (filter.value === true) sqlParts.push(`${col} IS NOT TRUE`)
+          else if (filter.value === false) sqlParts.push(`${col} IS NOT FALSE`)
+          else {
+            params.push(filter.value)
+            sqlParts.push(`${col} IS DISTINCT FROM $${params.length}`)
+          }
+          break
+        }
+        if (op === 'eq') {
+          params.push(filter.value)
+          sqlParts.push(`${col} <> $${params.length}`)
+          break
+        }
+        if (op === 'neq') {
+          params.push(filter.value)
+          sqlParts.push(`${col} = $${params.length}`)
+          break
+        }
+        if (op === 'in') {
+          const values = Array.isArray(filter.value) ? filter.value : []
+          if (!values.length) {
+            sqlParts.push('TRUE')
+            break
+          }
+          const placeholders = values.map((v) => {
+            params.push(v)
+            return `$${params.length}`
+          })
+          sqlParts.push(`${col} NOT IN (${placeholders.join(', ')})`)
+          break
+        }
+        // fallback seguro: ignora filtro desconhecido
+        sqlParts.push('TRUE')
+        break
+      }
       case 'in': {
         const values = Array.isArray(filter.value) ? filter.value : []
         if (!values.length) {
