@@ -36,10 +36,20 @@ const TERMINAL_FAILURE_STATUSES = new Set(['rejeitado', 'cancelado', 'erro']);
 /** Evita reentrância obterNota(sync) → entrega → consult → obterNota. */
 const deliveryInFlight = new Set();
 
-/** Timers de retry in-process após emit_nfse (complementa o cron). */
+/** Timers de retry in-process após emit (complementa o cron). NF-e pode demorar mais a autorizar. */
 const scheduledRetryTimers = new Map();
 
-const RETRY_DELAYS_MS = [5_000, 12_000, 25_000, 45_000, 90_000, 180_000];
+const RETRY_DELAYS_MS = [
+  5_000,
+  15_000,
+  30_000,
+  60_000,
+  120_000,
+  180_000,
+  300_000,
+  480_000,
+  600_000,
+];
 
 const toObject = (value) => (
   value && typeof value === 'object' && !Array.isArray(value) ? { ...value } : {}

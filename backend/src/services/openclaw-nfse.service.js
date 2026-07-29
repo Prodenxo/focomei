@@ -1433,8 +1433,17 @@ export const listOpenclawNfseNotas = async (userId, { limit = 10 } = {}) => {
 
 /** Status em que o PDF costuma existir na Plugnotas. */
 export const isNfsePdfReadyStatus = (status) => {
-  const s = String(status || '').trim().toLowerCase();
-  return s === 'concluido' || s.includes('autoriz');
+  const s = String(status || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return (
+    s === 'concluido'
+    || s === 'concluida'
+    || s.includes('autoriz')
+    || s.includes('concluid')
+  );
 };
 
 export const consultOpenclawNfse = async (userId, { id, sync = true } = {}) => {

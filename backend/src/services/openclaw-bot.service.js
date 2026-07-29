@@ -723,6 +723,10 @@ export const runOpenclawAction = async (input) => {
     emit_nfe: 'emit_nfe',
     emitir_nfe: 'emit_nfe',
     nota_produto: 'emit_nfe',
+    send_nfse_whatsapp: 'send_nfse_whatsapp',
+    send_nfe_whatsapp: 'send_nfse_whatsapp',
+    enviar_nfe: 'send_nfse_whatsapp',
+    enviar_pdf_nfe: 'send_nfse_whatsapp',
     minha_agenda: 'list_calendar_events',
     compromissos_agenda: 'list_calendar_events',
     agenda_compromissos: 'list_calendar_events',
@@ -2424,11 +2428,12 @@ export const runOpenclawAction = async (input) => {
   if (action === 'send_nfse_whatsapp') {
     try {
       const notaId = String(payload?.id || '').trim();
+      const forceResend = payload?.forceResend === true || payload?.force_resend === true;
       const priorDelivery = await getOpenclawNfseWhatsappDeliveryState(userId, notaId);
-      if (priorDelivery.alreadySent) {
+      if (priorDelivery.alreadySent && !forceResend) {
         return {
           ok: true,
-          message: 'PDF desta NFSe já foi enviado no WhatsApp (sem duplicar).',
+          message: 'PDF desta nota já foi enviado no WhatsApp (sem duplicar).',
           data: {
             notaId,
             whatsappStatus: 'already_sent',
@@ -2449,11 +2454,18 @@ export const runOpenclawAction = async (input) => {
         sync,
       });
       const destinationPhone = resolveOpenclawWhatsappPhone(phoneDigits, matchedUserNumber);
+      const docType = String(pdfResult.nota?.document_type || 'NFSE').toUpperCase();
+      const defaultMsg = docType === 'NFE'
+        ? 'Segue a NF-e (produto) emitida.'
+        : 'Segue a NFS-e emitida.';
+      if (destinationPhone && !priorDelivery.pending) {
+        await registerOpenclawNfseWhatsappDelivery(userId, pdfResult.nota.id, destinationPhone);
+      }
       const whatsapp = await trySendWhatsappPdfOutbound({
         phone: destinationPhone,
         pdfBase64: pdfResult.base64,
         fileName: pdfResult.fileName,
-        message: String(payload?.message || '').trim() || 'Segue a NFSe emitida.',
+        message: String(payload?.message || '').trim() || defaultMsg,
         extraPayload: { notaId: pdfResult.nota.id, userId },
       });
       const sent = whatsapp.whatsappStatus === 'sent';
@@ -2463,8 +2475,8 @@ export const runOpenclawAction = async (input) => {
       return {
         ok: true,
         message: sent
-          ? `PDF NFSe enviado no WhatsApp (nota ${pdfResult.nota.id}).`
-          : `PDF obtido; envio WhatsApp: ${whatsapp.whatsappStatus}. Use mf-nfse-send.sh no OpenClaw.`,
+          ? `PDF enviado no WhatsApp (nota ${pdfResult.nota.id}).`
+          : `PDF obtido; envio WhatsApp: ${whatsapp.whatsappStatus}.`,
         data: {
           nota: pdfResult.nota,
           fileName: pdfResult.fileName,

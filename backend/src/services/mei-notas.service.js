@@ -3363,5 +3363,18 @@ export const processarWebhook = async (payload) => {
     return await healNfseRpsAfterE0014RecordIfNeeded(data.user_id, data, payload, status);
   }
 
+  // OpenClaw: quando a nota autoriza via webhook, tenta enviar PDF no WhatsApp (NFS-e e NF-e).
+  if (data.user_id && data.id) {
+    void import('./nfse-whatsapp-delivery.service.js')
+      .then(({ tryDeliverPendingOpenclawNfseIfReady }) =>
+        tryDeliverPendingOpenclawNfseIfReady(data.user_id, data))
+      .catch((err) => {
+        console.warn('[mei-notas] entrega WhatsApp pós-webhook falhou', {
+          notaId: data.id,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      });
+  }
+
   return data;
 };
