@@ -1,6 +1,8 @@
 import { supabase } from './supabase';
 import Constants from 'expo-constants';
 import { getPublicEnv } from './runtimeEnv';
+import { isLocalApiAuthMode } from './authMode';
+import { apiClient } from './apiClient';
 import {
   forgetAppMeetEvent,
   getCachedMeetLinkSync,
@@ -32,7 +34,7 @@ async function googleCalendarFetchHeaders(): Promise<Record<string, string>> {
   };
 }
 
-// Obter URL base da API de Google Calendar
+// Obter URL base da API de Google Calendar (legado Supabase Edge)
 const getGoogleCalendarApiUrl = () => {
   const supabaseUrl = getSupabaseUrl();
   if (!supabaseUrl) {
@@ -158,6 +160,13 @@ interface GoogleEventsParams {
 export async function checkGoogleAuth(): Promise<boolean> {
   console.log('[GOOGLE] checkGoogleAuth: Iniciando...');
   try {
+    if (isLocalApiAuthMode()) {
+      const data = await apiClient.get<{ authenticated?: boolean }>('/google-calendar/check-auth');
+      const ok = Boolean(data?.authenticated);
+      console.log('[GOOGLE] checkGoogleAuth (local):', ok ? 'AUTENTICADO' : 'NÃO AUTENTICADO');
+      return ok;
+    }
+
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
       console.log('[GOOGLE] checkGoogleAuth: Sem sessão do Supabase');
@@ -194,16 +203,31 @@ export async function getGoogleAuthUrl(
 ): Promise<{ authUrl: string; redirectUri: string }> {
   console.log('[GOOGLE] getGoogleAuthUrl: Iniciando...');
   try {
+    const returnQs =
+      returnTo && returnTo.trim()
+        ? `?returnTo=${encodeURIComponent(returnTo.trim())}`
+        : '';
+
+    if (isLocalApiAuthMode()) {
+      console.log('[GOOGLE] getGoogleAuthUrl: modo local → /api/google-calendar/auth');
+      const data = await apiClient.get<{ authUrl?: string; redirectUri?: string }>(
+        `/google-calendar/auth${returnQs}`,
+      );
+      if (!data?.authUrl) {
+        throw new Error('URL de autorização não foi retornada pelo backend');
+      }
+      return {
+        authUrl: data.authUrl,
+        redirectUri: data.redirectUri || '',
+      };
+    }
+
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
       console.log('[GOOGLE] getGoogleAuthUrl: Sem sessão do Supabase');
       throw new Error('Usuário não autenticado');
     }
 
-    const returnQs =
-      returnTo && returnTo.trim()
-        ? `?returnTo=${encodeURIComponent(returnTo.trim())}`
-        : '';
     const edgeFunctionUrl = `${getGoogleCalendarApiUrl()}/auth${returnQs}`;
     console.log('[GOOGLE] getGoogleAuthUrl: Chamando:', edgeFunctionUrl);
     const response = await fetch(edgeFunctionUrl, {
@@ -237,6 +261,17 @@ export async function getGoogleAuthUrl(
 export async function handleGoogleCallback(code: string, state?: string): Promise<void> {
   console.log('[GOOGLE] handleGoogleCallback: Iniciando com code:', code ? 'SIM' : 'NÃO', 'state:', state ? 'SIM' : 'NÃO');
   try {
+    const body: { code: string; state?: string } = { code };
+    if (state) {
+      body.state = state;
+    }
+
+    if (isLocalApiAuthMode()) {
+      await apiClient.post<{ success?: boolean }>('/google-calendar/callback', body);
+      console.log('[GOOGLE] handleGoogleCallback (local): Sucesso');
+      return;
+    }
+
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
       console.log('[GOOGLE] handleGoogleCallback: Sem sessão do Supabase');
@@ -245,11 +280,6 @@ export async function handleGoogleCallback(code: string, state?: string): Promis
 
     const edgeFunctionUrl = `${getGoogleCalendarApiUrl()}/callback`;
     console.log('[GOOGLE] handleGoogleCallback: Chamando:', edgeFunctionUrl);
-    
-    const body: { code: string; state?: string } = { code };
-    if (state) {
-      body.state = state;
-    }
     
     const response = await fetch(edgeFunctionUrl, {
       method: 'POST',
@@ -281,6 +311,19 @@ async function requestDisconnect(method: 'DELETE' | 'POST'): Promise<Response> {
 }
 
 export async function disconnectGoogleAuth(): Promise<void> {
+  if (isLocalApiAuthMode()) {
+    try {
+      await apiClient.delete('/google-calendar/disconnect');
+    } catch {
+      await apiClient.post('/google-calendar/disconnect', {});
+    }
+    const stillConnected = await checkGoogleAuth();
+    if (stillConnected) {
+      throw new Error('A desconexão não foi concluída no servidor. Tente novamente.');
+    }
+    return;
+  }
+
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) {
     throw new Error('Usuário não autenticado');
@@ -324,19 +367,25 @@ export async function createCalendarEvent(transaction: {
       return { success: false, error: 'Status da transação não requer evento no calendário' };
     }
 
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      return { success: false, error: 'Usuário não autenticado' };
-    }
-
     // Verificar se está autenticado no Google
     const isAuthenticated = await checkGoogleAuth();
     if (!isAuthenticated) {
-      return { 
-        success: false, 
+      return {
+        success: false,
         error: 'GOOGLE_AUTH_REQUIRED',
-        // Retornar erro especial para indicar que precisa autenticar
       };
+    }
+
+    if (isLocalApiAuthMode()) {
+      const data = await apiClient.post<{ eventId?: string }>('/google-calendar/create-event', {
+        transaction,
+      });
+      return { success: true, eventId: data?.eventId };
+    }
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      return { success: false, error: 'Usuário não autenticado' };
     }
 
     const response = await fetch(`${getGoogleCalendarApiUrl()}/create-event`, {
@@ -391,33 +440,44 @@ export interface CreateCustomGoogleEventResult {
 export async function createCustomGoogleEvent(
   payload: CustomEventPayload,
 ): Promise<CreateCustomGoogleEventResult> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error('Usuário não autenticado');
+  const body = {
+    ...payload,
+    ...(payload.colorId != null && payload.colorId !== ''
+      ? { colorId: String(payload.colorId) }
+      : {}),
+    ...(payload.reminderMinutes != null && payload.reminderMinutes !== undefined
+      ? { reminderMinutes: payload.reminderMinutes }
+      : {}),
+    ...(payload.createMeetLink ? { createMeetLink: true } : {}),
+  };
 
-  const response = await fetch(`${getGoogleCalendarApiUrl()}/create-custom-event`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${session.access_token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      ...payload,
-      ...(payload.colorId != null && payload.colorId !== ''
-        ? { colorId: String(payload.colorId) }
-        : {}),
-      ...(payload.reminderMinutes != null && payload.reminderMinutes !== undefined
-        ? { reminderMinutes: payload.reminderMinutes }
-        : {}),
-      ...(payload.createMeetLink ? { createMeetLink: true } : {}),
-    }),
-  });
+  let data: { eventId?: string; hangoutLink?: string | null };
+  if (isLocalApiAuthMode()) {
+    data = await apiClient.post<{ eventId?: string; hangoutLink?: string | null }>(
+      '/google-calendar/create-custom-event',
+      body,
+    );
+  } else {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Usuário não autenticado');
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || 'Erro ao criar evento');
+    const response = await fetch(`${getGoogleCalendarApiUrl()}/create-custom-event`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Erro ao criar evento');
+    }
+
+    data = await response.json().catch(() => ({}));
   }
 
-  const data = await response.json().catch(() => ({}));
   const eventId = String(data?.eventId || '');
   const hangoutLink =
     (typeof data?.hangoutLink === 'string' && data.hangoutLink) ||
@@ -484,35 +544,47 @@ export async function updateCustomGoogleEvent(
   eventId: string,
   payload: CustomEventPayload,
 ): Promise<CreateCustomGoogleEventResult> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error('Usuário não autenticado');
   if (!eventId) throw new Error('Evento inválido');
 
-  const response = await fetch(`${getGoogleCalendarApiUrl()}/update-custom-event`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      eventId,
-      ...payload,
-      ...(payload.colorId != null && payload.colorId !== ''
-        ? { colorId: String(payload.colorId) }
-        : {}),
-      ...(payload.reminderMinutes != null && payload.reminderMinutes !== undefined
-        ? { reminderMinutes: payload.reminderMinutes }
-        : {}),
-      ...(payload.createMeetLink ? { createMeetLink: true } : {}),
-    }),
-  });
+  const body = {
+    eventId,
+    ...payload,
+    ...(payload.colorId != null && payload.colorId !== ''
+      ? { colorId: String(payload.colorId) }
+      : {}),
+    ...(payload.reminderMinutes != null && payload.reminderMinutes !== undefined
+      ? { reminderMinutes: payload.reminderMinutes }
+      : {}),
+    ...(payload.createMeetLink ? { createMeetLink: true } : {}),
+  };
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || 'Erro ao atualizar evento');
+  let data: { eventId?: string; hangoutLink?: string | null };
+  if (isLocalApiAuthMode()) {
+    data = await apiClient.post<{ eventId?: string; hangoutLink?: string | null }>(
+      '/google-calendar/update-custom-event',
+      body,
+    );
+  } else {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Usuário não autenticado');
+
+    const response = await fetch(`${getGoogleCalendarApiUrl()}/update-custom-event`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Erro ao atualizar evento');
+    }
+
+    data = await response.json().catch(() => ({}));
   }
 
-  const data = await response.json().catch(() => ({}));
   const id = String(data?.eventId || eventId);
   const hangoutLink =
     typeof data?.hangoutLink === 'string' ? data.hangoutLink : null;
@@ -528,22 +600,27 @@ export async function updateCustomGoogleEvent(
 }
 
 export async function deleteGoogleCalendarEvent(eventId: string): Promise<void> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error('Usuário não autenticado');
   if (!eventId) throw new Error('Evento inválido');
 
-  const response = await fetch(`${getGoogleCalendarApiUrl()}/delete-custom-event`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ eventId }),
-  });
+  if (isLocalApiAuthMode()) {
+    await apiClient.post('/google-calendar/delete-custom-event', { eventId });
+  } else {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Usuário não autenticado');
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || 'Erro ao excluir evento');
+    const response = await fetch(`${getGoogleCalendarApiUrl()}/delete-custom-event`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ eventId }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Erro ao excluir evento');
+    }
   }
 
   await forgetAppMeetEvent(eventId);
@@ -555,6 +632,26 @@ export async function deleteGoogleCalendarEvent(eventId: string): Promise<void> 
 export async function getGoogleEvents(params?: GoogleEventsParams): Promise<GoogleCalendarEvent[]> {
   console.log('[GOOGLE] getGoogleEvents: Iniciando...');
   try {
+    if (isLocalApiAuthMode()) {
+      const query = new URLSearchParams();
+      if (params?.timeMin) query.set('timeMin', params.timeMin);
+      if (params?.timeMax) query.set('timeMax', params.timeMax);
+      const qs = query.toString();
+      const data = await apiClient.get<{ events?: GoogleCalendarEvent[] }>(
+        qs ? `/google-calendar/events?${qs}` : '/google-calendar/events',
+      );
+      const events = (data?.events || []) as GoogleCalendarEvent[];
+      for (const ev of events) {
+        const flagged =
+          ev.extendedProperties?.private?.mfMeet === '1' ||
+          ev.description?.includes(MF_MEET_DESC_MARKER);
+        if (flagged && ev.id) {
+          await rememberAppMeetEvent(ev.id, extractMeetLinkFromGoogleEvent(ev));
+        }
+      }
+      return events;
+    }
+
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
       console.log('[GOOGLE] getGoogleEvents: Sem sessão do Supabase');

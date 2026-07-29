@@ -59,6 +59,7 @@ const isAllowedReturnTo = (returnTo) => {
       || host.includes('focosimples')
       || host.includes('meufinanceiro')
       || host.includes('focomei')
+      || host.includes('easypanel.host')
     ) {
       return true
     }
@@ -181,6 +182,78 @@ const exchangeCodeForTokens = async (code) => {
   return response.json()
 }
 
+const pad2 = (n) => String(Number(n) || 0).padStart(2, '0')
+
+const pickMeetUri = (ev) => {
+  const hangout = typeof ev?.hangoutLink === 'string' ? ev.hangoutLink.trim() : ''
+  if (hangout.includes('meet.google')) return hangout
+  for (const ep of ev?.conferenceData?.entryPoints || []) {
+    const uri = String(ep?.uri || '').trim()
+    if (uri.includes('meet.google')) return uri
+  }
+  return null
+}
+
+const buildCustomEventBody = (body) => {
+  const title = String(body?.title || '').trim()
+  const startDate = String(body?.startDate || '').trim()
+  const endDate = String(body?.endDate || startDate).trim()
+  if (!title || !startDate) {
+    throw badRequest('Título e data de início são obrigatórios')
+  }
+
+  const wantsMeet =
+    body?.createMeetLink === true || String(body?.createMeetLink || '').toLowerCase() === 'true'
+  let descText = body?.description ? String(body.description).trim() : ''
+  if (wantsMeet) {
+    descText = descText ? `${descText}\n[MF_MEET]` : '[MF_MEET]'
+  }
+
+  const eventBody = {
+    summary: title,
+    ...(body?.location ? { location: String(body.location) } : {}),
+    ...(descText ? { description: descText } : {}),
+    ...(body?.colorId != null && String(body.colorId).trim() !== ''
+      ? { colorId: String(body.colorId) }
+      : {}),
+    ...(body?.recurrence ? { recurrence: [body.recurrence] } : {}),
+  }
+
+  const reminderMins = body?.reminderMinutes != null ? Number(body.reminderMinutes) : NaN
+  if (Number.isFinite(reminderMins) && reminderMins >= 0) {
+    eventBody.reminders = {
+      useDefault: false,
+      overrides: [{ method: 'popup', minutes: reminderMins }],
+    }
+  }
+
+  if (wantsMeet) {
+    eventBody.conferenceData = {
+      createRequest: {
+        requestId: `meet-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        conferenceSolutionKey: { type: 'hangoutsMeet' },
+      },
+    }
+    eventBody.extendedProperties = { private: { mfMeet: '1' } }
+  }
+
+  if (body?.isAllDay) {
+    eventBody.start = { date: startDate }
+    eventBody.end = { date: endDate }
+  } else {
+    eventBody.start = {
+      dateTime: `${startDate}T${pad2(body?.startHour)}:${pad2(body?.startMinute)}:00`,
+      timeZone: 'America/Sao_Paulo',
+    }
+    eventBody.end = {
+      dateTime: `${endDate}T${pad2(body?.endHour)}:${pad2(body?.endMinute)}:00`,
+      timeZone: 'America/Sao_Paulo',
+    }
+  }
+
+  return eventBody
+}
+
 /**
  * Handlers nativos (AUTH_MODE=local + Postgres).
  * @returns {{ status: number, contentType: string, body: string, redirectUrl?: string }}
@@ -292,9 +365,161 @@ export const handleLocalGoogleCalendar = async ({
   }
 
   if (cleanPath === 'create-event' && normalizedMethod === 'POST') {
-    throw serviceUnavailable(
-      'Criação automática de eventos via transação ainda não está disponível no modo local.',
+    if (!userId) throw unauthorized('Usuário não autenticado')
+    const transaction = body?.transaction
+    if (!transaction) throw badRequest('Dados da transação não fornecidos')
+
+    const accessToken = await resolveAccessToken(userId)
+    const eventDate = transaction.data || transaction.criado_em || new Date().toISOString().split('T')[0]
+    const eventDateTime = new Date(`${String(eventDate).slice(0, 10)}T09:00:00`)
+    const endDateTime = new Date(eventDateTime)
+    endDateTime.setHours(endDateTime.getHours() + 1)
+    const valor = Number(transaction.valor || 0)
+    const valorFmt = valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+    const eventTitle = transaction.tipo === 'entrada'
+      ? `Receber: ${valorFmt}`
+      : `Pagar: ${valorFmt}`
+    let eventDescription = `Categoria: ${transaction.classificacao || 'Sem categoria'}\nValor: ${valorFmt}\nStatus: ${transaction.status === 'a_receber' ? 'A Receber' : 'A Pagar'}`
+    if (transaction.obs && String(transaction.obs).trim()) {
+      eventDescription += `\nObservacoes: ${String(transaction.obs).trim()}`
+    }
+
+    const calendarResponse = await fetch(GOOGLE_EVENTS_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        summary: eventTitle,
+        description: eventDescription,
+        start: { dateTime: eventDateTime.toISOString(), timeZone: 'America/Sao_Paulo' },
+        end: { dateTime: endDateTime.toISOString(), timeZone: 'America/Sao_Paulo' },
+      }),
+    })
+    if (!calendarResponse.ok) {
+      const err = await calendarResponse.text()
+      throw badRequest(`Erro ao criar evento: ${err}`)
+    }
+    const eventData = await calendarResponse.json()
+    return {
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, eventId: eventData.id }),
+    }
+  }
+
+  if (cleanPath === 'create-custom-event' && normalizedMethod === 'POST') {
+    if (!userId) throw unauthorized('Usuário não autenticado')
+    const accessToken = await resolveAccessToken(userId)
+    const eventBody = buildCustomEventBody(body)
+    const wantsMeet = Boolean(eventBody.conferenceData)
+    const calendarResponse = await fetch(
+      `${GOOGLE_EVENTS_URL}${wantsMeet ? '?conferenceDataVersion=1' : ''}`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(eventBody),
+      },
     )
+    if (!calendarResponse.ok) {
+      const err = await calendarResponse.text()
+      throw badRequest(`Erro ao criar evento: ${err}`)
+    }
+    let eventData = await calendarResponse.json()
+    let meetUri = pickMeetUri(eventData)
+    if (wantsMeet && !meetUri && eventData?.id) {
+      const getRes = await fetch(
+        `${GOOGLE_EVENTS_URL}/${encodeURIComponent(eventData.id)}?conferenceDataVersion=1`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      )
+      if (getRes.ok) {
+        eventData = await getRes.json()
+        meetUri = pickMeetUri(eventData)
+      }
+    }
+    return {
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        eventId: eventData.id,
+        hangoutLink: meetUri,
+        htmlLink: eventData.htmlLink || null,
+      }),
+    }
+  }
+
+  if (cleanPath === 'update-custom-event' && normalizedMethod === 'POST') {
+    if (!userId) throw unauthorized('Usuário não autenticado')
+    const eventId = String(body?.eventId || '').trim()
+    if (!eventId) throw badRequest('eventId é obrigatório')
+    const accessToken = await resolveAccessToken(userId)
+    const eventBody = buildCustomEventBody(body)
+    const wantsMeet = Boolean(eventBody.conferenceData)
+    const calendarResponse = await fetch(
+      `${GOOGLE_EVENTS_URL}/${encodeURIComponent(eventId)}${wantsMeet ? '?conferenceDataVersion=1' : ''}`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(eventBody),
+      },
+    )
+    if (!calendarResponse.ok) {
+      const err = await calendarResponse.text()
+      throw badRequest(`Erro ao atualizar evento: ${err}`)
+    }
+    let eventData = await calendarResponse.json()
+    let meetUri = pickMeetUri(eventData)
+    if (wantsMeet && !meetUri) {
+      const getRes = await fetch(
+        `${GOOGLE_EVENTS_URL}/${encodeURIComponent(eventId)}?conferenceDataVersion=1`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      )
+      if (getRes.ok) {
+        eventData = await getRes.json()
+        meetUri = pickMeetUri(eventData)
+      }
+    }
+    return {
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        eventId: eventData.id || eventId,
+        hangoutLink: meetUri,
+        htmlLink: eventData.htmlLink || null,
+      }),
+    }
+  }
+
+  if (cleanPath === 'delete-custom-event' && normalizedMethod === 'POST') {
+    if (!userId) throw unauthorized('Usuário não autenticado')
+    const eventId = String(body?.eventId || '').trim()
+    if (!eventId) throw badRequest('eventId é obrigatório')
+    const accessToken = await resolveAccessToken(userId)
+    const calendarResponse = await fetch(
+      `${GOOGLE_EVENTS_URL}/${encodeURIComponent(eventId)}`,
+      {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      },
+    )
+    if (!calendarResponse.ok && calendarResponse.status !== 204) {
+      const err = await calendarResponse.text()
+      throw badRequest(`Erro ao excluir evento: ${err}`)
+    }
+    return {
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, eventId }),
+    }
   }
 
   throw badRequest('Rota de integração inválida')

@@ -71,7 +71,7 @@ const getAccessToken = async (): Promise<string | null> => {
 const buildAuthHeaders = async (extra?: Record<string, string>) => {
   const token = await getAccessToken();
   if (!token) {
-    throw new Error('User not authenticated.');
+    throw new Error('Usuário não autenticado. Faça login no FocoMEI e tente de novo.');
   }
   return {
     Authorization: `Bearer ${token}`,
