@@ -2076,24 +2076,69 @@ export const runOpenclawAction = async (input) => {
       }
       const nota = result.nota;
       const status = nota?.status || 'processando';
+      const destinationPhone = resolveOpenclawWhatsappPhone(phoneDigits, matchedUserNumber);
+      const pdfReady = isNfsePdfReadyStatus(status);
+      const autoEnabled = isOpenclawNfseAutoWhatsappEnabled();
+      let autoWhatsapp = null;
+
+      if (autoEnabled && destinationPhone && nota?.id) {
+        await registerOpenclawNfseWhatsappDelivery(userId, nota.id, destinationPhone);
+        if (pdfReady) {
+          autoWhatsapp = await deliverOpenclawNfseWhatsappPdf(
+            userId,
+            nota.id,
+            destinationPhone,
+          );
+        }
+      }
+
+      const autoSent = autoWhatsapp?.whatsappStatus === 'sent';
+      const autoFailed = ['failed', 'skipped_no_whatsapp'].includes(
+        autoWhatsapp?.whatsappStatus || '',
+      );
+      if (autoEnabled && nota?.id && !autoSent) {
+        scheduleOpenclawNfseWhatsappDeliveryRetries(userId, nota.id);
+      }
+
+      const userMessage = buildNfEmittedUserMessage(result.preview, {
+        status,
+        pdfSent: autoSent,
+        pdfPending: autoEnabled && !pdfReady,
+      });
+
+      let agentInstructions =
+        'Repita APENAS o campo message ao utilizador. PROIBIDO mencionar payload, confirm:true ou ações técnicas.';
+      if (autoSent) {
+        agentInstructions += ' PDF NF-e já enviado no WhatsApp — não peça confirmação.';
+      } else if (autoEnabled) {
+        agentInstructions += ' O PDF da NF-e será enviado automaticamente via Z-API — não invente link.';
+      }
+
       return {
         ok: true,
-        message: buildNfEmittedUserMessage(result.preview, {
-          status,
-          pdfPending: true,
-        }),
+        message: userMessage,
         data: {
           nota: {
             id: nota?.id,
             status: nota?.status,
             plugnotas_id: nota?.plugnotas_id,
+            id_integracao: nota?.id_integracao,
+            pdf_url: nota?.pdf_url,
             document_type: nota?.document_type || 'NFE',
+            pdfReady,
           },
+          autoWhatsappEnabled: autoEnabled,
+          autoWhatsapp: autoWhatsapp
+            ? {
+              status: autoWhatsapp.whatsappStatus,
+              error: autoWhatsapp.whatsappError ?? null,
+            }
+            : null,
+          pdfWhatsappAlreadySent: autoSent,
           userId,
           actorContext,
           ...linkDebug,
-          agentInstructions:
-            'Nota NF-e em processamento. Repita APENAS message — não mencione payload nem confirm:true.',
+          agentInstructions,
         },
       };
     } catch (err) {

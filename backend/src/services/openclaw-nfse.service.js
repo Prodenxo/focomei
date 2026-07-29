@@ -1469,12 +1469,15 @@ export const consultOpenclawNfse = async (userId, { id, sync = true } = {}) => {
 
 const buildNfsePdfFileName = (record) => {
   const short = String(record?.id || 'nota').slice(0, 8);
-  const tomador = String(record?.cnpj_tomador || '').replace(/\D/g, '').slice(-6) || 'nfse';
-  return `NFSe-${tomador}-${short}.pdf`.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const tomador = String(record?.cnpj_tomador || '').replace(/\D/g, '').slice(-6) || 'nota';
+  const dt = String(record?.document_type || 'NFSE').toUpperCase();
+  const prefix = dt === 'NFE' ? 'NFe' : 'NFSe';
+  return `${prefix}-${tomador}-${short}.pdf`.replace(/[^a-zA-Z0-9._-]/g, '_');
 };
 
 /**
  * Sincroniza a nota (opcional), valida status e devolve PDF em base64 para OpenClaw / WhatsApp.
+ * Serve NFS-e e NF-e.
  */
 export const fetchOpenclawNfsePdfBase64 = async (userId, { id, sync = true } = {}) => {
   const recordId = String(id || '').trim();
@@ -1483,12 +1486,13 @@ export const fetchOpenclawNfsePdfBase64 = async (userId, { id, sync = true } = {
   }
   const record = await obterNota(userId, recordId, { sync: sync !== false });
   if (!isNfsePdfReadyStatus(record?.status)) {
+    const tipo = String(record?.document_type || 'NFSE').toUpperCase() === 'NFE' ? 'NF-e' : 'NFS-e';
     throw badRequest(
-      `NFSe ainda não está pronta para PDF (status: ${record?.status || 'processando'}).`,
+      `${tipo} ainda não está pronta para PDF (status: ${record?.status || 'processando'}).`,
       {
         code: 'NFSE_PDF_NOT_READY',
         botHint:
-          'Consulte com consult_nfse (sync) até status concluido; depois mf-nfse-send.sh TELEFONE UUID.',
+          'Aguarde autorização; o PDF será enviado automaticamente no WhatsApp quando estiver pronto.',
         status: record?.status,
         notaId: record.id,
       },
@@ -1497,7 +1501,7 @@ export const fetchOpenclawNfsePdfBase64 = async (userId, { id, sync = true } = {
   const file = await baixarPdf(userId, recordId);
   const buffer = file?.buffer;
   if (!buffer?.length) {
-    throw badRequest('PDF da NFSe vazio ou indisponível', { code: 'NFSE_PDF_EMPTY' });
+    throw badRequest('PDF da nota vazio ou indisponível', { code: 'NFSE_PDF_EMPTY' });
   }
   return {
     base64: Buffer.from(buffer).toString('base64'),
@@ -1508,6 +1512,7 @@ export const fetchOpenclawNfsePdfBase64 = async (userId, { id, sync = true } = {
       status: record.status,
       plugnotas_id: record.plugnotas_id,
       cnpj_tomador: record.cnpj_tomador,
+      document_type: record.document_type,
     },
   };
 };

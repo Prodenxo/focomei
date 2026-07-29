@@ -12,6 +12,8 @@ import {
 
 const MEI_NFSE_TABLE = 'mei_nfse';
 const DOCUMENT_TYPE_NFSE = 'NFSE';
+const DOCUMENT_TYPE_NFE = 'NFE';
+const DOCUMENT_TYPES_OPENCLAW_PDF = [DOCUMENT_TYPE_NFSE, DOCUMENT_TYPE_NFE];
 const MAX_BATCH = 40;
 const MAX_DELIVERY_ATTEMPTS = 36;
 const MAX_PENDING_AGE_MS = 72 * 60 * 60 * 1000;
@@ -171,8 +173,8 @@ const listPendingDeliveries = async () => {
   const admin = getAdmin();
   const { data, error } = await admin
     .from(MEI_NFSE_TABLE)
-    .select('id, user_id, status, metadata_json, created_at')
-    .eq('document_type', DOCUMENT_TYPE_NFSE)
+    .select('id, user_id, status, document_type, metadata_json, created_at')
+    .in('document_type', DOCUMENT_TYPES_OPENCLAW_PDF)
     .is('archived_at', null)
     .contains('metadata_json', { [OPENCLAW_NFSE_META.PENDING]: true })
     .order('created_at', { ascending: true })
@@ -230,17 +232,28 @@ const claimOpenclawNfseWhatsappDeliverySlot = async (userId, notaId) => {
   return { ok: true };
 };
 
-const trySendNfsePdfZapi = async ({ userId, phone, pdfBase64, fileName, notaId }) => {
+const trySendNfsePdfZapi = async ({
+  userId,
+  phone,
+  pdfBase64,
+  fileName,
+  notaId,
+  documentType = DOCUMENT_TYPE_NFSE,
+}) => {
   if (!isWhatsappOutboundConfigured()) {
     return { whatsappStatus: 'skipped_no_whatsapp' };
   }
+  const dt = String(documentType || DOCUMENT_TYPE_NFSE).toUpperCase();
+  const caption = dt === DOCUMENT_TYPE_NFE
+    ? 'Segue a NF-e (produto) emitida.'
+    : 'Segue a NFS-e emitida.';
   try {
     const result = await sendWhatsappMessage({
       phone,
       pdfBase64,
       fileName,
-      message: 'Segue a NFSe emitida.',
-      source: 'openclaw_nfse_auto',
+      message: caption,
+      source: dt === DOCUMENT_TYPE_NFE ? 'openclaw_nfe_auto' : 'openclaw_nfse_auto',
       userId,
       notaId,
     });
@@ -253,6 +266,7 @@ const trySendNfsePdfZapi = async ({ userId, phone, pdfBase64, fileName, notaId }
 
 /**
  * Obtém PDF (sync Plugnotas) e envia via Z-API/n8n outbound.
+ * Serve NFS-e e NF-e (mesma tabela mei_nfse).
  */
 export const deliverOpenclawNfseWhatsappPdf = async (userId, notaId, phone) => {
   const normalizedPhone = normalizePhone55(phone);
@@ -266,6 +280,15 @@ export const deliverOpenclawNfseWhatsappPdf = async (userId, notaId, phone) => {
   }
 
   try {
+    const admin = getAdmin();
+    const { data: notaRow } = await admin
+      .from(MEI_NFSE_TABLE)
+      .select('document_type')
+      .eq('id', notaId)
+      .eq('user_id', userId)
+      .maybeSingle();
+    const documentType = String(notaRow?.document_type || DOCUMENT_TYPE_NFSE).toUpperCase();
+
     const pdfResult = await fetchOpenclawNfsePdfBase64(userId, { id: notaId, sync: true });
     const whatsapp = await trySendNfsePdfZapi({
       userId,
@@ -273,6 +296,7 @@ export const deliverOpenclawNfseWhatsappPdf = async (userId, notaId, phone) => {
       pdfBase64: pdfResult.base64,
       fileName: pdfResult.fileName,
       notaId,
+      documentType,
     });
 
     if (whatsapp.whatsappStatus === 'sent') {
