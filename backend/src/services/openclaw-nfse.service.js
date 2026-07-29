@@ -631,7 +631,8 @@ export const pickClienteCatalogoByNomeResult = (rows, nome) => {
   };
 };
 
-const NFSE_CATALOG_CLIENTES_OPTS = { documentType: 'NFSE' };
+/** Catálogo de clientes: sem filtro de tipo — mesmo CPF pode ser NFE + NFSE. */
+const NFSE_CATALOG_CLIENTES_OPTS = {};
 
 const findClienteCatalogoByDocumento = async (userId, documento) => {
   const doc = normalizeDoc(documento);
@@ -1468,7 +1469,41 @@ export const fetchOpenclawNfsePdfBase64 = async (userId, { id, sync = true } = {
 };
 
 export const listOpenclawNfseClientes = async (userId, { q = '', limit = 20 } = {}) =>
-  listarCatalogoClientes(userId, { q, limit, documentType: 'NFSE' });
+  // Sem filtro de tipo: o mesmo CPF pode ser NFE + NFSE (como na app).
+  listarCatalogoClientes(userId, { q, limit });
+
+/**
+ * Agrupa linhas do catálogo pelo documento e lista tipos (NFE • NFSE).
+ */
+export const formatOpenclawClientesMessage = (clientes) => {
+  const list = Array.isArray(clientes) ? clientes : [];
+  if (!list.length) {
+    return 'Nenhum cliente no catálogo. Cadastre na app (MEI → Catálogo) ou use register_nfse_cliente / register_nfe_cliente.';
+  }
+  const byDoc = new Map();
+  for (const c of list) {
+    const doc = String(c.documento || '').replace(/\D/g, '') || `id:${c.id}`;
+    const prev = byDoc.get(doc) || {
+      nome: c.nome || '—',
+      documento: c.documento || '',
+      types: new Set(),
+    };
+    if (c.nome) prev.nome = c.nome;
+    if (c.documento) prev.documento = c.documento;
+    const dt = String(c.document_type || '').toUpperCase();
+    if (dt) prev.types.add(dt);
+    byDoc.set(doc, prev);
+  }
+  const rows = [...byDoc.values()];
+  const lines = rows.map((r, i) => {
+    const tipos = [...r.types].sort().join(' • ') || '—';
+    return `${i + 1}. ${r.nome} (${r.documento || 'sem doc'}) — ${tipos}`;
+  });
+  return (
+    `${rows.length} cliente(s) no catálogo (válidos para NFS-e e/ou NF-e):\n`
+    + `${lines.join('\n')}`
+  );
+};
 
 export const listOpenclawNfseProdutos = async (userId, { q = '', limit = 20, documentType } = {}) =>
   listarCatalogoProdutos(userId, { q, limit, ...(documentType ? { documentType } : {}) });

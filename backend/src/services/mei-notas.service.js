@@ -851,6 +851,9 @@ const buildPayloadByDocumentType = (input, userId, documentType) => {
   if (payloadBase) {
     if (documentType === DOCUMENT_TYPE_NFE || documentType === DOCUMENT_TYPE_NFCE) {
       normalizeNfeLikeModel(payloadBase, documentType);
+      if (!String(payloadBase.natureza || '').trim()) {
+        payloadBase.natureza = String(input?.natureza || input?.descricao || 'VENDA').trim() || 'VENDA';
+      }
     }
     return {
       payload: payloadBase,

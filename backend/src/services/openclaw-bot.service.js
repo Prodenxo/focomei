@@ -48,6 +48,7 @@ import {
   listOpenclawNfseClientes,
   listOpenclawNfseNotas,
   listOpenclawNfseProdutos,
+  formatOpenclawClientesMessage,
   pickProdutoCatalogoByNomeResult,
   previewOpenclawNfseEmit,
   registerOpenclawNfseCliente,
@@ -1884,13 +1885,18 @@ export const runOpenclawAction = async (input) => {
     ).trim();
     const limit = payload?.limit;
     const clientes = await listOpenclawNfseClientes(userId, { q, limit });
-    const docHint = q
-      ? ' Se não aparecer o cliente certo, cadastre com register_nfse_cliente antes de emit_nfse.'
-      : '';
     return {
       ok: true,
-      message: `${clientes.length} cliente(s) no catálogo NFSe.${docHint}`,
-      data: { clientes, userId, actorContext, ...linkDebug },
+      message: formatOpenclawClientesMessage(clientes),
+      data: {
+        clientes,
+        userId,
+        actorContext,
+        ...linkDebug,
+        agentInstructions:
+          'Mostre APENAS message. Cliente com NFE e/ou NFSE serve para nota de produto e/ou serviço. '
+          + 'Não diga que o cliente é “só NFSe” se a lista mostrar NFE.',
+      },
     };
   }
 

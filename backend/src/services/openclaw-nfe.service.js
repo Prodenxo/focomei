@@ -453,16 +453,45 @@ const resolveDestinatarioNfe = async (userId, payload) => {
   });
 
   const { listarCatalogoClientes } = await import('./mei-notas.service.js');
-  const clientes = await listarCatalogoClientes(userId, {
+  // Preferir linha NFE; se não houver, usa qualquer tipo (mesmo CPF pode ter NFE+NFSE).
+  let clientes = await listarCatalogoClientes(userId, {
     q: tomador.tomadorCpfCnpj,
-    limit: 5,
+    limit: 10,
     documentType: 'NFE',
   });
-  const catalogo = (clientes || []).find(
+  let catalogo = (clientes || []).find(
     (c) => normalizeDoc(c.documento) === tomador.tomadorCpfCnpj,
   );
+  if (!catalogo) {
+    clientes = await listarCatalogoClientes(userId, {
+      q: tomador.tomadorCpfCnpj,
+      limit: 10,
+    });
+    const sameDoc = (clientes || []).filter(
+      (c) => normalizeDoc(c.documento) === tomador.tomadorCpfCnpj,
+    );
+    catalogo = sameDoc.find((c) => String(c.document_type || '').toUpperCase() === 'NFE')
+      || sameDoc[0]
+      || null;
+  }
 
   let endereco = toObject(catalogo?.metadata_json?.endereco);
+  // Endereço pode estar só na linha NFSE do mesmo CPF — tenta irmãos do catálogo.
+  if (!hasCompleteNfeEndereco(endereco) && tomador.tomadorCpfCnpj) {
+    const allSame = await listarCatalogoClientes(userId, {
+      q: tomador.tomadorCpfCnpj,
+      limit: 10,
+    });
+    for (const row of allSame || []) {
+      if (normalizeDoc(row.documento) !== tomador.tomadorCpfCnpj) continue;
+      const end = toObject(row?.metadata_json?.endereco);
+      if (hasCompleteNfeEndereco(end)) {
+        endereco = end;
+        if (!catalogo) catalogo = row;
+        break;
+      }
+    }
+  }
   if (!hasCompleteNfeEndereco(endereco) && tomador.tomadorCpfCnpj.length === 14) {
     try {
       const lookup = await lookupCnpjBrasilApi(tomador.tomadorCpfCnpj);
@@ -548,9 +577,12 @@ export const buildOpenclawNfeEmitInput = async (userId, payload = {}) => {
   }
 
   const total = item.valor;
+  const natureza = String(payload?.natureza || payload?.naturezaOperacao || 'VENDA').trim() || 'VENDA';
 
   return {
     documentType: 'NFE',
+    // PlugNotas exige natureza no documento; sem isto: fields.documento[0].natureza
+    natureza,
     emitente: {
       cpfCnpj: prestador.prestadorCpfCnpj,
       razaoSocial: prestador.prestadorRazaoSocial,
