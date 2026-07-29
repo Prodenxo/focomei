@@ -65,7 +65,7 @@ let j=JSON.parse(raw);
 j.phone=String(sender).replace(/\\D/g,'');
 console.log(JSON.stringify(j));
 " "\$SENDER" "\$JSON")"
-exec curl -sS -X POST "\$MF_URL" \\
+exec curl -sS --max-time 120 -X POST "\$MF_URL" \\
   -H 'Content-Type: application/json; charset=utf-8' \\
   -H "Authorization: Bearer \$MF_SEC" \\
   -H "X-WhatsApp-Sender: \$SENDER" \\
@@ -240,7 +240,7 @@ EOF
   echo "[focomei] AVISO: SOUL stub instalado. Configure OPENCLAW_SOUL_RAW_URL e re-run."
 fi
 
-# tools exec full + bootstrap alto (SOUL ~52 KB)
+# tools exec full + bootstrap alto (SOUL ~54 KB — precisa > tamanho do ficheiro)
 node -e '
 const fs=require("fs");
 const p="/home/node/.openclaw/openclaw.json";
@@ -254,14 +254,14 @@ c.agents.defaults=c.agents.defaults||{};
 c.agents.defaults.model=c.agents.defaults.model||{primary:"openai/gpt-4o-mini"};
 c.agents.defaults.heartbeat=c.agents.defaults.heartbeat||{};
 c.agents.defaults.heartbeat.every=c.agents.defaults.heartbeat.every||"0m";
-c.agents.defaults.bootstrapMaxChars=45000;
-c.agents.defaults.bootstrapTotalMaxChars=120000;
+c.agents.defaults.bootstrapMaxChars=65000;
+c.agents.defaults.bootstrapTotalMaxChars=160000;
 c.channels=c.channels||{};
 c.channels.whatsapp=c.channels.whatsapp||{};
 c.channels.whatsapp.dmPolicy="open";
 c.channels.whatsapp.allowFrom=["*"];
 fs.writeFileSync(p,JSON.stringify(c,null,2));
-console.log("[focomei] tools.exec + bootstrapMaxChars=45000 ok");
+console.log("[focomei] tools.exec + bootstrapMaxChars=65000 ok");
 '
 
 echo "[focomei] ping API..."

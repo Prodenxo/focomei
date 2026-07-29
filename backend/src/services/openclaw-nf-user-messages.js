@@ -74,21 +74,24 @@ export const buildNfEmittedUserMessage = (preview = {}, opts = {}) => {
 
 /** Instrução só para o agente (não mostrar ao utilizador). */
 export const BOT_NF_CONFIRM_INSTRUCTION =
-  'INSTRUÇÃO INTERNA: se o utilizador responder sim/confirmo/pode emitir/ok, chame emit_nfse ou emit_nfe '
-  + 'com os MESMOS dados do preview e "confirm":true no JSON do mf-curl. '
+  'INSTRUÇÃO INTERNA: se o utilizador responder sim/confirmo/pode emitir/ok, chame a MESMA action do preview '
+  + '(preview_nfe→emit_nfe; preview_nfse→emit_nfse) com os MESMOS dados e "confirm":true no JSON do mf-curl. '
+  + 'Produto/camisa/NF-e → SEMPRE emit_nfe. PROIBIDO mudar para emit_nfse. '
   + 'PROIBIDO pedir payload, confirm:true ou comandos técnicos ao utilizador. '
-  + 'AGUARDE o exec terminar antes de responder — nunca repita o preview enquanto o exec corre.';
+  + 'AGUARDE o exec terminar (JSON) antes de responder — nunca invente "nota enviada" sem ok:true. '
+  + 'Se Command still running: no máximo 2 polls; depois avise que ainda processa — sem loop infinito.';
 
 /** Evita loop preview → sim → preview quando o utilizador já confirmou. */
 export const BOT_NF_PREVIEW_LOOP_GUARD =
   'Se o utilizador JÁ disse sim/confirmo nesta conversa, PROIBIDO repetir este resumo — '
-  + 'chame emit_nfse (ou emit_nfe) com confirm:true e os MESMOS dados.';
+  + 'chame emit_nfe (se o preview era NF-e) ou emit_nfse (se era NFS-e) com confirm:true e os MESMOS dados. '
+  + 'PROIBIDO trocar produto↔serviço.';
 
 /** Após falha na emissão (não voltar ao preview). */
 export const BOT_NF_EMIT_FAILED_INSTRUCTION =
   'Emissão falhou. Repita APENAS message ao utilizador (motivo em português curto). '
-  + 'Se pedir para tentar de novo: emit_nfse com confirm:true e os MESMOS dados — '
-  + 'PROIBIDO chamar emit_nfse sem confirm:true após falha ou confirmação. '
+  + 'Se pedir para tentar de novo: o MESMO emit_* (nfe ou nfse) com confirm:true e os MESMOS dados — '
+  + 'PROIBIDO chamar emit_* sem confirm:true após falha ou confirmação. '
   + 'AGUARDE o exec terminar antes de responder.';
 
 /**

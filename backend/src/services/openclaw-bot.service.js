@@ -48,6 +48,7 @@ import {
   listOpenclawNfseClientes,
   listOpenclawNfseNotas,
   listOpenclawNfseProdutos,
+  pickProdutoCatalogoByNomeResult,
   previewOpenclawNfseEmit,
   registerOpenclawNfseCliente,
   registerOpenclawNfseProduto,
@@ -609,6 +610,67 @@ const resolveCatalogDocumentType = (payload = {}) => {
   if (['NFE', 'NF-E', 'PRODUTO', 'PRODUTOS', 'PRODUCT', 'PRODUCTS'].includes(raw)) return 'NFE';
   if (['NFSE', 'NFS-E', 'SERVICO', 'SERVICOS', 'SERVICE', 'SERVICES'].includes(raw)) return 'NFSE';
   return undefined;
+};
+
+/**
+ * Bloqueia emit/preview NFS-e quando o payload é claramente de produto (NF-e).
+ * Evita o robô emitir serviço aleatório (servicoIndice) após o utilizador pedir produto.
+ */
+const assertNfseActionNotForNfeProduct = async (userId, payload = {}) => {
+  const docType = resolveCatalogDocumentType(payload);
+  if (docType === 'NFE') {
+    throw badRequest(
+      'Este pedido é de nota de produto (NF-e). Use preview_nfe / emit_nfe com destinatarioNome e produtoNome — não emit_nfse.',
+      {
+        code: 'USE_EMIT_NFE',
+        botHint:
+          'Chame preview_nfe (depois emit_nfe com confirm:true). PROIBIDO servicoIndice / emit_nfse para produto.',
+      },
+    );
+  }
+  if (payload?.ncm || payload?.sku || payload?.cfop || payload?.produtoIndice) {
+    throw badRequest(
+      'Detectei dados de produto (NF-e). Use preview_nfe / emit_nfe — não emit_nfse.',
+      {
+        code: 'USE_EMIT_NFE',
+        botHint: 'produtoIndice/ncm/sku/cfop → fluxo NF-e (preview_nfe / emit_nfe).',
+      },
+    );
+  }
+  const nome = String(
+    payload?.produtoNome || payload?.produto || payload?.itemNome || '',
+  ).trim();
+  if (nome.length >= 3) {
+    const nfeRows = await listOpenclawNfeProdutos(userId, { q: nome, limit: 30 });
+    if (nfeRows.length) {
+      const lookup = pickProdutoCatalogoByNomeResult(nfeRows, nome);
+      if (lookup.kind === 'ok') {
+        throw badRequest(
+          `"${nome}" está no catálogo de produtos (NF-e). Use preview_nfe / emit_nfe — não emit_nfse.`,
+          {
+            code: 'USE_EMIT_NFE',
+            botHint:
+              'O item é produto NF-e. preview_nfe com destinatarioNome + produtoNome + valor; depois emit_nfe confirm:true.',
+          },
+        );
+      }
+    }
+  }
+  // Sem serviços NFS-e mas com produtos NF-e: não deixe o robô cair em servicoIndice fantasma.
+  const [nfseRows, nfeAll] = await Promise.all([
+    listOpenclawNfseProdutos(userId, { limit: 5, documentType: 'NFSE' }),
+    listOpenclawNfeProdutos(userId, { limit: 5 }),
+  ]);
+  if (nfseRows.length === 0 && nfeAll.length > 0) {
+    throw badRequest(
+      'Você não tem serviços NFS-e cadastrados, mas tem produtos NF-e. Use preview_nfe / emit_nfe para nota de produto.',
+      {
+        code: 'USE_EMIT_NFE',
+        botHint:
+          'Catálogo só tem NF-e. list_nfe_produtos → preview_nfe → emit_nfe. PROIBIDO emit_nfse.',
+      },
+    );
+  }
 };
 
 /**
@@ -1926,7 +1988,9 @@ export const runOpenclawAction = async (input) => {
         actorContext,
         ...linkDebug,
         agentInstructions:
-          'Mostre APENAS message (lista numerada). Espere escolha do produto antes de preview_nfe.',
+          'Mostre APENAS message (lista numerada de PRODUTOS NF-e). '
+          + 'Se o utilizador escolher produto + cliente + valor → preview_nfe (NUNCA preview_nfse / emit_nfse / servicoIndice). '
+          + 'PROIBIDO inventar resumo de nota sem chamar preview_nfe.',
       },
     };
   }
@@ -2077,6 +2141,7 @@ export const runOpenclawAction = async (input) => {
 
   if (action === 'preview_nfse') {
     try {
+      await assertNfseActionNotForNfeProduct(userId, payload);
       const preview = await previewOpenclawNfseEmit(userId, payload);
       return {
         ok: true,
@@ -2099,6 +2164,7 @@ export const runOpenclawAction = async (input) => {
 
   if (action === 'emit_nfse') {
     try {
+      await assertNfseActionNotForNfeProduct(userId, payload);
       const result = await emitOpenclawNfse(userId, payload);
       if (result.requiresConfirm) {
         return {

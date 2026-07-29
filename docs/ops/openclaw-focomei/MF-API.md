@@ -17,6 +17,11 @@ Proibido: só get_das_current / base64 no chat.
 /home/node/.openclaw/workspace/mf-nfse-send.sh 5521996185328 UUID_DA_NOTA
 ```
 
+## NFS-e vs NF-e (não misturar)
+- **Produto** (camisa, mercadoria, NF-e) → `list_nfe_produtos` → `preview_nfe` → `emit_nfe`
+- **Serviço** (NFS-e) → `list_catalog_servicos` → `preview_nfse` → `emit_nfse`
+- Nunca inventar preview sem JSON da API. Nunca `servicoIndice` em pedido de produto.
+
 ## Actions principais
 ping, resolve_user, list_roles, get_permissions, check_permission,
 list_access_requests, approve_access_request, reject_access_request,

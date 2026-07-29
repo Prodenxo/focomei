@@ -40,7 +40,7 @@ curl -fsSL "$OPENCLAW_SOUL_RAW_URL" -o /home/node/.openclaw/workspace/SOUL.md
 wc -c /home/node/.openclaw/workspace/SOUL.md
 ```
 
-`bootstrapMaxChars=45000` (senão o OpenClaw corta o fim do SOUL — DAS/NFSe).
+`bootstrapMaxChars=65000` (SOUL ~54 KB — senão o OpenClaw corta o fim: regras NF-e/produto e o bot cai em NFS-e).
 
 ## Smoke
 
