@@ -85,6 +85,32 @@ test('pickClienteCatalogoByNomeResult — catálogo NFSe filtrado ignora duplica
   assert.equal(r.cliente.id, 'nfse-1');
 });
 
+test('pickClienteCatalogoByNomeResult — NFE+NFSE mesmo CPF não é ambíguo', () => {
+  const rows = [
+    {
+      id: 'nfse-1',
+      nome: 'Leonardo de Lima',
+      documento: '11953257704',
+      document_type: 'NFSE',
+      last_used_at: '2026-07-29T18:08:00.961Z',
+      metadata_json: { endereco: { cep: '12580005', logradouro: 'Av X', numero: '26' } },
+    },
+    {
+      id: 'nfe-1',
+      nome: 'Leonardo de Lima',
+      documento: '11953257704',
+      document_type: 'NFE',
+      last_used_at: '2026-07-29T17:18:29.841Z',
+      metadata_json: { endereco: { cep: '12580005', logradouro: 'Av X', numero: '26' } },
+    },
+  ];
+  const r = pickClienteCatalogoByNomeResult(rows, 'Leonardo de Lima');
+  assert.equal(r.kind, 'ok');
+  assert.equal(r.cliente.documento, '11953257704');
+  // Preferência NFE quando ambos têm endereço
+  assert.equal(r.cliente.id, 'nfe-1');
+});
+
 test('hasExplicitNfseServicoSelection — índice ou código contam; texto livre não', () => {
   assert.equal(hasExplicitNfseServicoSelection({ descricao: 'pintura' }), false);
   assert.equal(hasExplicitNfseServicoSelection({ tomadorNome: 'Rafael', valor: 2 }), false);

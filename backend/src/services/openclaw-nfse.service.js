@@ -601,6 +601,41 @@ const pickTomadorNomeFromPayload = (payload) =>
   );
 
 /**
+ * Mesmo CPF/CNPJ pode ter 2 linhas (NFE + NFSE). Escolhe uma linha canónica.
+ * Preferência: tem endereço → NFE → last_used_at mais recente.
+ */
+const preferClienteCatalogRow = (rows) => {
+  const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  if (!list.length) return null;
+  if (list.length === 1) return list[0];
+  const score = (r) => {
+    const end = r?.metadata_json?.endereco;
+    const hasEnd = Boolean(end && (end.logradouro || end.cep || end.codigoCidade));
+    const isNfe = String(r.document_type || '').toUpperCase() === 'NFE' ? 1 : 0;
+    const used = Date.parse(String(r.last_used_at || '')) || 0;
+    return (hasEnd ? 1e15 : 0) + (isNfe ? 1e12 : 0) + used;
+  };
+  return [...list].sort((a, b) => score(b) - score(a))[0];
+};
+
+/** Uma entrada por documento — NFE+NFSE do mesmo CPF = 1 cliente. */
+export const dedupeClientesByDocumento = (rows) => {
+  const byDoc = new Map();
+  const semDoc = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const doc = normalizeDoc(row?.documento);
+    if (!doc) {
+      semDoc.push(row);
+      continue;
+    }
+    const bucket = byDoc.get(doc) || [];
+    bucket.push(row);
+    byDoc.set(doc, bucket);
+  }
+  return [...byDoc.values()].map(preferClienteCatalogRow).concat(semDoc).filter(Boolean);
+};
+
+/**
  * Escolhe um cliente do catálogo a partir do resultado de busca por nome.
  * @param {Array<Record<string, unknown>>} rows
  * @param {string} nome
@@ -608,11 +643,14 @@ const pickTomadorNomeFromPayload = (payload) =>
 export const pickClienteCatalogoByNomeResult = (rows, nome) => {
   const q = normalizeNameForMatch(nome);
   if (!q) return { kind: 'missing' };
-  const list = Array.isArray(rows) ? rows : [];
+  const list = dedupeClientesByDocumento(Array.isArray(rows) ? rows : []);
   if (!list.length) return { kind: 'not_found', q: nome };
 
   const exact = list.filter((r) => normalizeNameForMatch(r.nome) === q);
   if (exact.length === 1) return { kind: 'ok', cliente: exact[0] };
+  if (exact.length > 1) {
+    return { kind: 'ambiguous', matches: exact, q: nome };
+  }
 
   const allWordsMatch = list.filter((r) => {
     const n = normalizeNameForMatch(r.nome);
@@ -621,6 +659,9 @@ export const pickClienteCatalogoByNomeResult = (rows, nome) => {
     return words.every((w) => n.includes(w));
   });
   if (allWordsMatch.length === 1) return { kind: 'ok', cliente: allWordsMatch[0] };
+  if (allWordsMatch.length > 1) {
+    return { kind: 'ambiguous', matches: allWordsMatch, q: nome };
+  }
 
   if (list.length === 1) return { kind: 'ok', cliente: list[0] };
 
@@ -638,7 +679,8 @@ const findClienteCatalogoByDocumento = async (userId, documento) => {
   const doc = normalizeDoc(documento);
   if (!doc) return null;
   const rows = await listarCatalogoClientes(userId, { q: doc, limit: 20, ...NFSE_CATALOG_CLIENTES_OPTS });
-  return (rows || []).find((r) => normalizeDoc(r.documento) === doc) || null;
+  const same = (rows || []).filter((r) => normalizeDoc(r.documento) === doc);
+  return preferClienteCatalogRow(same);
 };
 
 const findClienteCatalogoById = async (userId, id) => {
@@ -764,7 +806,9 @@ const resolveTomador = async (userId, payload) => {
         code: 'NFSE_TOMADOR_AMBIGUOUS',
         tomadorNome,
         matches: (lookup.matches || []).map(mapClienteResumo),
-        botHint: 'Liste nome + documento de cada match (só catálogo NFSe) e peça ao utilizador para escolher um.',
+        botHint:
+          'Liste nome + CPF/CNPJ de cada pessoa distinta e peça escolha. '
+          + 'NFE+NFSE do mesmo documento NÃO é ambiguidade — isso já é 1 cliente.',
       });
     }
     catalogo = lookup.cliente;
