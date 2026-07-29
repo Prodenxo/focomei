@@ -82,6 +82,7 @@ import {
   type NfseCatalogCliente,
   type NfseCatalogProduto,
   type CnpjLookupCnaeItem,
+  getNfeInterestadualStatus,
 } from '../services/meiNotasService';
 import {
   getNfseStatusKey,
@@ -144,8 +145,15 @@ import { canAccessMeiArea } from '../lib/meiAccess';
 import MeiCatalogoClientesModal from './MeiCatalogoClientesModal';
 import MeiCatalogoProdutosModal from './MeiCatalogoProdutosModal';
 import MeiImportCnaesModal from './MeiImportCnaesModal';
+import MeiNfeInterestadualGateModal from './MeiNfeInterestadualGateModal';
 import { mapCatalogProdutoToNfeItem } from '../lib/mapCatalogProdutoToNfeItem';
 import { isCatalogProdutoUsableForNfeLike } from '../lib/nfeCatalogProdutoMetadata';
+import {
+  isInterestadualSale,
+  normalizeUf,
+  resolveDestinatarioUf,
+  ufFromIbgeCodigo,
+} from '../lib/nfeInterestadual';
 import {
   resolveMeiDocumentosPermitidos,
   meiDocTypesPermitidos,
@@ -573,6 +581,70 @@ function MeiScreenContent() {
   const [emitirNotaError, setEmitirNotaError] = useState<string | null>(null);
   /** Barreira síncrona contra duplo toque antes do re-render de `emitirNotaLoading`. */
   const emitirNotaInFlightRef = useRef(false);
+  const [interestadualGateVisible, setInterestadualGateVisible] = useState(false);
+  const [interestadualGateUf, setInterestadualGateUf] = useState('');
+  const [interestadualWillEmit, setInterestadualWillEmit] = useState(false);
+  const interestadualPendingEmitRef = useRef<null | (() => void)>(null);
+  /** Evita reabrir o modal se o usuário fechou para a mesma UF destino. */
+  const interestadualAutoPromptedUfRef = useRef('');
+
+  const nfeEmitenteUfPreview = useMemo(
+    () =>
+      resolveDestinatarioUf({
+        estado: empresaFiscal?.endereco?.estado,
+        codigoCidade: empresaFiscal?.endereco?.codigoCidade,
+      }),
+    [empresaFiscal?.endereco?.estado, empresaFiscal?.endereco?.codigoCidade],
+  );
+  const nfeDestinatarioUfPreview = useMemo(
+    () => resolveDestinatarioUf(nfeLikeForm.destinatarioEndereco || {}),
+    [nfeLikeForm.destinatarioEndereco],
+  );
+  const nfeInterestadualPreview = useMemo(
+    () =>
+      emitirNotaType === 'NFE'
+      && isInterestadualSale(nfeEmitenteUfPreview, nfeDestinatarioUfPreview),
+    [emitirNotaType, nfeEmitenteUfPreview, nfeDestinatarioUfPreview],
+  );
+
+  useEffect(() => {
+    if (!emitirNotaVisible || emitirNotaType !== 'NFE') {
+      interestadualAutoPromptedUfRef.current = '';
+      return;
+    }
+    if (!nfeInterestadualPreview || interestadualGateVisible) return;
+
+    const destUf = nfeDestinatarioUfPreview;
+    if (!destUf || interestadualAutoPromptedUfRef.current === destUf) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const status = await getNfeInterestadualStatus();
+        if (cancelled) return;
+        const ready = Boolean(status.consentAccepted);
+        interestadualAutoPromptedUfRef.current = destUf;
+        if (ready) return;
+        interestadualPendingEmitRef.current = null;
+        setInterestadualWillEmit(false);
+        setInterestadualGateUf(destUf);
+        setInterestadualGateVisible(true);
+      } catch {
+        // Banner + botão manual ficam como fallback.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    emitirNotaVisible,
+    emitirNotaType,
+    nfeInterestadualPreview,
+    nfeDestinatarioUfPreview,
+    interestadualGateVisible,
+  ]);
+
   const [catalogClientes, setCatalogClientes] = useState<NfseCatalogCliente[]>([]);
   const [catalogProdutos, setCatalogProdutos] = useState<NfseCatalogProduto[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -2359,50 +2431,113 @@ function MeiScreenContent() {
       );
       return;
     }
-    emitirNotaInFlightRef.current = true;
-    setEmitirNotaPending(true);
-    setEmitirNotaError(null);
-    setEmitirNotaVisible(false);
-    setEmitirNotaLoading(false);
-    setActiveTab('notas');
-    setNfseIncludeArchived(false);
-    showToast(
-      docType === 'NFE' ? 'NF-e em envio…' : 'NFC-e em envio…',
-      'success',
-    );
 
-    const payload = buildNfeLikePayloadFromForm(form, docType);
-    void (async () => {
-      try {
-        const created = docType === 'NFE' ? await emitirNfe(payload) : await emitirNfce(payload);
-        const statusKey = getNfseStatusKey(created?.status);
-        await loadNotas({ syncPending: true });
-        if (statusKey === 'rejeitado') {
-          showToast(
-            extractNfseFailureMessage(created?.response_json, created?.metadata_json)
-              || `${docType === 'NFE' ? 'NF-e' : 'NFC-e'} rejeitada. Veja o motivo na lista.`,
-            'error',
-          );
-        } else {
-          showToast(docType === 'NFE' ? 'NF-e emitida.' : 'NFC-e emitida.', 'success');
+    const runNfeLikeEmit = () => {
+      emitirNotaInFlightRef.current = true;
+      setEmitirNotaPending(true);
+      setEmitirNotaError(null);
+      setEmitirNotaVisible(false);
+      setEmitirNotaLoading(false);
+      setActiveTab('notas');
+      setNfseIncludeArchived(false);
+      showToast(
+        docType === 'NFE' ? 'NF-e em envio…' : 'NFC-e em envio…',
+        'success',
+      );
+
+      const payload = buildNfeLikePayloadFromForm(form, docType);
+      void (async () => {
+        try {
+          const created = docType === 'NFE' ? await emitirNfe(payload) : await emitirNfce(payload);
+          const statusKey = getNfseStatusKey(created?.status);
+          await loadNotas({ syncPending: true });
+          if (statusKey === 'rejeitado') {
+            showToast(
+              extractNfseFailureMessage(created?.response_json, created?.metadata_json)
+                || `${docType === 'NFE' ? 'NF-e' : 'NFC-e'} rejeitada. Veja o motivo na lista.`,
+              'error',
+            );
+          } else {
+            showToast(docType === 'NFE' ? 'NF-e emitida.' : 'NFC-e emitida.', 'success');
+          }
+          void loadNotas({ syncPending: true });
+        } catch (e: unknown) {
+          const raw = e instanceof Error ? e.message : 'Falha ao emitir nota';
+          const code = e && typeof e === 'object' && 'code' in e
+            ? String((e as { code?: string }).code || '')
+            : '';
+          if (
+            docType === 'NFE'
+            && (code === 'NFE_INTERESTADUAL_CONSENT_REQUIRED' || code === 'NFE_INTERESTADUAL_TAX_REQUIRED')
+          ) {
+            showToast(
+              'Venda para outro estado: confirme o aviso (MEI / DAS — sem ICMS na nota).',
+              'error',
+            );
+          } else {
+            showToast(
+              humanizeFiscalEmitError(raw, {
+                documentType: docType,
+                nfeAtivo: empresaFiscal?.nfe?.ativo,
+                nfceAtivo: empresaFiscal?.nfce?.ativo,
+              }),
+              'error',
+            );
+          }
+          void loadNotas({ syncPending: true });
+        } finally {
+          emitirNotaInFlightRef.current = false;
+          setEmitirNotaPending(false);
         }
-        void loadNotas({ syncPending: true });
-      } catch (e: unknown) {
-        const raw = e instanceof Error ? e.message : 'Falha ao emitir nota';
-        showToast(
-          humanizeFiscalEmitError(raw, {
-            documentType: docType,
-            nfeAtivo: empresaFiscal?.nfe?.ativo,
-            nfceAtivo: empresaFiscal?.nfce?.ativo,
-          }),
-          'error',
-        );
-        void loadNotas({ syncPending: true });
-      } finally {
-        emitirNotaInFlightRef.current = false;
-        setEmitirNotaPending(false);
+      })();
+    };
+
+    if (docType === 'NFE') {
+      const destUf = resolveDestinatarioUf(form.destinatarioEndereco || {});
+      if (!destUf) {
+        reportEmitError('Informe o estado (UF) do cliente no endereço para emitir a NF-e.');
+        return;
       }
-    })();
+      let emitenteUf = resolveDestinatarioUf({
+        estado: empresaFiscal?.endereco?.estado,
+        codigoCidade: empresaFiscal?.endereco?.codigoCidade,
+      });
+      if (!emitenteUf) {
+        try {
+          const prefill = await fetchNfsePrestadorPrefill();
+          emitenteUf = resolveDestinatarioUf({
+            estado: prefill?.prestadorEndereco?.estado,
+            codigoCidade: prefill?.prestadorEndereco?.codigoCidade,
+          });
+        } catch {
+          /* segue com o que tiver */
+        }
+      }
+      if (!emitenteUf) {
+        reportEmitError('Estado da sua empresa não encontrado. Complete o endereço no certificado / empresa.');
+        return;
+      }
+      if (isInterestadualSale(emitenteUf, destUf)) {
+        try {
+          const status = await getNfeInterestadualStatus();
+          const ready = Boolean(status.consentAccepted);
+          if (!ready) {
+            interestadualPendingEmitRef.current = runNfeLikeEmit;
+            setInterestadualWillEmit(true);
+            setInterestadualGateUf(destUf);
+            setInterestadualGateVisible(true);
+            return;
+          }
+        } catch (e: unknown) {
+          reportEmitError(
+            e instanceof Error ? e.message : 'Não foi possível verificar configuração interestadual.',
+          );
+          return;
+        }
+      }
+    }
+
+    runNfeLikeEmit();
   };
 
   const openEmitirNotaModal = () => {
@@ -3937,6 +4072,8 @@ function MeiScreenContent() {
         onClose={() => {
           setEmitirNotaVisible(false);
           setEmitirNotaError(null);
+          setInterestadualGateVisible(false);
+          interestadualPendingEmitRef.current = null;
         }}
         title="Emitir nota"
         eyebrow="Nota fiscal"
@@ -3961,9 +4098,37 @@ function MeiScreenContent() {
             loading={emitirNotaLoading}
           />
         }
+        overlay={
+          <MeiNfeInterestadualGateModal
+            visible={interestadualGateVisible}
+            theme={theme}
+            ufDestino={interestadualGateUf}
+            presentation="embedded"
+            confirmLabel={interestadualWillEmit ? 'Salvar e emitir' : 'Salvar e continuar'}
+            onCancel={() => {
+              setInterestadualGateVisible(false);
+              setInterestadualWillEmit(false);
+              interestadualPendingEmitRef.current = null;
+            }}
+            onReady={() => {
+              setInterestadualGateVisible(false);
+              setInterestadualWillEmit(false);
+              const pending = interestadualPendingEmitRef.current;
+              interestadualPendingEmitRef.current = null;
+              pending?.();
+            }}
+          />
+        }
       >
               {emitirNotaError ? (
                 <MeiFormBanner>{emitirNotaError}</MeiFormBanner>
+              ) : null}
+              {!documentosPermitidos.nfe ? (
+                <MeiFormBanner>
+                  A aba NF-e (produto) não aparece porque a NF-e ainda não está liberada para a sua empresa.
+                  Marcar NFE no cadastro do cliente só indica que ele pode receber NF-e — não ativa a emissão.
+                  Peça ao admin para ativar NF-e nos documentos da empresa (certificado / dados do usuário).
+                </MeiFormBanner>
               ) : null}
               {emitirNotaType === 'NFSE' && (
                 <>
@@ -4454,15 +4619,24 @@ function MeiScreenContent() {
                         placeholder="3550308"
                         hint="Código da cidade na Receita — consulte em ibge.gov.br se necessário."
                         value={nfeLikeForm.destinatarioEndereco.codigoCidade}
-                        onChangeText={(t) =>
+                        onChangeText={(t) => {
+                          const codigoCidade = t.replace(/\D/g, '').slice(0, 7);
+                          const inferredUf = ufFromIbgeCodigo(codigoCidade);
                           setNfeLikeForm((f) => ({
                             ...f,
                             destinatarioEndereco: {
                               ...f.destinatarioEndereco,
-                              codigoCidade: t.replace(/\D/g, '').slice(0, 7),
+                              codigoCidade,
+                              ...(inferredUf
+                                && (
+                                  !normalizeUf(f.destinatarioEndereco.estado)
+                                  || normalizeUf(f.destinatarioEndereco.estado) !== inferredUf
+                                )
+                                ? { estado: inferredUf }
+                                : {}),
                             },
-                          }))
-                        }
+                          }));
+                        }}
                         keyboardType="numeric"
                         maxLength={7}
                       />
@@ -4495,6 +4669,25 @@ function MeiScreenContent() {
                         maxLength={2}
                         autoCapitalize="characters"
                       />
+                      {nfeInterestadualPreview ? (
+                        <View style={{ marginBottom: 12 }}>
+                          <MeiFormBanner>
+                            {`Venda interestadual: empresa ${nfeEmitenteUfPreview} → cliente ${nfeDestinatarioUfPreview}. No MEI o imposto é o DAS; na nota só ajustamos o CFOP (6xxx), sem ICMS destacado.`}
+                          </MeiFormBanner>
+                          {!interestadualGateVisible ? (
+                            <MeiLinkButton
+                              label={`Reabrir aviso interestadual (${nfeDestinatarioUfPreview})`}
+                              onPress={() => {
+                                interestadualPendingEmitRef.current = null;
+                                setInterestadualWillEmit(false);
+                                interestadualAutoPromptedUfRef.current = '';
+                                setInterestadualGateUf(nfeDestinatarioUfPreview);
+                                setInterestadualGateVisible(true);
+                              }}
+                            />
+                          ) : null}
+                        </View>
+                      ) : null}
                     </>
                   ) : null}
                   <MeiLinkButton

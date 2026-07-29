@@ -1,6 +1,7 @@
 import { apiClient } from '../lib/apiClient';
 import { isValidCnpjDigits } from '../lib/validateCnpj';
 import type { CnpjLookupData } from './meiNotasService';
+import { isLocalApiAuthMode } from '../lib/authMode';
 import { supabase } from '../lib/supabase';
 
 export interface EmpresaFullData {
@@ -50,6 +51,8 @@ export async function listEmpresas(): Promise<EmpresaOption[]> {
     const res = await apiClient.get<{ empresas?: EmpresaOption[] }>('/users/empresas');
     return res?.empresas ?? [];
   } catch (err) {
+    // AUTH_MODE=local: edge functions estão bloqueadas — não mascarar o 401/erro real.
+    if (isLocalApiAuthMode()) throw err;
     const { data, error } = await supabase.functions.invoke<{ empresas?: EmpresaOption[] }>('list-empresas');
     if (error) throw error;
     return data?.empresas ?? [];

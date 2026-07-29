@@ -1269,16 +1269,19 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
             ? null
             : undefined;
       const isEditingSelf = editingUser.id === currentUserId;
+      const isTargetSuperadmin = editingUser.role === 'superadmin';
       const emailField = emailChanged ? { email: trimmedEditEmail } : {};
       const payload =
         role === 'superadmin'
           ? {
-              ...(isEditingSelf ? {} : { role: editRole, empresaId: editEmpresa?.id || undefined }),
+              ...(isEditingSelf || isTargetSuperadmin
+                ? (editEmpresa?.id ? { empresaId: editEmpresa.id } : {})
+                : { role: editRole, empresaId: editEmpresa?.id || undefined }),
               displayName: editDisplayName || undefined,
               phone: cleanedPhone || undefined,
               ...emailField,
               mei: editMei,
-              ...(editRole === 'usuario' && !isEditingSelf && { expiresAt: expiresAtValue }),
+              ...(editRole === 'usuario' && !isEditingSelf && !isTargetSuperadmin && { expiresAt: expiresAtValue }),
               ...(isEditingSelf && editingUser.role === 'usuario' && { expiresAt: expiresAtValue }),
             }
           : {
@@ -2186,11 +2189,19 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
             <TouchableOpacity
               style={[
                 styles.primaryBtn,
-                (loading || (role === 'superadmin' && !editEmpresa)) &&
-                  styles.primaryBtnDisabled,
+                (loading
+                  || (role === 'superadmin'
+                    && !editEmpresa
+                    && editingUser?.id !== currentUserId))
+                  && styles.primaryBtnDisabled,
               ]}
               onPress={handleUpdateUser}
-              disabled={loading || (role === 'superadmin' && !editEmpresa)}
+              disabled={
+                loading
+                || (role === 'superadmin'
+                  && !editEmpresa
+                  && editingUser?.id !== currentUserId)
+              }
             >
               <Text style={styles.primaryBtnText}>{loading ? 'Salvando...' : 'Salvar'}</Text>
             </TouchableOpacity>
@@ -2239,6 +2250,17 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
         </Field>
 
         <Text style={styles.formSectionTitle}>Acesso</Text>
+        {editingUser?.role === 'superadmin' ? (
+          <Field
+            label="Função"
+            styles={styles}
+            helper="Esta conta é Superadmin. O perfil não é alterado aqui — só MEI e tipos de nota."
+          >
+            <View style={[styles.chip, styles.chipActive]}>
+              <Text style={[styles.chipText, styles.chipTextActive]}>Super admin</Text>
+            </View>
+          </Field>
+        ) : (
         <Field label="Função" styles={styles}>
           <View style={styles.chipRow}>
             {(['admin', 'usuario', 'outsider'] as RoleOption[]).map((option) => {
@@ -2271,9 +2293,23 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
             })}
           </View>
         </Field>
+        )}
 
         {role === 'superadmin' ? (
-          <Field label="Empresa" required styles={styles}>
+          <Field
+            label="Empresa"
+            required={
+              editingUser?.id !== currentUserId && editingUser?.role !== 'superadmin'
+            }
+            styles={styles}
+            helper={
+              editingUser?.id === currentUserId
+                ? 'Na sua própria conta a empresa é opcional — você já pode salvar e liberar NF-e.'
+                : editingUser?.role === 'superadmin'
+                  ? 'Conta Superadmin: empresa opcional. Pode só liberar MEI e tipos de nota.'
+                  : undefined
+            }
+          >
             <TouchableOpacity
               style={styles.selector}
               onPress={() => setEditEmpresaModalOpen(true)}
@@ -2388,7 +2424,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
           </>
         ) : null}
 
-        {role === 'superadmin' && !editEmpresa ? (
+        {role === 'superadmin' && !editEmpresa && editingUser?.id !== currentUserId ? (
           <Text style={styles.fieldHelper}>Selecione uma empresa para poder salvar.</Text>
         ) : null}
       </SidePanel>

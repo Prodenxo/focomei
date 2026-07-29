@@ -143,6 +143,7 @@ export default function MeiCatalogoClientesModal ({
   const [saving, setSaving] = useState(false)
   const [cnpjLookupLoading, setCnpjLookupLoading] = useState(false)
   const [cepLookupLoading, setCepLookupLoading] = useState(false)
+  const lastCepLookupRef = useRef('')
   const [deleteTarget, setDeleteTarget] = useState<CatalogClienteGrupo | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
 
@@ -220,6 +221,7 @@ export default function MeiCatalogoClientesModal ({
 
   const openCreate = () => {
     setEditingDocumento(null)
+    lastCepLookupRef.current = ''
     setForm(emptyForm())
     setFormVisible(true)
   }
@@ -227,6 +229,7 @@ export default function MeiCatalogoClientesModal ({
   const openEdit = async (group: CatalogClienteGrupo) => {
     const fiscal = parseCatalogClienteFiscalMeta(group.primary.metadata_json ?? undefined)
     setEditingDocumento(group.documento)
+    lastCepLookupRef.current = ''
     setForm({
       documento: formatDocumentDisplay(group.documento),
       nome: group.nome ?? '',
@@ -292,9 +295,11 @@ export default function MeiCatalogoClientesModal ({
     }
   }
 
-  const lookupCepEndereco = async () => {
-    const cep = normalizeDoc(form.endereco.cep)
+  const lookupCepEndereco = async (cepRaw?: string) => {
+    const cep = normalizeDoc(cepRaw ?? form.endereco.cep)
     if (cep.length !== 8) return
+    if (cep === lastCepLookupRef.current) return
+    lastCepLookupRef.current = cep
     setCepLookupLoading(true)
     try {
       const data = await lookupNfseEnderecoPorCep(cep)
@@ -304,6 +309,7 @@ export default function MeiCatalogoClientesModal ({
       }))
       showToast('Endereço e código IBGE preenchidos pelo CEP.', 'success')
     } catch (e: unknown) {
+      lastCepLookupRef.current = ''
       showToast(e instanceof Error ? e.message : 'Não foi possível consultar o CEP.', 'error')
     } finally {
       setCepLookupLoading(false)
@@ -472,7 +478,7 @@ export default function MeiCatalogoClientesModal ({
         )}
 
         <Text style={flow.hint}>
-          Um cadastro por CPF/CNPJ. Marque NFSE e/ou NFE: desmarcar só oculta o tipo da listagem.
+          NFE · NFSE no cliente = tipos que ele pode receber. A aba NF-e na emissão só aparece se a NF-e estiver liberada para a sua empresa.
         </Text>
       </MeiFlowModalShell>
 
@@ -522,7 +528,7 @@ export default function MeiCatalogoClientesModal ({
           keyboardType="email-address"
           autoCapitalize="none"
         />
-        <MeiFormSectionLabel>Tipos de documento (pode marcar os dois)</MeiFormSectionLabel>
+        <MeiFormSectionLabel>Tipos deste cliente (pode marcar os dois)</MeiFormSectionLabel>
         <MeiTypeMultiChips
           value={form.documentTypes as MeiDocType[]}
           allowedTypes={CLIENTE_DOC_TYPES}
@@ -537,17 +543,17 @@ export default function MeiCatalogoClientesModal ({
           }
         />
         <Text style={[flow.hint, { marginBottom: 8 }]}>
-          NFSE = serviço · NFE = produto · NFCE = cupom. Desmarcar oculta só esse tipo; marcar de novo reativa.
+          NFSE = serviço · NFE = produto · NFCE = cupom. Isso não libera a aba NF-e na emissão —
+          a NF-e precisa estar ativa para a sua empresa (admin).
         </Text>
         {showTomadorEndereco ? (
           <>
             <MeiFormSectionLabel>{enderecoSectionTitle}</MeiFormSectionLabel>
             <Text style={[flow.hint, { marginBottom: 8 }]}>
+              Digite o CEP com 8 dígitos para preencher logradouro, bairro, cidade, UF e código IBGE.
               {wantsNfeLike
-                ? 'Ao informar CNPJ, buscamos logradouro e IBGE automaticamente. Confira o número se vier vazio.'
-                : enderecoObrigatorio
-                  ? 'Informe o CEP para preencher logradouro, cidade, UF e código IBGE.'
-                  : 'Opcional para pessoa física. Se informar o CEP, preenchemos o restante automaticamente.'}
+                ? ' Com CNPJ também buscamos o endereço na Receita — confira o número se vier vazio.'
+                : ''}
             </Text>
             {cepLookupLoading ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -559,15 +565,23 @@ export default function MeiCatalogoClientesModal ({
               label="CEP"
               required={enderecoObrigatorio}
               value={form.endereco.cep}
-              onChangeText={(t) =>
+              onChangeText={(t) => {
+                const digits = t.replace(/\D/g, '').slice(0, 8)
                 setForm((f) => ({
                   ...f,
-                  endereco: { ...f.endereco, cep: t.replace(/\D/g, '').slice(0, 8) },
+                  endereco: { ...f.endereco, cep: digits },
                 }))
-              }
-              onBlur={() => void lookupCepEndereco()}
+                if (digits.length === 8 && digits !== lastCepLookupRef.current) {
+                  void lookupCepEndereco(digits)
+                }
+                if (digits.length < 8) {
+                  lastCepLookupRef.current = ''
+                }
+              }}
+              onBlur={() => void lookupCepEndereco(form.endereco.cep)}
               keyboardType="numeric"
               maxLength={8}
+              placeholder="00000000"
             />
             <MeiFormField
               label="Logradouro"

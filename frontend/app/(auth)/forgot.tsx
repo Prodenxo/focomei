@@ -23,6 +23,7 @@ export default function ForgotScreen() {
   const isDarkMode = useThemeStore((s) => s.isDarkMode);
   const palette = getAuthPalette(isDarkMode);
   const router = useRouter();
+  const goToLogin = () => router.replace('/(auth)/login');
 
   const handleResetPassword = async () => {
     if (!email) {
@@ -80,7 +81,7 @@ export default function ForgotScreen() {
           label="Voltar ao login"
           align="center"
           palette={palette}
-          onPress={() => router.back()}
+          onPress={goToLogin}
         />
       </AuthLayoutWeb>
     );
@@ -118,7 +119,7 @@ export default function ForgotScreen() {
         label="Voltar ao login"
         align="center"
         palette={palette}
-        onPress={() => router.back()}
+        onPress={goToLogin}
       />
     </AuthLayoutMobile>
   );

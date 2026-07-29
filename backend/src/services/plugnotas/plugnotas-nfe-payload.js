@@ -63,13 +63,31 @@ const normalizeNfeIcmsForPlugnotas = (icms) => {
   const origem = String(block.origem ?? '0').trim() || '0';
   const csosn = String(block.csosn || '').trim();
   const cst = String(block.cst || '').trim();
-  if (csosn) {
-    return prune({ ...block, origem, cst: csosn, csosn: undefined });
+  const code = (csosn || cst).replace(/\D/g, '').slice(0, 3);
+
+  // CSOSN 102 (MEI) etc.: Plugnotas rejeita baseCalculo/valor/aliquota.
+  const csosnSemCalculo = new Set(['101', '102', '103', '300', '400', '500']);
+  if (code && csosnSemCalculo.has(code)) {
+    return prune({ origem, cst: code });
   }
-  if (cst) {
-    return prune({ ...block, origem, cst });
+
+  const baseRaw = block.baseCalculo;
+  const baseValor = (
+    baseRaw && typeof baseRaw === 'object' && !Array.isArray(baseRaw)
+      ? toPlugnotasNumber(baseRaw.valor ?? baseRaw.vBC)
+      : toPlugnotasNumber(baseRaw)
+  );
+
+  const next = {
+    ...block,
+    origem,
+    cst: code || cst || undefined,
+    csosn: undefined,
+  };
+  if (baseValor !== null) {
+    next.baseCalculo = { valor: baseValor };
   }
-  return prune({ ...block, origem });
+  return prune(next);
 };
 
 /** CST PIS/COFINS usados por MEI/Simples sem incidência (NT 2009/004). */

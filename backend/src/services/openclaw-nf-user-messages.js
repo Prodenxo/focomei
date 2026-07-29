@@ -104,6 +104,14 @@ export const formatNfseEmitErrorForUser = (rawMessage = '') => {
       + 'ou emita pelo app Meu Financeiro → MEI → Notas.'
     );
   }
+  if (/erro interno/i.test(msg)) {
+    return (
+      'A emissora fiscal recusou a NF-e com erro genérico. '
+      + 'Confira na app: certificado, NF-e ativa na empresa, endereço completo do cliente '
+      + '(CEP, IBGE, UF) e dados do produto (NCM/CFOP). '
+      + 'Se for venda para outro estado, aceite o aviso interestadual na app e tente de novo.'
+    );
+  }
   if (/certificado|plugnotas/i.test(msg)) {
     return (
       'Não foi possível emitir a nota. Verifique certificado A1 e dados fiscais '

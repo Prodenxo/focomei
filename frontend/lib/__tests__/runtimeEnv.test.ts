@@ -34,11 +34,31 @@ describe('getMeiApiBaseUrl', () => {
   })
 
   it('usa localhost:3333 no browser local mesmo sem env dev', () => {
+    delete process.env.EXPO_PUBLIC_MEI_API_URL_DEV
     Object.defineProperty(global, 'window', {
       value: { location: { hostname: 'localhost' } },
       writable: true,
     })
     expect(getMeiApiBaseUrl()).toBe('http://localhost:3333')
+  })
+
+  it('ignora EasyPanel no DEV quando o browser é localhost', () => {
+    process.env.EXPO_PUBLIC_MEI_API_URL_DEV =
+      'https://auto-focomei-backend.4tnf3f.easypanel.host'
+    Object.defineProperty(global, 'window', {
+      value: { location: { hostname: 'localhost' } },
+      writable: true,
+    })
+    expect(getMeiApiBaseUrl()).toBe('http://localhost:3333')
+  })
+
+  it('aceita loopback customizado no DEV em localhost', () => {
+    process.env.EXPO_PUBLIC_MEI_API_URL_DEV = 'http://127.0.0.1:3333'
+    Object.defineProperty(global, 'window', {
+      value: { location: { hostname: 'localhost' } },
+      writable: true,
+    })
+    expect(getMeiApiBaseUrl()).toBe('http://127.0.0.1:3333')
   })
 
   it('usa produção fora de localhost', () => {

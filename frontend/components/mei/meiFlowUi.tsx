@@ -73,6 +73,8 @@ type MeiFlowModalShellProps = {
   headerRight?: React.ReactNode
   /** Lista com FlatList — sem ScrollView pai (evita scroll aninhado). */
   flatListBody?: boolean
+  /** Camada absoluta por cima do shell (ex.: gate interestadual). */
+  overlay?: React.ReactNode
 }
 
 /** Modal full-screen com canvas tech (emissão, catálogos). */
@@ -87,6 +89,7 @@ export function MeiFlowModalShell ({
   closeIcon = 'arrow-back',
   headerRight,
   flatListBody = false,
+  overlay,
 }: MeiFlowModalShellProps) {
   const { theme, isDarkMode } = useMfTheme()
   const tokens = getTechTokens(isDarkMode)
@@ -165,6 +168,11 @@ export function MeiFlowModalShell ({
           )}
 
           {footer ? <View style={flow.footer}>{footer}</View> : null}
+          {overlay ? (
+            <View style={flow.shellOverlay} pointerEvents="box-none">
+              {overlay}
+            </View>
+          ) : null}
         </SafeAreaView>
       </ActivationPageCanvas>
     </Modal>
@@ -1075,6 +1083,11 @@ function createFlowStyles (
 ) {
   return StyleSheet.create({
     safe: { flex: 1, minHeight: 0 },
+    shellOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 50,
+      elevation: 50,
+    },
     shellHeaderWrap: {
       paddingTop: mfSpacing.sm,
     },

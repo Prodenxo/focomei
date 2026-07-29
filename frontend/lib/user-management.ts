@@ -84,6 +84,18 @@ export const listUsers = async (search?: string): Promise<ManagedUser[]> => {
 };
 
 export const listEmpresas = async (): Promise<EmpresaOption[]> => {
+  const hasMeiApi = Boolean(getMeiApiBaseUrl());
+
+  if (hasMeiApi) {
+    try {
+      const result = await apiClient.get<{ empresas?: EmpresaOption[] }>('/users/empresas');
+      return (result?.empresas || []) as EmpresaOption[];
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Erro ao listar empresas';
+      throw new Error(formatManageUserError(message));
+    }
+  }
+
   const { data, error } = await supabase.functions.invoke('list-empresas');
   if (error) await handleFunctionError(error, 'Erro ao listar empresas');
   return (data?.empresas || []) as EmpresaOption[];

@@ -55,6 +55,8 @@ import {
   ensureMeiNfePlugnotasCadastroBeforeEmit,
   hydrateMeiNfeEmitenteIeFromEmpresa,
 } from './plugnotas/plugnotas-mei-nfe-emit-force.js';
+import { applyInterestadualToNfePayload } from './nfe-interestadual.service.js';
+import { getEmitenteNfseSnapshot } from './mei-certificate-store.js';
 import {
   cancelarNfe,
   consultarNfe,
@@ -561,6 +563,11 @@ const buildNfeLikePayloadFromInput = (input, userId, { defaultModel = '55' } = {
     ...(input?.payload && typeof input.payload === 'object' ? input.payload : {}),
     modelo: input?.modelo || defaultModel,
     natureza: input?.natureza || input?.descricao || 'VENDA',
+    ...(input?.consumidorFinal !== undefined
+      ? { consumidorFinal: input.consumidorFinal }
+      : {}),
+    ...(input?.presencial !== undefined ? { presencial: input.presencial } : {}),
+    ...(input?.intermediador !== undefined ? { intermediador: input.intermediador } : {}),
     emitente: prune({
       ...(input?.emitente || {}),
       cpfCnpj: emitenteDoc || input?.emitente?.cpfCnpj || null,
@@ -578,10 +585,31 @@ const buildNfeLikePayloadFromInput = (input, userId, { defaultModel = '55' } = {
       endereco: prune(input?.destinatario?.endereco || input?.destinatarioEndereco || null)
     }),
     itens: itensInput,
+    ...(Array.isArray(input?.pagamentos) && input.pagamentos.length
+      ? { pagamentos: input.pagamentos }
+      : {}),
+    ...(input?.informacoesComplementares
+      ? { informacoesComplementares: String(input.informacoesComplementares).trim() }
+      : {}),
     ...(input?.config && typeof input.config === 'object'
       ? { config: { ...input.config } }
       : {})
   }) || {};
+
+  // NF-e sem pagamentos costuma cair em "erro interno" genérico na Plugnotas.
+  if (
+    Array.isArray(payload.itens)
+    && payload.itens.length
+    && (!Array.isArray(payload.pagamentos) || !payload.pagamentos.length)
+  ) {
+    const total = payload.itens.reduce((acc, item) => {
+      const v = Number(item?.valor);
+      return acc + (Number.isFinite(v) && v > 0 ? v : 0);
+    }, 0);
+    if (total > 0) {
+      payload.pagamentos = [{ meio: '99', valor: total, descricaoMeio: 'Outros' }];
+    }
+  }
 
   if (payload?.config && payload.config.producao === undefined) {
     payload.config.producao = parseBooleanLike(input?.producao, false);
@@ -1910,6 +1938,24 @@ export const emitirNota = async (userId, input) => {
       if (cnpjEmitente.length === 14) {
         const empresaPlugnotas = await ensureMeiNfePlugnotasCadastroBeforeEmit(cnpjEmitente);
         emitPayload = hydrateMeiNfeEmitenteIeFromEmpresa(emitPayload, empresaPlugnotas);
+      }
+      if (documentType === DOCUMENT_TYPE_NFE) {
+        const emitenteSnap = await getEmitenteNfseSnapshot(userId);
+        const destUf = String(
+          emitPayload?.destinatario?.endereco?.estado
+            || emitPayload?.destinatario?.endereco?.uf
+            || '',
+        ).trim();
+        const applied = await applyInterestadualToNfePayload(userId, emitPayload, {
+          emitenteUf: emitenteSnap?.estado || emitenteSnap?.uf,
+          destinatarioUf: destUf,
+        });
+        emitPayload = applied.payload;
+        if (applied.interestadual) {
+          metadata.interestadual = true;
+          metadata.interestadualUfDestino = applied.resolved.destinatarioUf;
+          metadata.interestadualAliquotaIcms = applied.resolved.taxas?.aliquotaIcms ?? null;
+        }
       }
       emitPayload = applyMeiNfeEmitForcePolicy(emitPayload);
     }

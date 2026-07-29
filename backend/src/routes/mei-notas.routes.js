@@ -64,6 +64,12 @@ router.post('/catalogo/produtos', requireAuth, requireMeiEnabled, controller.cri
 router.post('/catalogo/produtos/from-cnaes', requireAuth, requireMeiEnabled, controller.criarCatalogoProdutosFromCnaes);
 router.patch('/catalogo/produtos/:id', requireAuth, requireMeiEnabled, controller.atualizarCatalogoProduto);
 router.delete('/catalogo/produtos/:id', requireAuth, requireMeiEnabled, controller.eliminarCatalogoProduto);
+
+router.get('/interestadual/status', requireAuth, requireMeiEnabled, controller.getInterestadualStatus);
+router.post('/interestadual/consent', requireAuth, requireMeiEnabled, controller.acceptInterestadualConsent);
+router.get('/interestadual/taxas', requireAuth, requireMeiEnabled, controller.listInterestadualTaxas);
+router.put('/interestadual/taxas', requireAuth, requireMeiEnabled, controller.upsertInterestadualTaxas);
+
 router.patch('/:id', requireAuth, requireMeiEnabled, controller.atualizar);
 router.post('/:id/cancelar', requireAuth, requireMeiEnabled, controller.cancelar);
 router.post('/:id/arquivar', requireAuth, requireMeiEnabled, controller.arquivar);

@@ -76,9 +76,14 @@ export function hasPublicEnv(keys: ExpoPublicEnvKey[]): boolean {
   return keys.every((k) => getPublicEnv(k).length > 0);
 }
 
+function isLoopbackApiUrl(url: string): boolean {
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(url);
+}
+
 /**
  * URL do backend Site/API.
  * No browser em localhost, usa backend local (3333) — não Easypanel.
+ * `EXPO_PUBLIC_MEI_API_URL_DEV` só vale se também for loopback (ex.: http://127.0.0.1:3333).
  */
 export function getMeiApiBaseUrl(): string {
   const production =
@@ -96,7 +101,10 @@ export function getMeiApiBaseUrl(): string {
   const isExpoDev = typeof __DEV__ !== 'undefined' && __DEV__;
 
   if (isLocalDevHost()) {
-    return devFromEnv || DEFAULT_LOCAL_MEI_API_URL;
+    if (devFromEnv && isLoopbackApiUrl(devFromEnv)) {
+      return devFromEnv;
+    }
+    return DEFAULT_LOCAL_MEI_API_URL;
   }
 
   if (isExpoDev && devFromEnv) {

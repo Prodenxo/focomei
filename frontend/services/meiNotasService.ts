@@ -720,3 +720,41 @@ export async function atualizarCatalogoNfseProduto(
 export async function excluirCatalogoNfseProduto(id: string): Promise<void> {
   await apiClient.delete<unknown>(`/mei-notas/catalogo/produtos/${encodeURIComponent(id)}`);
 }
+
+export interface NfeInterestadualTaxa {
+  ufDestino: string;
+  aliquotaIcms: number;
+  csosn?: string | null;
+  cfop?: string | null;
+  metadata?: Record<string, unknown> | null;
+  updatedAt?: string;
+}
+
+export interface NfeInterestadualStatus {
+  termsVersion: string;
+  disclaimer: string;
+  checkboxText: string;
+  consentAccepted: boolean;
+  consent: {
+    accepted_at?: string;
+    terms_version?: string;
+  } | null;
+  taxas: NfeInterestadualTaxa[];
+}
+
+export async function getNfeInterestadualStatus(): Promise<NfeInterestadualStatus> {
+  return await apiClient.get<NfeInterestadualStatus>('/mei-notas/interestadual/status');
+}
+
+export async function acceptNfeInterestadualConsent(accepted = true): Promise<unknown> {
+  return await apiClient.post<unknown>('/mei-notas/interestadual/consent', { accepted });
+}
+
+export async function upsertNfeInterestadualTaxas(input: {
+  ufDestino: string;
+  aliquotaIcms: number | string;
+  csosn?: string;
+  cfop?: string;
+}): Promise<NfeInterestadualTaxa> {
+  return await apiClient.put<NfeInterestadualTaxa>('/mei-notas/interestadual/taxas', input);
+}

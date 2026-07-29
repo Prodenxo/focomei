@@ -481,6 +481,15 @@ export const localSignIn = async ({ email, password }) => {
     throw forbidden('Conta bloqueada');
   }
   if (!verifyPassword(password, userRow.password_hash)) {
+    const meta = userRow.raw_user_meta_data || {};
+    const needsReset =
+      meta.password_reset_required === true
+      || meta.password_reset_required === 'true';
+    if (needsReset) {
+      throw unauthorized(
+        'Conta migrada: a senha antiga não vale mais. Use "Esqueci a senha" para definir uma nova.',
+      );
+    }
     throw unauthorized('Email ou senha incorretos');
   }
 

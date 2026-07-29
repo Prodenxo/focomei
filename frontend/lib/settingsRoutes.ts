@@ -1,4 +1,5 @@
 import type { Router } from 'expo-router'
+import { Platform } from 'react-native'
 
 /** Rotas de configurações — URLs reais no web (ex.: /configuracoes/solicitacoes). */
 export const SETTINGS_ROUTES = {
@@ -18,13 +19,29 @@ export const MEI_BILLING_PLANS_ROUTE = '/(app)/planos' as const
 
 export type SettingsRouteHref = (typeof SETTINGS_ROUTES)[keyof typeof SETTINGS_ROUTES]
 
-/** Voltar sem erro GO_BACK quando não há histórico (F5 em rota profunda). */
-export function goBackToSettings(
-  router: Pick<Router, 'back' | 'replace' | 'canGoBack'>,
+type GoBackRouter = Pick<Router, 'back' | 'replace' | 'canGoBack'>
+
+/**
+ * Voltar sem erro GO_BACK.
+ * No web, `canGoBack()` pode ser true pelo history do browser enquanto o Stack
+ * do Expo Router está vazio — `back()` gera o warning. Por isso no web sempre `replace`.
+ */
+export function safeGoBack(
+  router: GoBackRouter,
+  fallbackHref: string,
 ): void {
-  if (router.canGoBack()) {
+  if (
+    Platform.OS !== 'web'
+    && typeof router.canGoBack === 'function'
+    && router.canGoBack()
+  ) {
     router.back()
     return
   }
-  router.replace(SETTINGS_ROUTES.index)
+  router.replace(fallbackHref as never)
+}
+
+/** Voltar sem erro GO_BACK quando não há histórico (F5 em rota profunda). */
+export function goBackToSettings(router: GoBackRouter): void {
+  safeGoBack(router, SETTINGS_ROUTES.index)
 }

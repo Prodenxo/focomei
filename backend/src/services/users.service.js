@@ -1499,10 +1499,20 @@ export const updateUser = async (accessToken, userId, input) => {
   }
 
   if (requester.role === 'superadmin') {
-    if (!isSelfUpdate && !ROLE_UPDATE_ALLOWED_SUPERADMIN.has(targetRole)) throw forbidden();
+    // Superadmin pode gerir outro superadmin (MEI/docs), mas não rebaixar o perfil por engano.
+    if (!isSelfUpdate && targetRole === 'superadmin') {
+      if (requestedRole && requestedRole !== 'superadmin') {
+        throw badRequest(
+          'Não é possível alterar o perfil de outro Superadmin por aqui. Ajuste só MEI e tipos de nota.',
+        );
+      }
+    } else if (!isSelfUpdate && !ROLE_UPDATE_ALLOWED_SUPERADMIN.has(targetRole)) {
+      throw forbidden();
+    }
     if (
       !isSelfUpdate
       && requestedRole
+      && targetRole !== 'superadmin'
       && !ROLE_UPDATE_ALLOWED_SUPERADMIN.has(requestedRole)
     ) {
       throw badRequest('Role inválida');
@@ -1514,8 +1524,13 @@ export const updateUser = async (accessToken, userId, input) => {
 
   if (requester.role === 'superadmin') {
     if (!isSelfUpdate) {
-      if (!requestedEmpresaId) throw badRequest('Empresa é obrigatória');
-      finalEmpresaId = requestedEmpresaId;
+      if (targetRole === 'superadmin') {
+        // Mantém empresa atual se não enviada; evita exigir troca de empresa só para liberar NF-e.
+        if (requestedEmpresaId) finalEmpresaId = requestedEmpresaId;
+      } else {
+        if (!requestedEmpresaId) throw badRequest('Empresa é obrigatória');
+        finalEmpresaId = requestedEmpresaId;
+      }
     }
   }
 

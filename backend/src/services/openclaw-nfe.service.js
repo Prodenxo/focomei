@@ -17,7 +17,18 @@ import {
   emitenteMissingAddressFields,
   emitenteToPrestadorInput,
 } from './openclaw-nfse.service.js';
-import { isNfEmitConfirmed, isVagueNfItemLabel, formatNfeCatalogChoiceMessage, formatNfCatalogAmbiguousMessage, formatNfCatalogNotFoundMessage } from './openclaw-nf-user-messages.js';
+import {
+  isNfEmitConfirmed,
+  isVagueNfItemLabel,
+  formatNfeCatalogChoiceMessage,
+  formatNfCatalogAmbiguousMessage,
+  formatNfCatalogNotFoundMessage,
+  formatNfseEmitErrorForUser,
+} from './openclaw-nf-user-messages.js';
+import {
+  applyInterestadualTaxasToItem,
+  resolveInterestadualForNfeEmit,
+} from './nfe-interestadual.service.js';
 
 const normalizeDoc = (value) => normalizeDocDigits(value);
 
@@ -515,10 +526,27 @@ export const buildOpenclawNfeEmitInput = async (userId, payload = {}) => {
     payload?.valorUnitario ?? payload?.valor ?? payload?.valorReais ?? payload?.valorServico,
   );
   const quantidade = parseQuantidade(payload?.quantidade ?? payload?.qtd);
-  const item = mapCatalogProdutoToNfeItem(produto, {
+  let item = mapCatalogProdutoToNfeItem(produto, {
     quantidade,
     valorUnitario: (valorUnitario ?? Number(produto.valor_sugerido)) || 0,
   });
+
+  const emitenteUf = String(emitente.estado || emitente.uf || '').trim();
+  const destinatarioUf = String(
+    destinatario.endereco?.estado || destinatario.endereco?.uf || '',
+  ).trim();
+  const interestadual = await resolveInterestadualForNfeEmit(userId, {
+    emitenteUf,
+    destinatarioUf,
+  });
+  if (interestadual.interestadual) {
+    item = applyInterestadualTaxasToItem(item, interestadual.taxas);
+  } else if (item.cfop && String(item.cfop).startsWith('6')) {
+    // Catálogo legado com CFOP 6xxx em venda interna: mantém o que veio do produto.
+  } else if (!item.cfop || String(item.cfop).startsWith('5')) {
+    item = { ...item, cfop: onlyDigits(item.cfop || '5102', 4) || '5102' };
+  }
+
   const total = item.valor;
 
   return {
@@ -540,10 +568,19 @@ export const buildOpenclawNfeEmitInput = async (userId, payload = {}) => {
     consumidorFinal: destinatario.consumidorFinal,
     itens: [item],
     pagamentos: [{ meio: '99', valor: total, descricaoMeio: 'Outros' }],
+    // Mesmo padrão do app (buildNfeLikePayloadFromForm).
+    config: { producao: true },
     metadata: {
       source: 'openclaw_whatsapp',
       catalogoProdutoId: produto.id,
       catalogoClienteId: destinatario.catalogoClienteId,
+      ...(interestadual.interestadual
+        ? {
+            interestadual: true,
+            interestadualUfDestino: interestadual.destinatarioUf,
+            interestadualAliquotaIcms: interestadual.taxas?.aliquotaIcms ?? null,
+          }
+        : {}),
     },
   };
 };
@@ -577,7 +614,13 @@ export const emitOpenclawNfe = async (userId, payload = {}) => {
     };
   }
 
-  const created = await emitirNota(userId, input);
+  const { documentType, metadata, ...nfePayload } = input;
+  // Mesmo shape do app: { documentType, payload, metadata } — garante pagamentos/consumidorFinal.
+  const created = await emitirNota(userId, {
+    documentType: documentType || 'NFE',
+    payload: nfePayload,
+    metadata,
+  });
   const item = input.itens[0];
   const preview = {
     documentType: 'NFE',
@@ -596,12 +639,17 @@ export const rethrowNfeErrorForBot = (err) => {
   } catch (e) {
     const code = e?.errors?.code || e?.code;
     const botHint = e?.errors?.botHint || e?.botHint;
-    if (botHint) throw e;
-    const msg = String(e?.message || '');
-    if (/NF-e|NFE|produto|destinatário/i.test(msg)) {
-      throw badRequest(msg, {
+    const rawMsg = String(e?.message || '');
+    const userMessage = formatNfseEmitErrorForUser(rawMsg);
+    if (botHint) {
+      throw badRequest(userMessage, { code, botHint });
+    }
+    if (/erro interno|NF-e|NFE|produto|destinatário|plugnotas/i.test(rawMsg)) {
+      throw badRequest(userMessage, {
         code: code || 'NFE_OPENCLAW',
-        botHint: 'Use list_nfe_produtos, register_nfe_cliente e register_nfe_produto antes de emit_nfe.',
+        botHint:
+          'Se falhar de novo: confirme na app NF-e ativa + endereço do cliente + aviso interestadual '
+          + '(outro estado). Depois emit_nfe com confirm:true e os mesmos dados.',
       });
     }
     throw e;

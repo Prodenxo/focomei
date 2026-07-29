@@ -583,3 +583,70 @@ export const webhook = async (req, res, next) => {
     return next(error);
   }
 };
+
+const clientIp = (req) => {
+  const xf = req.headers['x-forwarded-for'];
+  if (typeof xf === 'string' && xf.trim()) return xf.split(',')[0].trim();
+  if (Array.isArray(xf) && xf[0]) return String(xf[0]).trim();
+  return req.ip || req.socket?.remoteAddress || null;
+};
+
+export const getInterestadualStatus = async (req, res, next) => {
+  try {
+    const {
+      getInterestadualConsent,
+      listInterestadualTaxas,
+      hasValidInterestadualConsent,
+      INTERESTADUAL_TERMS_VERSION,
+      INTERESTADUAL_DISCLAIMER_TEXT,
+      INTERESTADUAL_CHECKBOX_TEXT,
+    } = await import('../services/nfe-interestadual.service.js');
+    const consent = await getInterestadualConsent(req.user.id);
+    const taxas = await listInterestadualTaxas(req.user.id);
+    return sendSuccess(res, {
+      termsVersion: INTERESTADUAL_TERMS_VERSION,
+      disclaimer: INTERESTADUAL_DISCLAIMER_TEXT,
+      checkboxText: INTERESTADUAL_CHECKBOX_TEXT,
+      consentAccepted: await hasValidInterestadualConsent(req.user.id),
+      consent,
+      taxas,
+    }, 'Status interestadual');
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const acceptInterestadualConsent = async (req, res, next) => {
+  try {
+    const { acceptInterestadualConsent: accept } = await import('../services/nfe-interestadual.service.js');
+    const data = await accept(req.user.id, {
+      accepted: Boolean(req.body?.accepted ?? req.body?.aceite),
+      ipAddress: clientIp(req),
+      userAgent: req.headers['user-agent'] || null,
+      snapshot: req.body?.snapshot || null,
+    });
+    return sendSuccess(res, data, 'Termo interestadual aceito');
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const listInterestadualTaxas = async (req, res, next) => {
+  try {
+    const { listInterestadualTaxas: list } = await import('../services/nfe-interestadual.service.js');
+    const data = await list(req.user.id);
+    return sendSuccess(res, data, 'Taxas interestaduais listadas');
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const upsertInterestadualTaxas = async (req, res, next) => {
+  try {
+    const { upsertInterestadualTaxas: upsert } = await import('../services/nfe-interestadual.service.js');
+    const data = await upsert(req.user.id, req.body || {});
+    return sendSuccess(res, data, 'Taxa interestadual salva');
+  } catch (error) {
+    return next(error);
+  }
+};

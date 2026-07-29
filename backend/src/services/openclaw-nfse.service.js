@@ -1513,7 +1513,7 @@ export const rethrowNfseErrorForBot = (err) => {
       botHint: loopGuard,
     });
   }
-  if (/certificado|plugnotas/i.test(rawMsg)) {
+  if (/erro interno|certificado|plugnotas/i.test(rawMsg)) {
     throw badRequest(userMessage, {
       code: code || 'NFSE_PLUGNOTAS',
       botHint: loopGuard,
