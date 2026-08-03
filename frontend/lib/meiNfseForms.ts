@@ -298,10 +298,7 @@ export function mergeNfeEmitentePrefillIntoForm(
   let nextIe = String(current.emitenteInscricaoEstadual ?? '').trim();
   const ieRaw = extras.inscricaoEstadual != null ? String(extras.inscricaoEstadual).trim() : '';
   if (ieRaw && (!onlyFillEmpty || !nextIe || cnpjUpdated)) {
-    nextIe = ieRaw;
-  }
-  if (!nextIe) {
-    nextIe = 'ISENTO';
+    nextIe = ieRaw.toUpperCase() === 'ISENTO' ? '' : ieRaw;
   }
 
   return {
@@ -551,6 +548,7 @@ export function buildNfeLikePayloadFromForm(form: NfeLikeForm, documentType: Not
 
   const itens = form.itens.map(mapNfeItem);
   const total = computeNfeItemsTotal(form.itens);
+  const ieEmitenteDigits = normalizeDoc(form.emitenteInscricaoEstadual).replace(/\D/g, '');
 
   return {
     ...(form.idIntegracao.trim() ? { idIntegracao: form.idIntegracao.trim() } : {}),
@@ -568,7 +566,7 @@ export function buildNfeLikePayloadFromForm(form: NfeLikeForm, documentType: Not
     emitente: {
       cpfCnpj: normalizeDoc(form.emitenteCpfCnpj),
       ...(form.emitenteRazaoSocial.trim() ? { razaoSocial: form.emitenteRazaoSocial.trim() } : {}),
-      inscricaoEstadual: form.emitenteInscricaoEstadual.trim() || 'ISENTO',
+      ...(ieEmitenteDigits.length >= 2 ? { inscricaoEstadual: ieEmitenteDigits } : {}),
     },
     ...(destinatario ? { destinatario } : {}),
     itens,

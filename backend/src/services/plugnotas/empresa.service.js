@@ -610,6 +610,33 @@ const tryUpdateEmpresa = async (cnpj, payload) => {
   return { response: null, attempt: null, lastError, failures };
 };
 
+/**
+ * PATCH mínimo em /empresa/:cnpj sem política NFS-e municipal/nacional.
+ * Usado antes da NF-e para IE / versaoEsquema sem reenviar nfse com credenciais de prefeitura.
+ * @param {string} cnpjInput
+ * @param {Record<string, unknown>} patchInput
+ */
+export const patchEmpresaPlugnotasDirect = async (cnpjInput, patchInput) => {
+  const cnpj = normalizeDoc(cnpjInput || '');
+  if (cnpj.length !== 14) {
+    throw badRequest('CNPJ da empresa deve ter 14 dígitos');
+  }
+  if (!patchInput || typeof patchInput !== 'object' || Array.isArray(patchInput)) {
+    throw badRequest('Payload do PATCH é obrigatório');
+  }
+
+  const payload = { ...patchInput, cpfCnpj: cnpj };
+  normalizeMeiEmpresaPayload(payload);
+  if (Object.prototype.hasOwnProperty.call(payload, 'inscricaoEstadual')) {
+    const ieStr = String(payload.inscricaoEstadual ?? '').trim();
+    if (!ieStr) {
+      payload.inscricaoEstadual = PLUGNOTAS_MEI_INSCRICAO_ESTADUAL_QUANDO_VAZIA;
+    }
+  }
+
+  return tryUpdateEmpresa(cnpj, payload);
+};
+
 /** POST /certificado retorna 409 quando o .pfx já foi cadastrado na conta. */
 const isCertificadoDuplicado409 = (error) => {
   if (Number(error?.status) !== 409) return false;
@@ -766,8 +793,23 @@ export const ensureMeiRegimeEspecialPlugnotasEmpresa = async (cpfCnpjInput, cert
 
   const empresa = unwrapPlugnotasEmpresaRecord(empresaRaw) || {};
   const especial = Number(empresa.regimeTributarioEspecial);
+  const ieMissing = !String(empresa.inscricaoEstadual || '').trim();
   if (especial === PLUGNOTAS_REGIME_ESPECIAL_MEI) {
-    return { ok: true, patched: false, reason: 'already_mei' };
+    if (!ieMissing) {
+      return { ok: true, patched: false, reason: 'already_mei' };
+    }
+    const iePayload = {
+      cpfCnpj: cnpj,
+      inscricaoEstadual: PLUGNOTAS_MEI_INSCRICAO_ESTADUAL_QUANDO_VAZIA,
+    };
+    const ieUpdate = await tryUpdateEmpresa(cnpj, iePayload);
+    if (ieUpdate.response) {
+      return { ok: true, patched: true, reason: 'patched_ie' };
+    }
+    const ieErrorMessage = ieUpdate.lastError instanceof Error
+      ? ieUpdate.lastError.message
+      : String(ieUpdate.lastError || '');
+    return { ok: false, patched: false, reason: 'patch_ie_failed', error: ieErrorMessage };
   }
 
   const payload = buildMeiRegimePatchPayload(cnpj, certificadoId);

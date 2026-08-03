@@ -4429,8 +4429,9 @@ function MeiScreenContent() {
                     }}
                   />
                   <MeiFormField
-                    label="Inscrição Estadual do emitente (opcional)"
-                    placeholder="Somente números ou ISENTO"
+                    label="Inscrição Estadual do emitente"
+                    required
+                    placeholder="Somente números (obrigatório para NF-e)"
                     value={nfeLikeForm.emitenteInscricaoEstadual}
                     onChangeText={(t) => {
                       touchNfeEmitenteFields();
@@ -4439,7 +4440,7 @@ function MeiScreenContent() {
                     keyboardType="default"
                   />
                   <Text style={{ fontSize: 12, color: theme.textSecondary, marginBottom: mfSpacing.sm, lineHeight: 16 }}>
-                    IE da sua empresa MEI no XML do emitente. Não confunda com a IE do cliente (destinatário).
+                    IE da sua empresa no XML do emitente. A Plugnotas exige IE numérica na NF-e de produto — ISENTO no cadastro não gera a tag IE no XML. Consulte o Sintegra/PR ou seu contador.
                   </Text>
                   <MeiLinkButton
                     label="Alterar no cadastro da empresa"

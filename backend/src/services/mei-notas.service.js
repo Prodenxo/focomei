@@ -52,8 +52,10 @@ import {
 } from './plugnotas/plugnotas-nfe-payload.js';
 import {
   applyMeiNfeEmitForcePolicy,
+  applyPlugnotasNfeEmitenteIeForXml,
   ensureMeiNfePlugnotasCadastroBeforeEmit,
   hydrateMeiNfeEmitenteIeFromEmpresa,
+  syncNumericIeToPlugnotasCadastroIfNeeded,
 } from './plugnotas/plugnotas-mei-nfe-emit-force.js';
 import { applyInterestadualToNfePayload } from './nfe-interestadual.service.js';
 import { getEmitenteNfseSnapshot } from './mei-certificate-store.js';
@@ -1942,9 +1944,10 @@ export const emitirNota = async (userId, input) => {
       emitPayload = normalizePlugnotasNfePayload(payload);
       const cnpjEmitente = prestadorDoc
         || String(payload?.emitente?.cpfCnpj || payload?.prestador?.cpfCnpj || '').replace(/\D/g, '');
+      let empresaPlugnotasNfe = null;
       if (cnpjEmitente.length === 14) {
-        const empresaPlugnotas = await ensureMeiNfePlugnotasCadastroBeforeEmit(cnpjEmitente);
-        emitPayload = hydrateMeiNfeEmitenteIeFromEmpresa(emitPayload, empresaPlugnotas);
+        empresaPlugnotasNfe = await ensureMeiNfePlugnotasCadastroBeforeEmit(cnpjEmitente);
+        emitPayload = hydrateMeiNfeEmitenteIeFromEmpresa(emitPayload, empresaPlugnotasNfe);
       }
       if (documentType === DOCUMENT_TYPE_NFE) {
         const emitenteSnap = await getEmitenteNfseSnapshot(userId);
@@ -1965,6 +1968,14 @@ export const emitirNota = async (userId, input) => {
         }
       }
       emitPayload = applyMeiNfeEmitForcePolicy(emitPayload);
+      if (cnpjEmitente.length === 14) {
+        emitPayload = applyPlugnotasNfeEmitenteIeForXml(emitPayload, empresaPlugnotasNfe);
+        await syncNumericIeToPlugnotasCadastroIfNeeded(
+          cnpjEmitente,
+          emitPayload?.emitente?.inscricaoEstadual,
+          empresaPlugnotasNfe,
+        );
+      }
     }
 
     phase = 'plugnotas_emit';
