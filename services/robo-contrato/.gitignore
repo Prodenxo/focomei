@@ -2,6 +2,7 @@ config.env
 .env
 saida/*
 !saida/.gitkeep
+test-payload*.json
 __pycache__/
 *.pyc
 *.pdf
