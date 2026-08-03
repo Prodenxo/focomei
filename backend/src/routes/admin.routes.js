@@ -92,5 +92,11 @@ router.post(
   requireSuperAdmin,
   adminBillingController.syncStripeMaxMeiFromLines
 );
+router.post(
+  '/billing/stripe/reconcile-payment',
+  requireAuth,
+  requireSuperAdmin,
+  adminBillingController.reconcileStripeMeiPayment
+);
 
 export default router;

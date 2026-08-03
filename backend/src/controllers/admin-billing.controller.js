@@ -41,3 +41,19 @@ export const syncStripeMaxMeiFromLines = async (req, res, next) => {
     return next(error);
   }
 };
+
+export const reconcileStripeMeiPayment = async (req, res, next) => {
+  try {
+    const data = await stripeBillingService.reconcileMeiStripePayment(
+      req.accessToken,
+      req.body || {},
+    );
+    return sendSuccess(
+      res,
+      data,
+      'Reconciliação Stripe concluída — verifique steps e snapshot',
+    );
+  } catch (error) {
+    return next(error);
+  }
+};

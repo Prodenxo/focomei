@@ -666,3 +666,187 @@ export const syncMeiLineFromStripeSubscriptionObject = async (subscription) => {
   const status = mapStripeSubscriptionStatus(subscription.status);
   return touchSubscriptionLineByStripeSubscriptionId(subId, { status });
 };
+
+const loadEmpresaBillingSnapshot = async (adminClient, empresaId) => {
+  const id = String(empresaId || "").trim();
+  if (!id) return null;
+
+  const { data: empresa, error: empErr } = await adminClient
+    .from("empresas")
+    .select("id, status, max_mei, requested_by, stripe_customer_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (empErr) throw badRequest(empErr.message);
+
+  const { data: lines, error: lineErr } = await adminClient
+    .from("empresa_mei_subscription_lines")
+    .select("id, status, mei_slots, stripe_checkout_session_id, stripe_subscription_id, updated_at")
+    .eq("empresa_id", id)
+    .order("created_at", { ascending: false });
+  if (lineErr) throw badRequest(lineErr.message);
+
+  let ownerAccess = null;
+  const ownerId = String(empresa?.requested_by || "").trim();
+  if (ownerId) {
+    const { data: link } = await adminClient
+      .from("role_x_user_x_empresa")
+      .select("status, mei")
+      .eq("user_id", ownerId)
+      .eq("empresas_id", id)
+      .maybeSingle();
+    ownerAccess = link || null;
+  }
+
+  return {
+    empresa: empresa || null,
+    lines: lines || [],
+    ownerAccess,
+  };
+};
+
+/**
+ * Superadmin: reprocessa pagamento Stripe (webhook perdido / acesso ou contrato não liberados).
+ * @param {string} accessToken
+ * @param {{ empresaId?: string, checkoutSessionId?: string, stripeSubscriptionId?: string, emitContrato?: boolean }} input
+ */
+export const reconcileMeiStripePayment = async (accessToken, input = {}) => {
+  const requester = await getRequesterContext(accessToken);
+  if (requester.role !== "superadmin") throw forbidden();
+
+  let empresaId = String(input.empresaId || "").trim();
+  let checkoutSessionId = String(input.checkoutSessionId || "").trim();
+  let stripeSubscriptionId = String(input.stripeSubscriptionId || "").trim();
+  const emitContrato = input.emitContrato !== false;
+
+  const adminClient = createSupabaseClient({ useServiceRole: true });
+  const stripe = getStripe();
+  /** @type {Record<string, unknown>[]} */
+  const steps = [];
+
+  if (!checkoutSessionId && !stripeSubscriptionId && empresaId) {
+    const { data: lines, error } = await adminClient
+      .from("empresa_mei_subscription_lines")
+      .select("id, status, stripe_checkout_session_id, stripe_subscription_id")
+      .eq("empresa_id", empresaId)
+      .order("created_at", { ascending: false })
+      .limit(10);
+    if (error) throw badRequest(error.message);
+
+    const pendingWithSession = (lines || []).find(
+      (line) => line.status !== "active" && line.stripe_checkout_session_id,
+    );
+    const activeWithSub = (lines || []).find(
+      (line) => line.stripe_subscription_id,
+    );
+
+    if (pendingWithSession?.stripe_checkout_session_id) {
+      checkoutSessionId = String(pendingWithSession.stripe_checkout_session_id);
+      steps.push({
+        step: "resolve_checkout_from_pending_line",
+        lineId: pendingWithSession.id,
+        checkoutSessionId,
+      });
+    } else if (activeWithSub?.stripe_subscription_id) {
+      stripeSubscriptionId = String(activeWithSub.stripe_subscription_id);
+      steps.push({
+        step: "resolve_subscription_from_line",
+        lineId: activeWithSub.id,
+        stripeSubscriptionId,
+      });
+    }
+  }
+
+  if (checkoutSessionId) {
+    const session = await stripe.checkout.sessions.retrieve(checkoutSessionId, {
+      expand: ["subscription"],
+    });
+    steps.push({
+      step: "retrieve_checkout_session",
+      checkoutSessionId,
+      paymentStatus: session.payment_status,
+      mode: session.mode,
+      subscriptionId:
+        typeof session.subscription === "string"
+          ? session.subscription
+          : session.subscription?.id || null,
+    });
+
+    if (session.mode === "subscription") {
+      const finalized = await finalizeMeiLineFromCheckoutSession(session);
+      steps.push({ step: "finalize_checkout_session", ...finalized });
+      if (finalized.empresaId) empresaId = String(finalized.empresaId);
+    } else {
+      steps.push({
+        step: "skip_finalize",
+        reason: "checkout_mode_not_subscription",
+      });
+    }
+  } else if (stripeSubscriptionId) {
+    const sub = await stripe.subscriptions.retrieve(stripeSubscriptionId);
+    const synced = await syncMeiLineFromStripeSubscriptionObject(sub);
+    steps.push({
+      step: "sync_subscription",
+      stripeSubscriptionId,
+      stripeStatus: sub.status,
+      ...synced,
+    });
+    if (synced.empresaId) empresaId = String(synced.empresaId);
+  } else if (!empresaId) {
+    throw badRequest(
+      "Informe empresaId, checkoutSessionId ou stripeSubscriptionId",
+    );
+  }
+
+  if (!empresaId) {
+    throw badRequest(
+      "Não foi possível identificar a empresa — informe empresaId ou checkoutSessionId",
+    );
+  }
+
+  const { data: activeLines, error: activeErr } = await adminClient
+    .from("empresa_mei_subscription_lines")
+    .select("id, status, stripe_checkout_session_id")
+    .eq("empresa_id", empresaId)
+    .eq("status", "active")
+    .order("updated_at", { ascending: false })
+    .limit(1);
+  if (activeErr) throw badRequest(activeErr.message);
+
+  const activeLine = activeLines?.[0] || null;
+  if (activeLine) {
+    const activated = await activateEmpresaMeiAccessAfterPayment(
+      adminClient,
+      empresaId,
+    );
+    const maxMei = await syncEmpresaMaxMeiFromLines(adminClient, empresaId, {
+      force: true,
+    });
+    steps.push({
+      step: "ensure_access",
+      activated,
+      maxMei,
+      activeLineId: activeLine.id,
+    });
+
+    if (emitContrato) {
+      const contrato = await emitOnetyContratoAfterStripePayment(adminClient, {
+        empresaId,
+        checkoutSessionId: activeLine.stripe_checkout_session_id || checkoutSessionId || undefined,
+        lineId: activeLine.id,
+      });
+      steps.push({ step: "emit_contrato", ...contrato });
+    }
+  } else {
+    steps.push({
+      step: "no_active_line",
+      hint: "Pagamento pode estar pendente na Stripe ou linha sem stripe_checkout_session_id",
+    });
+  }
+
+  const snapshot = await loadEmpresaBillingSnapshot(adminClient, empresaId);
+  return {
+    empresaId,
+    steps,
+    snapshot,
+  };
+};

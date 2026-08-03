@@ -15,6 +15,7 @@ import * as WebBrowser from 'expo-web-browser';
 import {
   createMeiStripeCheckout,
   listStripeMeiSubscriptionLines,
+  reconcileStripeMeiPayment,
   syncMaxMeiFromStripeLines,
   type BillingTimingOption,
   type StripeMeiSubscriptionLine,
@@ -92,6 +93,7 @@ export function EmpresaStripeMeiBillingModal({
   const [submitLoading, setSubmitLoading] = useState(false);
   const [lastCheckoutUrl, setLastCheckoutUrl] = useState<string | null>(null);
   const [syncMaxMeiLoading, setSyncMaxMeiLoading] = useState(false);
+  const [reconcileLoading, setReconcileLoading] = useState(false);
 
   const loadLines = useCallback(async () => {
     if (!empresa?.id) return;
@@ -225,6 +227,28 @@ export function EmpresaStripeMeiBillingModal({
     }
   };
 
+  const handleReconcilePayment = async () => {
+    if (!empresa) return;
+    setReconcileLoading(true);
+    try {
+      const result = await reconcileStripeMeiPayment({ empresaId: empresa.id });
+      await loadLines();
+      await onMaxMeiSynced?.();
+      const maxMei = result.snapshot?.empresa?.max_mei ?? '—';
+      const ownerOk = result.snapshot?.ownerAccess?.mei && result.snapshot?.ownerAccess?.status;
+      showToast(
+        ownerOk
+          ? `Pagamento reconciliado. Limite MEI: ${maxMei}. Contrato reenviado se configurado.`
+          : `Reconciliação executada (limite MEI: ${maxMei}). Verifique steps no backend se o acesso não liberou.`,
+        ownerOk ? 'success' : 'info',
+      );
+    } catch (e: unknown) {
+      showToast(apiErrorMessage(e, 'Erro ao reconciliar pagamento Stripe'), 'error');
+    } finally {
+      setReconcileLoading(false);
+    }
+  };
+
   const copyCheckoutUrl = async () => {
     if (!lastCheckoutUrl) return;
     try {
@@ -316,6 +340,23 @@ export function EmpresaStripeMeiBillingModal({
                 <View style={styles.sectionRow}>
                   <ActivationEyebrow label="HISTÓRICO" isDarkMode={isDarkMode} style={styles.sectionEyebrow} />
                   <View style={styles.sectionActions}>
+                    <Pressable
+                      onPress={() => void handleReconcilePayment()}
+                      disabled={reconcileLoading}
+                      style={({ pressed }) => [
+                        styles.toolBtn,
+                        mfTechInsetSurface(isDarkMode),
+                        pressed && styles.pressed,
+                      ]}
+                      accessibilityLabel="Reconciliar pagamento Stripe e liberar acesso"
+                    >
+                      {reconcileLoading ? (
+                        <ActivityIndicator size="small" color={tokens.accent} />
+                      ) : (
+                        <Ionicons name="refresh-circle-outline" size={16} color={tokens.accent} />
+                      )}
+                      <Text style={styles.toolBtnText}>Reconciliar pago</Text>
+                    </Pressable>
                     <Pressable
                       onPress={() => void handleSyncMaxMeiFromLines()}
                       disabled={syncMaxMeiLoading}

@@ -52,3 +52,29 @@ export async function createMeiStripeCheckout(
 export async function syncMaxMeiFromStripeLines(empresaId: string): Promise<{ max_mei: number }> {
   return apiClient.post<{ max_mei: number }>('/admin/billing/stripe/sync-max-mei', { empresaId });
 }
+
+export interface ReconcileStripeMeiPaymentInput {
+  empresaId?: string;
+  checkoutSessionId?: string;
+  stripeSubscriptionId?: string;
+  emitContrato?: boolean;
+}
+
+export interface ReconcileStripeMeiPaymentResult {
+  empresaId: string;
+  steps: Array<Record<string, unknown>>;
+  snapshot?: {
+    empresa?: { id: string; status: string; max_mei: number } | null;
+    lines?: StripeMeiSubscriptionLine[];
+    ownerAccess?: { status: boolean; mei: boolean } | null;
+  };
+}
+
+export async function reconcileStripeMeiPayment(
+  body: ReconcileStripeMeiPaymentInput,
+): Promise<ReconcileStripeMeiPaymentResult> {
+  return apiClient.post<ReconcileStripeMeiPaymentResult>(
+    '/admin/billing/stripe/reconcile-payment',
+    body,
+  );
+}
