@@ -70,3 +70,20 @@ export const emitStripeMeiContrato = async (req, res, next) => {
     return next(error);
   }
 };
+
+export const confirmPixMeiPayment = async (req, res, next) => {
+  try {
+    const data = await stripeBillingService.confirmMeiPixPaymentForEmpresa(
+      req.accessToken,
+      req.body || {},
+    );
+    const maxMei = data?.maxMei?.max_mei ?? data?.maxMei ?? '—';
+    return sendSuccess(
+      res,
+      data,
+      `PIX confirmado — ${maxMei} vagas MEI liberadas`,
+    );
+  } catch (error) {
+    return next(error);
+  }
+};

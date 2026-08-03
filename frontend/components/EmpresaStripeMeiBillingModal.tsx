@@ -17,6 +17,7 @@ import {
   listStripeMeiSubscriptionLines,
   reconcileStripeMeiPayment,
   emitStripeMeiContrato,
+  confirmPixMeiPayment,
   syncMaxMeiFromStripeLines,
   type BillingTimingOption,
   type StripeMeiSubscriptionLine,
@@ -60,6 +61,7 @@ const formatDateTime = (value?: string | null) => {
 const billingTypeLabel = (t: string) => {
   if (t === 'stripe_checkout') return 'Link de pagamento';
   if (t === 'stripe_next_cycle') return 'Próxima fatura';
+  if (t === 'pix_manual') return 'PIX manual';
   return t || '—';
 };
 
@@ -96,6 +98,7 @@ export function EmpresaStripeMeiBillingModal({
   const [syncMaxMeiLoading, setSyncMaxMeiLoading] = useState(false);
   const [reconcileLoading, setReconcileLoading] = useState(false);
   const [emitContratoLoading, setEmitContratoLoading] = useState(false);
+  const [confirmPixLoading, setConfirmPixLoading] = useState(false);
 
   const loadLines = useCallback(async () => {
     if (!empresa?.id) return;
@@ -278,6 +281,40 @@ export function EmpresaStripeMeiBillingModal({
     }
   };
 
+  const handleConfirmPixPayment = async () => {
+    if (!empresa) return;
+    setConfirmPixLoading(true);
+    try {
+      const result = await confirmPixMeiPayment({
+        empresaId: empresa.id,
+        meiSlots,
+        emitContrato: true,
+      });
+      await loadLines();
+      await onMaxMeiSynced?.();
+      const maxMei = result.maxMei?.max_mei ?? '—';
+      const contratoErr =
+        result.contrato && result.contrato.ok === false ? result.contrato.error : null;
+
+      if (contratoErr) {
+        showToast(
+          `PIX confirmado (${maxMei} vagas). Contrato falhou: ${contratoErr}`,
+          'error',
+        );
+        return;
+      }
+
+      showToast(
+        `PIX confirmado — ${maxMei} vagas MEI liberadas. Cliente pode sair de /planos.`,
+        'success',
+      );
+    } catch (e: unknown) {
+      showToast(apiErrorMessage(e, 'Erro ao confirmar pagamento PIX'), 'error');
+    } finally {
+      setConfirmPixLoading(false);
+    }
+  };
+
   const copyCheckoutUrl = async () => {
     if (!lastCheckoutUrl) return;
     try {
@@ -369,6 +406,23 @@ export function EmpresaStripeMeiBillingModal({
                 <View style={styles.sectionRow}>
                   <ActivationEyebrow label="HISTÓRICO" isDarkMode={isDarkMode} style={styles.sectionEyebrow} />
                   <View style={styles.sectionActions}>
+                    <Pressable
+                      onPress={() => void handleConfirmPixPayment()}
+                      disabled={confirmPixLoading}
+                      style={({ pressed }) => [
+                        styles.toolBtn,
+                        mfTechInsetSurface(isDarkMode),
+                        pressed && styles.pressed,
+                      ]}
+                      accessibilityLabel="Confirmar pagamento PIX e liberar acesso MEI"
+                    >
+                      {confirmPixLoading ? (
+                        <ActivityIndicator size="small" color={tokens.accent} />
+                      ) : (
+                        <Ionicons name="qr-code-outline" size={16} color={tokens.accent} />
+                      )}
+                      <Text style={styles.toolBtnText}>Pago com PIX</Text>
+                    </Pressable>
                     <Pressable
                       onPress={() => void handleEmitContrato()}
                       disabled={emitContratoLoading}

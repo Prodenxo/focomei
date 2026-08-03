@@ -104,5 +104,11 @@ router.post(
   requireSuperAdmin,
   adminBillingController.emitStripeMeiContrato
 );
+router.post(
+  '/billing/pix/confirm-payment',
+  requireAuth,
+  requireSuperAdmin,
+  adminBillingController.confirmPixMeiPayment
+);
 
 export default router;

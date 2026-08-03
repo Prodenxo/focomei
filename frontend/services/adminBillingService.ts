@@ -82,3 +82,27 @@ export async function reconcileStripeMeiPayment(
 export async function emitStripeMeiContrato(empresaId: string): Promise<unknown> {
   return apiClient.post('/admin/billing/stripe/emit-contrato', { empresaId });
 }
+
+export interface ConfirmPixMeiPaymentInput {
+  empresaId: string;
+  meiSlots?: number;
+  description?: string;
+  emitContrato?: boolean;
+}
+
+export interface ConfirmPixMeiPaymentResult {
+  line: StripeMeiSubscriptionLine;
+  maxMei: { max_mei: number };
+  activated: { activated: boolean; ownerId?: string | null };
+  legacy_mei_slots_pix: number;
+  contrato?: { ok?: boolean; error?: string } | null;
+}
+
+export async function confirmPixMeiPayment(
+  body: ConfirmPixMeiPaymentInput,
+): Promise<ConfirmPixMeiPaymentResult> {
+  return apiClient.post<ConfirmPixMeiPaymentResult>(
+    '/admin/billing/pix/confirm-payment',
+    body,
+  );
+}

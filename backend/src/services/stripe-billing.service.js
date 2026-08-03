@@ -609,6 +609,93 @@ export const emitMeiContratoForEmpresaAdmin = async (accessToken, empresaIdInput
 };
 
 /**
+ * Superadmin: confirma pagamento PIX manual — libera /planos (max_mei + admin mei=true).
+ * Cria linha `pix_manual` ativa (mesma tabela da Stripe para o gate de billing).
+ */
+export const confirmMeiPixPaymentForEmpresa = async (accessToken, input = {}) => {
+  const requester = await getRequesterContext(accessToken);
+  if (requester.role !== "superadmin") throw forbidden();
+
+  const empresaId = String(input.empresaId || "").trim();
+  if (!empresaId) throw badRequest("empresaId é obrigatório");
+
+  const meiSlots = Number(input.meiSlots ?? 5);
+  const pricing = resolveMeiPricing(meiSlots);
+  if (!pricing) {
+    throw badRequest(MEI_PRICING_INVALID_MESSAGE);
+  }
+
+  const adminClient = createSupabaseClient({ useServiceRole: true });
+  const { data: empresa, error: empErr } = await adminClient
+    .from("empresas")
+    .select("id, legacy_mei_slots_pix")
+    .eq("id", empresaId)
+    .maybeSingle();
+  if (empErr) throw badRequest(empErr.message);
+  if (!empresa?.id) throw badRequest("Empresa não encontrada");
+
+  const description =
+    String(input.description || "").trim()
+    || `PIX manual — ${meiSlots} vagas MEI (R$ ${pricing.total.toFixed(2)}/mês)`;
+  const externalReference =
+    String(input.externalReference || "").trim() || randomUUID();
+  const emitContrato = input.emitContrato !== false;
+
+  const { data: row, error: insErr } = await adminClient
+    .from("empresa_mei_subscription_lines")
+    .insert({
+      empresa_id: empresaId,
+      mei_slots: meiSlots,
+      status: "active",
+      value_numeric: pricing.total,
+      billing_type: "pix_manual",
+      external_reference: externalReference,
+      description,
+    })
+    .select()
+    .maybeSingle();
+  if (insErr) throw badRequest(insErr.message);
+
+  const legacyPix = Number(empresa.legacy_mei_slots_pix || 0) + meiSlots;
+  await adminClient
+    .from("empresas")
+    .update({ legacy_mei_slots_pix: legacyPix })
+    .eq("id", empresaId);
+
+  const maxMei = await syncEmpresaMaxMeiFromLines(adminClient, empresaId, {
+    force: true,
+  });
+  const activated = await activateEmpresaMeiAccessAfterPayment(
+    adminClient,
+    empresaId,
+  );
+
+  /** @type {Record<string, unknown>|null} */
+  let contrato = null;
+  if (emitContrato) {
+    try {
+      contrato = await emitContratoForEmpresaOrThrow(adminClient, {
+        empresaId,
+        lineId: row.id,
+      });
+    } catch (error) {
+      contrato = {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  return {
+    line: row,
+    maxMei,
+    activated,
+    legacy_mei_slots_pix: legacyPix,
+    contrato,
+  };
+};
+
+/**
  * Após checkout: grava subscription id e status conforme assinatura na Stripe.
  */
 export const finalizeMeiLineFromCheckoutSession = async (session) => {
