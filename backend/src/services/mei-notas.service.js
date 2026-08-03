@@ -83,6 +83,10 @@ import {
 import { isPlugnotasDebugExplicitlyEnabled } from './plugnotas/plugnotas-debug-env.js';
 import { agregarLimiteMeiDasLinhas } from '../utils/meiLimitePayloadSum.js';
 import {
+  maybeSyncLancamentoFromNota,
+  syncLancamentosForNotasInBackground,
+} from './nota-lancamento-sync.service.js';
+import {
   logMeiEmitOutcome,
   extractMeiEmitHttpMeta,
   fallbackDocumentTypeLabelFromInput,
@@ -2104,7 +2108,7 @@ export const emitirNota = async (userId, input) => {
       ...(plugnotas_status ? { plugnotas_status } : {})
     });
 
-    return created;
+    return await maybeSyncLancamentoFromNota(userId, created);
   } catch (error) {
     const duration_ms = Date.now() - startedAt;
     const plugnotasPhase = phase === 'plugnotas_emit' || phase === 'insert_record';
@@ -2150,6 +2154,7 @@ export const listarNotas = async (
   if (error) throw badRequest(error.message);
   const rows = data || [];
   await archiveE0014RejectedRowsOnList(userId, rows);
+  syncLancamentosForNotasInBackground(userId, rows);
   if (includeArchived) return rows;
   return rows.filter((row) => !row.archived_at);
 };
@@ -3086,7 +3091,7 @@ export const obterNota = async (userId, id, { sync = false, skipWhatsappDelivery
       });
   }
 
-  return archivedOrUpdated;
+  return await maybeSyncLancamentoFromNota(userId, archivedOrUpdated);
 };
 
 export const atualizarNota = async (userId, id, input) => {
@@ -3374,6 +3379,10 @@ export const processarWebhook = async (payload) => {
           message: err instanceof Error ? err.message : String(err),
         });
       });
+  }
+
+  if (data.user_id && data.id) {
+    return await maybeSyncLancamentoFromNota(data.user_id, data);
   }
 
   return data;

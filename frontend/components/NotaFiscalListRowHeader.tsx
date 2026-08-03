@@ -9,12 +9,26 @@ import {
   meiFiscalDocumentTypeShortLabel,
   resolveNfseDisplayStatus,
 } from '../lib/meiFormatters'
+import {
+  extrairNomeClienteDaNota,
+  extrairValorDaNota,
+  resolverTituloNotaFiscal,
+} from '../lib/notaFiscalDisplay'
+import { formatCurrencyBR } from '../lib/numberFormat'
 import type { NfseRecord } from '../services/meiNotasService'
 
 interface NotaFiscalListRowHeaderProps {
   nota: Pick<
     NfseRecord,
-    'id' | 'status' | 'response_json' | 'document_type' | 'created_at' | 'protocol' | 'plugnotas_id' | 'id_integracao'
+    | 'id'
+    | 'status'
+    | 'response_json'
+    | 'payload_json'
+    | 'document_type'
+    | 'created_at'
+    | 'protocol'
+    | 'plugnotas_id'
+    | 'id_integracao'
   >
   textColor: string
   textSecondary: string
@@ -42,10 +56,16 @@ export function NotaFiscalListRowHeader ({ nota, textColor, textSecondary }: Not
   const statusColor = getNfseStatusBadgeColor(resolvedStatus)
   const statusBg = getNfseStatusBadgeBackground(resolvedStatus)
   const isPending = nota.id === '__emit_pending__'
-  const title = isPending
-    ? 'Enviando nota…'
-    : (nota.id_integracao || nota.plugnotas_id || nota.protocol || nota.id)
+  const title = isPending ? 'Enviando nota…' : resolverTituloNotaFiscal(nota as NfseRecord)
+  const valor = isPending ? null : extrairValorDaNota(nota as NfseRecord)
+  const cliente = isPending ? null : extrairNomeClienteDaNota(nota as NfseRecord)
+  const referencia = nota.id_integracao || nota.plugnotas_id || nota.protocol || null
   const docLabel = meiFiscalDocumentTypeShortLabel(nota.document_type)
+  const metaParts = [
+    valor != null ? formatCurrencyBR(valor) : null,
+    `Emitida em ${formatDateTime(nota.created_at)}`,
+    nota.protocol ? `Protocolo ${nota.protocol}` : null,
+  ].filter(Boolean)
 
   return (
     <View style={styles.row}>
@@ -53,10 +73,14 @@ export function NotaFiscalListRowHeader ({ nota, textColor, textSecondary }: Not
         <Text style={[styles.title, { color: textColor }]} numberOfLines={1}>
           {title}
         </Text>
-        <Text style={[styles.meta, { color: textSecondary }]}>
-          Emitida em {formatDateTime(nota.created_at)}
-          {nota.protocol ? ` • Protocolo ${nota.protocol}` : ''}
+        <Text style={[styles.meta, { color: textSecondary }]} numberOfLines={2}>
+          {metaParts.join(' • ')}
         </Text>
+        {cliente && referencia && referencia !== title ? (
+          <Text style={[styles.ref, { color: textSecondary }]} numberOfLines={1}>
+            {referencia}
+          </Text>
+        ) : null}
       </View>
       <View style={styles.badges}>
         <AdminBadge
@@ -100,6 +124,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     marginTop: 2,
+  },
+  ref: {
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 2,
+    opacity: 0.85,
   },
   badges: {
     flexDirection: 'row',
