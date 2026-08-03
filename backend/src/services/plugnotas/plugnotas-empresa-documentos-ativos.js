@@ -256,4 +256,5 @@ export const applyEmpresaPlugnotasDocumentSelectionForPost = (payload, selection
 export const applyEmpresaPlugnotasDocumentSelectionForPatch = (payload, selection, opts = {}) => {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
   assignDocumentBlocksFromSelection(payload, selection, opts);
+  normalizeInscricaoEstadualApenasNfse(payload);
 };

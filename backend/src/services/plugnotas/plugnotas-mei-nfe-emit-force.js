@@ -114,22 +114,38 @@ export const hydrateMeiNfeEmitenteIeFromEmpresa = (payload, empresa) => {
 };
 
 /**
+ * Garante IE no emitente antes do CRT (schema SEFAZ exige IE antes de CRT no XML).
+ * @param {Record<string, unknown>} payload
+ */
+export const ensureEmitenteInscricaoEstadualOnNfePayload = (payload) => {
+  if (!payload || typeof payload !== 'object') return payload;
+  const emitente = toObject(payload.emitente);
+  const existingIe = String(emitente.inscricaoEstadual || '').trim();
+  const ieEmitente = existingIe || PLUGNOTAS_MEI_INSCRICAO_ESTADUAL_QUANDO_VAZIA;
+  return {
+    ...payload,
+    emitente: {
+      ...emitente,
+      inscricaoEstadual: ieEmitente,
+    },
+  };
+};
+
+/**
  * Força campos MEI/CRT no JSON de emissão NF-e/NFC-e (best-effort; Plugnotas pode ignorar).
  * @param {Record<string, unknown>} payload
  */
 export const applyMeiNfeEmitForcePolicy = (payload) => {
-  if (!isMeiNfeEmitForceEnabled() || !payload || typeof payload !== 'object') {
-    return payload;
+  const withIe = ensureEmitenteInscricaoEstadualOnNfePayload(payload);
+  if (!isMeiNfeEmitForceEnabled() || !withIe || typeof withIe !== 'object') {
+    return withIe;
   }
 
-  const emitente = toObject(payload.emitente);
-  const config = toObject(payload.config);
-  const existingIe = String(emitente.inscricaoEstadual || '').trim();
-  const ieEmitente = existingIe || PLUGNOTAS_MEI_INSCRICAO_ESTADUAL_QUANDO_VAZIA;
+  const emitente = toObject(withIe.emitente);
+  const config = toObject(withIe.config);
 
   const nextEmitente = {
     ...emitente,
-    inscricaoEstadual: ieEmitente,
     crt: PLUGNOTAS_CRT_MEI,
     regimeTributario: 1,
     regimeTributarioEspecial: PLUGNOTAS_REGIME_ESPECIAL_MEI,
@@ -137,7 +153,7 @@ export const applyMeiNfeEmitForcePolicy = (payload) => {
   };
 
   return {
-    ...payload,
+    ...withIe,
     crt: PLUGNOTAS_CRT_MEI,
     emitente: nextEmitente,
     config: {

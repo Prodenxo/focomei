@@ -295,17 +295,20 @@ export function mergeNfeEmitentePrefillIntoForm(
     razaoOnlyFillEmpty,
   );
 
-  let nextIe = String(current.emitenteInscricaoEstadual ?? '');
+  let nextIe = String(current.emitenteInscricaoEstadual ?? '').trim();
   const ieRaw = extras.inscricaoEstadual != null ? String(extras.inscricaoEstadual).trim() : '';
-  if (ieRaw && (!onlyFillEmpty || !nextIe.trim() || cnpjUpdated)) {
+  if (ieRaw && (!onlyFillEmpty || !nextIe || cnpjUpdated)) {
     nextIe = ieRaw;
+  }
+  if (!nextIe) {
+    nextIe = 'ISENTO';
   }
 
   return {
     ...current,
     emitenteCpfCnpj: nextCnpj,
     emitenteRazaoSocial: nextRazao,
-    ...(nextIe ? { emitenteInscricaoEstadual: nextIe } : {}),
+    emitenteInscricaoEstadual: nextIe,
   };
 }
 
@@ -565,7 +568,7 @@ export function buildNfeLikePayloadFromForm(form: NfeLikeForm, documentType: Not
     emitente: {
       cpfCnpj: normalizeDoc(form.emitenteCpfCnpj),
       ...(form.emitenteRazaoSocial.trim() ? { razaoSocial: form.emitenteRazaoSocial.trim() } : {}),
-      ...(form.emitenteInscricaoEstadual.trim() ? { inscricaoEstadual: form.emitenteInscricaoEstadual.trim() } : {}),
+      inscricaoEstadual: form.emitenteInscricaoEstadual.trim() || 'ISENTO',
     },
     ...(destinatario ? { destinatario } : {}),
     itens,

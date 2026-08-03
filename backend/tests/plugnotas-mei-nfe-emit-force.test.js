@@ -40,6 +40,22 @@ test('applyMeiNfeEmitForcePolicy preserva IE informada no emitente', () => {
   assert.equal(out.emitente.inscricaoEstadual, '12345678901');
 });
 
+test('applyMeiNfeEmitForcePolicy define ISENTO mesmo com MEI_NFE_FORCE_CRT_EMIT desligado', () => {
+  const prev = process.env.MEI_NFE_FORCE_CRT_EMIT;
+  process.env.MEI_NFE_FORCE_CRT_EMIT = 'false';
+
+  try {
+    const out = applyMeiNfeEmitForcePolicy({
+      emitente: { cpfCnpj: '67146579000176' },
+    });
+    assert.equal(out.emitente.inscricaoEstadual, 'ISENTO');
+    assert.equal(out.emitente.crt, undefined);
+  } finally {
+    if (prev === undefined) delete process.env.MEI_NFE_FORCE_CRT_EMIT;
+    else process.env.MEI_NFE_FORCE_CRT_EMIT = prev;
+  }
+});
+
 test('hydrateMeiNfeEmitenteIeFromEmpresa usa IE do cadastro quando payload vazio', () => {
   const out = hydrateMeiNfeEmitenteIeFromEmpresa(
     { emitente: { cpfCnpj: '67146579000176' } },

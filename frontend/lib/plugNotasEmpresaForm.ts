@@ -258,7 +258,11 @@ export function buildPlugNotasEmpresaPayload({
   }
   if (email) payload.email = email;
   if (im) payload.inscricaoMunicipal = im;
-  if (ie) payload.inscricaoEstadual = ie;
+  if (ie) {
+    payload.inscricaoEstadual = ie;
+  } else if (form.nfeAtivo) {
+    payload.inscricaoEstadual = 'ISENTO';
+  }
 
   return payload;
 }
