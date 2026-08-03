@@ -9,7 +9,11 @@ import {
   MEI_PRICING_INVALID_MESSAGE,
   MEI_PUBLIC_PACKAGES,
 } from "./mei-billing-pricing.js";
-import { emitOnetyContratoAfterStripePayment, buildStripeContratoPayloadForEmpresa } from "./stripe-contract-payload.service.js";
+import {
+  emitOnetyContratoAfterStripePayment,
+  emitContratoForEmpresaOrThrow,
+  buildStripeContratoPayloadForEmpresa,
+} from "./stripe-contract-payload.service.js";
 
 const ONLY_DIGITS = (s) => String(s || "").replace(/\D/g, "");
 
@@ -553,6 +557,57 @@ export const getMeiContratoPayloadForRequester = async (accessToken) => {
   return payload;
 };
 
+/** Superadmin: diagnóstico do webhook de contrato (sem expor segredo). */
+export const getMeiContratoWebhookStatusForAdmin = async (accessToken) => {
+  const requester = await getRequesterContext(accessToken);
+  if (requester.role !== "superadmin") throw forbidden();
+
+  const url = String(env.ONETY_CONTRATO_WEBHOOK_URL || "").trim();
+  let host = "";
+  try {
+    host = url ? new URL(url).host : "";
+  } catch {
+    host = "";
+  }
+
+  return {
+    webhookConfigured: Boolean(url),
+    webhookHost: host || null,
+    webhookPath: url ? new URL(url).pathname : null,
+    secretConfigured: Boolean(String(env.ONETY_CONTRATO_WEBHOOK_SECRET || "").trim()),
+  };
+};
+
+/** Superadmin: gera e envia contrato Onety para empresa com assinatura ativa. */
+export const emitMeiContratoForEmpresaAdmin = async (accessToken, empresaIdInput) => {
+  const requester = await getRequesterContext(accessToken);
+  if (requester.role !== "superadmin") throw forbidden();
+
+  const empresaId = String(empresaIdInput || "").trim();
+  if (!empresaId) throw badRequest("empresaId é obrigatório");
+
+  const adminClient = createSupabaseClient({ useServiceRole: true });
+  const { data: activeLine, error } = await adminClient
+    .from("empresa_mei_subscription_lines")
+    .select("id, stripe_checkout_session_id")
+    .eq("empresa_id", empresaId)
+    .eq("status", "active")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw badRequest(error.message);
+  if (!activeLine?.id) {
+    throw badRequest("Nenhuma assinatura MEI ativa — reconcilie o pagamento antes de gerar o contrato.");
+  }
+
+  return emitContratoForEmpresaOrThrow(adminClient, {
+    empresaId,
+    lineId: activeLine.id,
+    checkoutSessionId: activeLine.stripe_checkout_session_id || undefined,
+  });
+};
+
 /**
  * Após checkout: grava subscription id e status conforme assinatura na Stripe.
  */
@@ -829,12 +884,17 @@ export const reconcileMeiStripePayment = async (accessToken, input = {}) => {
     });
 
     if (emitContrato) {
-      const contrato = await emitOnetyContratoAfterStripePayment(adminClient, {
-        empresaId,
-        checkoutSessionId: activeLine.stripe_checkout_session_id || checkoutSessionId || undefined,
-        lineId: activeLine.id,
-      });
-      steps.push({ step: "emit_contrato", ...contrato });
+      try {
+        const contrato = await emitContratoForEmpresaOrThrow(adminClient, {
+          empresaId,
+          checkoutSessionId: activeLine.stripe_checkout_session_id || checkoutSessionId || undefined,
+          lineId: activeLine.id,
+        });
+        steps.push({ step: "emit_contrato", ok: true, ...contrato });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        steps.push({ step: "emit_contrato", ok: false, error: message });
+      }
     }
   } else {
     steps.push({

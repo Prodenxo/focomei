@@ -1,6 +1,7 @@
 import {
   countFocoMeiEmpresaAdmins,
   filterFocoMeiAdminEmpresas,
+  filterFocoMeiAdminEmpresasAguardandoPlano,
   filterFocoMeiAdminUsers,
 } from '../focomeiAdminFilters'
 import type { ManagedUser } from '../user-management'
@@ -34,6 +35,22 @@ describe('empresas MEI disponível ou em uso', () => {
     ]
     const ids = filterFocoMeiAdminEmpresas(empresas, users).map((e) => e.id)
     expect(ids).toEqual(['e-disp', 'e-uso'])
+  })
+})
+
+describe('filterFocoMeiAdminEmpresasAguardandoPlano', () => {
+  const empresas: EmpresaOption[] = [
+    { id: 'e-disp', empresa: 'Com vagas', max_mei: 3 },
+    { id: 'e-pending', empresa: 'Presa planos', max_mei: 0 },
+    { id: 'e-nada', empresa: 'Sem admin', max_mei: 0 },
+  ]
+
+  it('inclui empresa sem max_mei com admin ativo', () => {
+    const users = [
+      user({ id: 'a1', role: 'admin', empresaId: 'e-pending', mei: false }),
+    ]
+    const ids = filterFocoMeiAdminEmpresasAguardandoPlano(empresas, users).map((e) => e.id)
+    expect(ids).toEqual(['e-pending'])
   })
 })
 

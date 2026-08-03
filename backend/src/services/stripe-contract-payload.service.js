@@ -1,5 +1,6 @@
 import { env } from '../config/env.js'
 import { query } from '../config/pg.js'
+import { badRequest } from '../utils/errors.js'
 import { isLocalAuthMode } from './local-auth.service.js'
 import { resolveMeiPricing } from './mei-billing-pricing.js'
 
@@ -184,8 +185,12 @@ export const buildStripeContratoPayloadForEmpresa = async (
  */
 export const dispatchOnetyContratoPayload = async (payload) => {
   const url = str(env.ONETY_CONTRATO_WEBHOOK_URL)
-  if (!url || !payload) {
-    return { dispatched: false, reason: 'no_webhook_or_payload' }
+  if (!payload) {
+    return { dispatched: false, reason: 'no_payload' }
+  }
+  if (!url) {
+    console.warn('[onety-contrato] ONETY_CONTRATO_WEBHOOK_URL não configurada — contrato não enviado')
+    return { dispatched: false, reason: 'webhook_url_not_configured' }
   }
 
   const headers = { 'Content-Type': 'application/json' }
@@ -194,23 +199,109 @@ export const dispatchOnetyContratoPayload = async (payload) => {
     headers.Authorization = `Bearer ${secret}`
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(payload),
-  })
+  let response
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn('[onety-contrato] webhook inacessível', { url, error: message })
+    return { dispatched: false, reason: 'webhook_unreachable', error: message, url }
+  }
 
   if (!response.ok) {
     const body = await response.text().catch(() => '')
     console.warn('[onety-contrato] webhook falhou', {
+      url,
       status: response.status,
       body: body.slice(0, 300),
     })
-    return { dispatched: false, status: response.status }
+    return {
+      dispatched: false,
+      reason: 'webhook_http_error',
+      status: response.status,
+      body: body.slice(0, 300),
+      url,
+    }
   }
 
-  console.info('[onety-contrato] payload enviado ao webhook Onety')
-  return { dispatched: true, status: response.status }
+  let responseBody = null
+  try {
+    responseBody = await response.json()
+  } catch {
+    responseBody = null
+  }
+
+  console.info('[onety-contrato] payload enviado ao webhook Onety', { url, status: response.status })
+  return {
+    dispatched: true,
+    status: response.status,
+    url,
+    response: responseBody,
+  }
+}
+
+const contratoDispatchErrorMessage = (dispatch) => {
+  const reason = str(dispatch?.reason)
+  if (reason === 'webhook_url_not_configured') {
+    return (
+      'Contrato não enviado: este backend não tem ONETY_CONTRATO_WEBHOOK_URL. '
+      + 'Se você está em localhost:3333, use o site em produção ou adicione a variável no backend/.env. '
+      + 'Em produção (EasyPanel focomei-backend): salve o Ambiente e faça redeploy do serviço.'
+    )
+  }
+  if (reason === 'webhook_unreachable') {
+    return `Robô de contrato inacessível em ${dispatch?.url || 'URL configurada'}: ${dispatch?.error || 'erro de rede'}.`
+  }
+  if (reason === 'webhook_http_error') {
+    return `Robô de contrato respondeu HTTP ${dispatch?.status || '?'}: ${dispatch?.body || 'sem detalhe'}.`
+  }
+  if (reason === 'no_payload') {
+    return 'Payload do contrato vazio.'
+  }
+  return 'Falha ao enviar contrato ao robô Onety.'
+}
+
+/**
+ * Monta e envia contrato; lança erro legível quando falha (uso admin / reconciliação manual).
+ */
+export const emitContratoForEmpresaOrThrow = async (
+  adminClient,
+  { empresaId, checkoutSessionId, lineId } = {},
+) => {
+  const result = await emitOnetyContratoAfterStripePayment(adminClient, {
+    empresaId,
+    checkoutSessionId,
+    lineId,
+  })
+
+  if (!result.ok) {
+    if (result.reason === 'payload_unavailable') {
+      throw badRequest(
+        'Não foi possível montar o contrato: verifique assinatura MEI ativa, CNPJ/endereço da empresa e dados do signatário.',
+      )
+    }
+    throw badRequest('Não foi possível gerar o contrato.')
+  }
+
+  if (!result.dispatch?.dispatched) {
+    throw badRequest(contratoDispatchErrorMessage(result.dispatch))
+  }
+
+  const onetyOk = result.dispatch?.response?.ok
+  if (onetyOk === false) {
+    const firstFail = result.dispatch?.response?.resultados?.find((r) => !r?.ok)
+    throw badRequest(
+      firstFail?.mensagem
+        ? `Onety rejeitou o contrato: ${firstFail.mensagem}`
+        : 'Onety processou o contrato com falha — veja logs do robo-contrato.',
+    )
+  }
+
+  return result
 }
 
 /**

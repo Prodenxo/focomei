@@ -57,3 +57,16 @@ export const reconcileStripeMeiPayment = async (req, res, next) => {
     return next(error);
   }
 };
+
+export const emitStripeMeiContrato = async (req, res, next) => {
+  try {
+    const empresaId = String(req.body?.empresaId || '').trim();
+    const data = await stripeBillingService.emitMeiContratoForEmpresaAdmin(
+      req.accessToken,
+      empresaId,
+    );
+    return sendSuccess(res, data, 'Contrato enviado ao robô Onety com sucesso');
+  } catch (error) {
+    return next(error);
+  }
+};

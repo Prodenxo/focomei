@@ -16,6 +16,7 @@ import {
   createMeiStripeCheckout,
   listStripeMeiSubscriptionLines,
   reconcileStripeMeiPayment,
+  emitStripeMeiContrato,
   syncMaxMeiFromStripeLines,
   type BillingTimingOption,
   type StripeMeiSubscriptionLine,
@@ -94,6 +95,7 @@ export function EmpresaStripeMeiBillingModal({
   const [lastCheckoutUrl, setLastCheckoutUrl] = useState<string | null>(null);
   const [syncMaxMeiLoading, setSyncMaxMeiLoading] = useState(false);
   const [reconcileLoading, setReconcileLoading] = useState(false);
+  const [emitContratoLoading, setEmitContratoLoading] = useState(false);
 
   const loadLines = useCallback(async () => {
     if (!empresa?.id) return;
@@ -236,16 +238,43 @@ export function EmpresaStripeMeiBillingModal({
       await onMaxMeiSynced?.();
       const maxMei = result.snapshot?.empresa?.max_mei ?? '—';
       const ownerOk = result.snapshot?.ownerAccess?.mei && result.snapshot?.ownerAccess?.status;
+      const contratoStep = result.steps?.find((step) => step.step === 'emit_contrato');
+      const contratoOk = contratoStep?.ok === true;
+      const contratoError = typeof contratoStep?.error === 'string' ? contratoStep.error : null;
+
+      if (contratoError) {
+        showToast(
+          `Acesso OK (MEI: ${maxMei}), mas contrato falhou: ${contratoError}`,
+          'error',
+        );
+        return;
+      }
+
       showToast(
         ownerOk
-          ? `Pagamento reconciliado. Limite MEI: ${maxMei}. Contrato reenviado se configurado.`
-          : `Reconciliação executada (limite MEI: ${maxMei}). Verifique steps no backend se o acesso não liberou.`,
+          ? contratoOk
+            ? `Pagamento reconciliado. Limite MEI: ${maxMei}. Contrato enviado ao Onety.`
+            : `Pagamento reconciliado. Limite MEI: ${maxMei}. Use "Gerar contrato" se o Onety não recebeu.`
+          : `Reconciliação executada (limite MEI: ${maxMei}). Verifique o acesso do admin.`,
         ownerOk ? 'success' : 'info',
       );
     } catch (e: unknown) {
       showToast(apiErrorMessage(e, 'Erro ao reconciliar pagamento Stripe'), 'error');
     } finally {
       setReconcileLoading(false);
+    }
+  };
+
+  const handleEmitContrato = async () => {
+    if (!empresa) return;
+    setEmitContratoLoading(true);
+    try {
+      await emitStripeMeiContrato(empresa.id);
+      showToast('Contrato enviado ao robô Onety. Confira os logs do robo-contrato.', 'success');
+    } catch (e: unknown) {
+      showToast(apiErrorMessage(e, 'Erro ao gerar contrato'), 'error');
+    } finally {
+      setEmitContratoLoading(false);
     }
   };
 
@@ -340,6 +369,23 @@ export function EmpresaStripeMeiBillingModal({
                 <View style={styles.sectionRow}>
                   <ActivationEyebrow label="HISTÓRICO" isDarkMode={isDarkMode} style={styles.sectionEyebrow} />
                   <View style={styles.sectionActions}>
+                    <Pressable
+                      onPress={() => void handleEmitContrato()}
+                      disabled={emitContratoLoading}
+                      style={({ pressed }) => [
+                        styles.toolBtn,
+                        mfTechInsetSurface(isDarkMode),
+                        pressed && styles.pressed,
+                      ]}
+                      accessibilityLabel="Gerar contrato Onety para assinatura ativa"
+                    >
+                      {emitContratoLoading ? (
+                        <ActivityIndicator size="small" color={tokens.accent} />
+                      ) : (
+                        <Ionicons name="document-text-outline" size={16} color={tokens.accent} />
+                      )}
+                      <Text style={styles.toolBtnText}>Gerar contrato</Text>
+                    </Pressable>
                     <Pressable
                       onPress={() => void handleReconcilePayment()}
                       disabled={reconcileLoading}

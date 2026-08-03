@@ -13,6 +13,40 @@ export function isEmpresaMeiDisponivel (
   return limite > 0
 }
 
+/** Empresa criada mas ainda sem plano MEI pago (presa em /planos). */
+export function isEmpresaAguardandoPlano (
+  empresa: Pick<EmpresaOption, 'max_mei'>,
+): boolean {
+  return !isEmpresaMeiDisponivel(empresa)
+}
+
+/**
+ * Self-serve / checkout: empresa sem max_mei mas com admin ativo vinculado.
+ * Exclui empresas já visíveis na lista MEI (em uso com mei=true).
+ */
+export function filterFocoMeiAdminEmpresasAguardandoPlano (
+  empresas: EmpresaOption[],
+  users: ManagedUser[] = [],
+): EmpresaOption[] {
+  const meiEmUso = new Set(
+    users
+      .filter((u) => isMeiSlotUser(u.mei) && u.empresaId)
+      .map((u) => u.empresaId as string),
+  )
+
+  return empresas.filter((empresa) => {
+    if (!isEmpresaAguardandoPlano(empresa)) return false
+    if (meiEmUso.has(empresa.id)) return false
+    const hasAdmin = users.some(
+      (u) =>
+        u.empresaId === empresa.id
+        && u.status !== false
+        && (u.role === 'admin' || u.role === 'superadmin'),
+    )
+    return hasAdmin
+  })
+}
+
 /** @deprecated use isEmpresaMeiDisponivel */
 export const isEmpresaMeiModuleActive = isEmpresaMeiDisponivel
 

@@ -98,5 +98,11 @@ router.post(
   requireSuperAdmin,
   adminBillingController.reconcileStripeMeiPayment
 );
+router.post(
+  '/billing/stripe/emit-contrato',
+  requireAuth,
+  requireSuperAdmin,
+  adminBillingController.emitStripeMeiContrato
+);
 
 export default router;

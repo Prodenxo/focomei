@@ -78,3 +78,7 @@ export async function reconcileStripeMeiPayment(
     body,
   );
 }
+
+export async function emitStripeMeiContrato(empresaId: string): Promise<unknown> {
+  return apiClient.post('/admin/billing/stripe/emit-contrato', { empresaId });
+}
