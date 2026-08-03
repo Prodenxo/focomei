@@ -60,4 +60,16 @@ router.post('/mei/checkout', requireAuth, requireAdmin, async (req, res, next) =
   }
 });
 
+/** JSON de contrato Onety (empresa do admin, linha Stripe ativa). */
+router.get('/mei/contrato-payload', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const data = await stripeBillingService.getMeiContratoPayloadForRequester(
+      req.accessToken,
+    );
+    return sendSuccess(res, data);
+  } catch (error) {
+    return next(error);
+  }
+});
+
 export default router;

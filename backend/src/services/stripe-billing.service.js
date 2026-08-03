@@ -9,6 +9,7 @@ import {
   MEI_PRICING_INVALID_MESSAGE,
   MEI_PUBLIC_PACKAGES,
 } from "./mei-billing-pricing.js";
+import { emitOnetyContratoAfterStripePayment, buildStripeContratoPayloadForEmpresa } from "./stripe-contract-payload.service.js";
 
 const ONLY_DIGITS = (s) => String(s || "").replace(/\D/g, "");
 
@@ -531,6 +532,27 @@ export const getMeiBillingStatusForRequester = async (accessToken) => {
   };
 };
 
+/** Payload JSON contrato Onety (admin da empresa). */
+export const getMeiContratoPayloadForRequester = async (accessToken) => {
+  const requester = await getRequesterContext(accessToken);
+  if (requester.role !== "admin" && requester.role !== "superadmin") {
+    throw forbidden();
+  }
+  const empresaId = String(requester.empresaId || "").trim();
+  if (!empresaId) throw badRequest("Empresa não vinculada ao utilizador");
+
+  const adminClient = createSupabaseClient({ useServiceRole: true });
+  const payload = await buildStripeContratoPayloadForEmpresa(adminClient, {
+    empresaId,
+  });
+  if (!payload) {
+    throw badRequest(
+      "Nenhuma assinatura MEI ativa encontrada para gerar o contrato",
+    );
+  }
+  return payload;
+};
+
 /**
  * Após checkout: grava subscription id e status conforme assinatura na Stripe.
  */
@@ -583,6 +605,18 @@ export const finalizeMeiLineFromCheckoutSession = async (session) => {
       adminClient,
       existing.empresa_id,
     );
+    try {
+      await emitOnetyContratoAfterStripePayment(adminClient, {
+        empresaId: existing.empresa_id,
+        checkoutSessionId: sessionId,
+        lineId: existing.id,
+      });
+    } catch (err) {
+      console.warn(
+        "[onety-contrato] falha pós-checkout (pagamento já liberado):",
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
   return { updated: true, empresaId: existing.empresa_id };
 };

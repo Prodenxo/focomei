@@ -373,4 +373,9 @@ export const env = {
    * Por defeito `true` para o limite na plataforma acompanhar o contratado na Stripe. Defina `false` para só ajustar limite à mão.
    */
   STRIPE_SYNC_MAX_MEI: process.env.STRIPE_SYNC_MAX_MEI || "true",
+  /** Webhook do robô Onety (JSON de contrato após pagamento Stripe). */
+  ONETY_CONTRATO_WEBHOOK_URL: (process.env.ONETY_CONTRATO_WEBHOOK_URL || "").trim(),
+  ONETY_CONTRATO_WEBHOOK_SECRET: normalizeEnvSecret(
+    process.env.ONETY_CONTRATO_WEBHOOK_SECRET || "",
+  ),
 };
