@@ -1,0 +1,9 @@
+config.env
+.env
+saida/*
+!saida/.gitkeep
+__pycache__/
+*.pyc
+*.pdf
+entrada/*.xlsx
+!entrada/modelo_contratos.xlsx

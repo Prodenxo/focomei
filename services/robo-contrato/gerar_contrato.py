@@ -1,0 +1,1094 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Robô local — gera contrato no módulo Contratual do Onety (Autentique).
+
+Fluxo espelhado da tela /contratual/criar-contrato-autentique:
+  1) Login (+ login-empresa)
+  2) Monta variáveis do template {{ ... }}
+  3) POST /contratual/contratos-autentique/html  (ou /contratos-autentique com PDF)
+  4) Salva o resultado em saida/
+
+Uso rápido:
+  cd "robo contrato"
+  copy config.example.env config.env   # preencha EMAIL, SENHA, EMPRESA_ID
+  copy entrada\\exemplo_contrato.json entrada\\contrato.json
+  pip install -r requirements.txt
+  python gerar_contrato.py --arquivo entrada/contrato.json
+
+Vários contratos:
+  - Um JSON por cliente em entrada/ (cliente_a.json, cliente_b.json...)
+    python gerar_contrato.py --todos
+  - Ou um único lote JSON:
+    python gerar_contrato.py --arquivo entrada/lote.json
+  - Ou planilha Excel (recomendado):
+    python gerar_contrato.py --gerar-modelo-excel
+    python gerar_contrato.py --excel entrada/lote.xlsx
+
+Outros:
+  python gerar_contrato.py --listar-modelos
+  python gerar_contrato.py --listar-clientes
+  python gerar_contrato.py --arquivo entrada/contrato.json --dry-run
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import json
+import os
+import re
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+try:
+    import requests
+except ImportError:
+    print("Instale as dependências: pip install -r requirements.txt", file=sys.stderr)
+    sys.exit(1)
+
+ROOT = Path(__file__).resolve().parent
+ENTRADA = ROOT / "entrada"
+SAIDA = ROOT / "saida"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Config
+# ─────────────────────────────────────────────────────────────────────────────
+
+def carregar_env(path: Path) -> dict[str, str]:
+    """Lê arquivo KEY=VALUE simples (sem depender de python-dotenv)."""
+    env: dict[str, str] = {}
+    if not path.exists():
+        return env
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        env[key.strip()] = value.strip().strip('"').strip("'")
+    return env
+
+
+def resolver_config() -> dict[str, Any]:
+    arquivo = ROOT / "config.env"
+    if not arquivo.exists():
+        arquivo = ROOT / ".env"
+    file_env = carregar_env(arquivo)
+
+    def get(key: str, default: str = "") -> str:
+        return (os.environ.get(key) or file_env.get(key) or default).strip()
+
+    api = get("API_URL", "http://localhost:5000").rstrip("/")
+    return {
+        "api_url": api,
+        "email": get("EMAIL"),
+        "senha": get("SENHA"),
+        "empresa_id": get("EMPRESA_ID"),
+        "token": get("TOKEN"),
+        "config_path": str(arquivo) if arquivo.exists() else None,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# API
+# ─────────────────────────────────────────────────────────────────────────────
+
+class OnetyClient:
+    def __init__(self, api_url: str, token: str | None = None, empresa_id: str | int | None = None):
+        self.api_url = api_url.rstrip("/")
+        self.token = token
+        self.empresa_id = empresa_id
+        self.session = requests.Session()
+        self.session.headers.update({"Accept": "application/json"})
+
+    def _headers(self, json_body: bool = True) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        if self.empresa_id is not None:
+            headers["x-empresa-id"] = str(self.empresa_id)
+        if json_body:
+            headers["Content-Type"] = "application/json"
+        return headers
+
+    def _url(self, path: str) -> str:
+        return f"{self.api_url}{path if path.startswith('/') else '/' + path}"
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json_body: Any | None = None,
+        data: Any | None = None,
+        files: Any | None = None,
+        timeout: int = 120,
+    ) -> Any:
+        use_json = files is None and data is None
+        resp = self.session.request(
+            method,
+            self._url(path),
+            headers=self._headers(json_body=use_json),
+            json=json_body if use_json else None,
+            data=data,
+            files=files,
+            timeout=timeout,
+        )
+        if not resp.ok:
+            detail = resp.text[:2000]
+            raise RuntimeError(f"HTTP {resp.status_code} em {path}: {detail}")
+        if not resp.content:
+            return None
+        ctype = resp.headers.get("Content-Type", "")
+        if "application/json" in ctype:
+            return resp.json()
+        return resp.content
+
+    def login(self, email: str, senha: str) -> str:
+        data = self.request("POST", "/auth/login", json_body={"email": email, "senha": senha})
+        token = data.get("token") if isinstance(data, dict) else None
+        if not token:
+            raise RuntimeError(f"Login sem token. Resposta: {data}")
+        self.token = token
+        return token
+
+    def login_empresa(self, empresa_id: int | str) -> str:
+        data = self.request(
+            "POST",
+            "/auth/login-empresa",
+            json_body={"empresaId": int(empresa_id)},
+        )
+        # Alguns ambientes devolvem token novo; outros só confirmam.
+        if isinstance(data, dict):
+            novo = data.get("token") or data.get("accessToken")
+            if novo:
+                self.token = novo
+        return self.token or ""
+
+    def listar_modelos(self) -> list[dict[str, Any]]:
+        data = self.request("GET", "/contratual/modelos-contrato/light")
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            return data.get("data") or data.get("modelos") or []
+        return []
+
+    def listar_clientes(self, empresa_id: int | str) -> list[dict[str, Any]]:
+        data = self.request("GET", f"/comercial/pre-clientes/empresa/{empresa_id}")
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            return data.get("data") or data.get("preClientes") or data.get("clientes") or []
+        return []
+
+    def get_cliente(self, client_id: int | str) -> dict[str, Any]:
+        data = self.request("GET", f"/comercial/pre-clientes/{client_id}")
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Cliente {client_id} invalido: {data}")
+        return data
+
+    def get_modelo(self, template_id: int | str) -> dict[str, Any]:
+        data = self.request("GET", f"/contratual/modelos-contrato/{template_id}")
+        if isinstance(data, dict) and "conteudo" not in data and isinstance(data.get("modelo"), dict):
+            return data["modelo"]
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Modelo {template_id} invalido: {data}")
+        return data
+
+    def listar_contratadas(self, empresa_id: int | str) -> list[dict[str, Any]]:
+        data = self.request("GET", f"/contratual/contratada/empresa/{empresa_id}")
+        if isinstance(data, list):
+            return [e for e in data if e.get("ativo") in (1, True, "1", None) or e.get("ativo") is None]
+        if isinstance(data, dict):
+            return [data] if data.get("ativo") in (1, True, "1", None) else [data]
+        return []
+
+    def criar_cliente(self, payload: dict[str, Any]) -> dict[str, Any]:
+        data = self.request("POST", "/comercial/pre-clientes", json_body=payload)
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Resposta inesperada ao criar cliente: {data}")
+        return data
+
+    def criar_contrato_html(self, payload: dict[str, Any]) -> dict[str, Any]:
+        data = self.request(
+            "POST",
+            "/contratual/contratos-autentique/html",
+            json_body=payload,
+            timeout=180,
+        )
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Resposta inesperada: {data}")
+        return data
+
+    def criar_contrato_pdf(
+        self,
+        *,
+        nome: str,
+        pdf_path: Path,
+        payload_base: dict[str, Any],
+    ) -> dict[str, Any]:
+        pdf_bytes = pdf_path.read_bytes()
+        b64 = base64.b64encode(pdf_bytes).decode("ascii")
+        body = {
+            **payload_base,
+            "name": nome,
+            "content": b64,
+        }
+        # Remove campos exclusivos do fluxo HTML
+        body.pop("template_id", None)
+        body.pop("variables", None)
+        data = self.request(
+            "POST",
+            "/contratual/contratos-autentique",
+            json_body=body,
+            timeout=180,
+        )
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Resposta inesperada: {data}")
+        return data
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Montagem de payload (espelha criar-contrato-autentique.js)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_VAR_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
+
+
+def _var(name: str, value: Any) -> dict[str, str]:
+    if value is None:
+        value = ""
+    return {"variable_name": name, "value": str(value)}
+
+
+def _fmt_brl(value: Any) -> str:
+    try:
+        return f"{float(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except (TypeError, ValueError):
+        return str(value or "")
+
+
+def _fmt_date_br(value: Any) -> str:
+    s = str(value or "").strip()
+    if not s:
+        return ""
+    if re.match(r"^\d{2}/\d{2}/\d{4}$", s):
+        return s
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})", s)
+    if m:
+        return f"{m.group(3)}/{m.group(2)}/{m.group(1)}"
+    return s
+
+
+def extrair_variaveis_template(conteudo: str) -> list[str]:
+    return sorted(set(_VAR_RE.findall(conteudo or "")))
+
+
+def build_pre_cliente_variables(cliente: dict[str, Any], prefix: str = "client") -> list[dict[str, str]]:
+    """Espelho de frontend/utils/contratual/clienteExtra.js — CONTRATANTE."""
+    if not cliente:
+        return []
+    getters = {
+        "type": lambda c: c.get("tipo") or c.get("type") or "",
+        "name": lambda c: c.get("nome") or c.get("name") or "",
+        "cpf_cnpj": lambda c: c.get("cpf_cnpj") or c.get("cnpj") or c.get("cpf") or "",
+        "email": lambda c: c.get("email") or "",
+        "telefone": lambda c: c.get("telefone") or "",
+        "endereco": lambda c: c.get("endereco") or "",
+        "numero": lambda c: c.get("numero") or "",
+        "complemento": lambda c: c.get("complemento") or "",
+        "bairro": lambda c: c.get("bairro") or "",
+        "cidade": lambda c: c.get("cidade") or "",
+        "estado": lambda c: c.get("estado") or c.get("uf") or "",
+        "cep": lambda c: c.get("cep") or "",
+        "rg": lambda c: c.get("rg") or "",
+        "estado_civil": lambda c: c.get("estado_civil") or "",
+        "profissao": lambda c: c.get("profissao") or "",
+        "sexo": lambda c: c.get("sexo") or "",
+        "nacionalidade": lambda c: c.get("nacionalidade") or "",
+        "representante": lambda c: c.get("representante") or "",
+        "funcao": lambda c: c.get("funcao") or "",
+        "empresa_id": lambda c: c.get("empresa_id") or "",
+        "created_at": lambda c: c.get("criado_em") or c.get("created_at") or "",
+        "equipe_id": lambda c: c.get("equipe_id") or "",
+    }
+    return [_var(f"{prefix}.{campo}", getter(cliente)) for campo, getter in getters.items()]
+
+
+def build_company_variables(contratadas: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """CONTRATADA(s) ativas — company.*List do front."""
+    if not contratadas:
+        return []
+    def join(key: str, alt: str | None = None) -> str:
+        vals = []
+        for e in contratadas:
+            vals.append(str(e.get(key) or (e.get(alt) if alt else "") or ""))
+        return ", ".join(vals)
+
+    company_list = "\n".join(
+        f"{i}. {e.get('nome') or ''} | {e.get('cnpj') or ''} | "
+        f"{e.get('endereco') or ''}, {e.get('numero') or ''} - "
+        f"{e.get('cidade') or ''}/{e.get('estado') or ''}"
+        for i, e in enumerate(contratadas, 1)
+    )
+    return [
+        _var("company.nameList", join("nome", "name")),
+        _var("company.cnpjList", join("cnpj")),
+        _var("company.razao_socialList", join("razao_social")),
+        _var("company.enderecoList", join("endereco")),
+        _var("company.numeroList", join("numero")),
+        _var("company.complementoList", join("complemento")),
+        _var("company.bairroList", join("bairro")),
+        _var("company.cidadeList", join("cidade")),
+        _var("company.estadoList", join("estado")),
+        _var("company.cepList", join("cep")),
+        _var("company.telefoneList", join("telefone")),
+        _var("company.list", company_list),
+    ]
+
+
+def build_custom_from_contratada(contratada: dict[str, Any] | None) -> dict[str, str]:
+    """Mapeia a unidade CF (contratada) para custom.* usados nos modelos de honorários."""
+    if not contratada:
+        return {}
+    razao = contratada.get("razao_social") or contratada.get("nome") or ""
+    cnpj = contratada.get("cnpj") or ""
+    cidade = contratada.get("cidade") or ""
+    return {
+        "custom.razao_social_cf_contabilidade_ou_unidade_cf": razao,
+        "custom.cpf_cnpj_da_cf_ou_da_unidade_franqueada_cf": cnpj,
+        "custom.cidade": cidade,
+    }
+
+
+def montar_variaveis(
+    spec: dict[str, Any],
+    *,
+    usuario: dict[str, Any] | None = None,
+    contratadas: list[dict[str, Any]] | None = None,
+) -> list[dict[str, str]]:
+    vars_map: dict[str, str] = {}
+
+    def put(name: str, value: Any) -> None:
+        if value is None:
+            return
+        # Não sobrescreve valor já preenchido com string vazia
+        s = str(value)
+        if name in vars_map and vars_map[name] and not s:
+            return
+        vars_map[name] = s
+
+    cliente = spec.get("cliente") or {}
+    for item in build_pre_cliente_variables(cliente, "client"):
+        put(item["variable_name"], item["value"])
+
+    if spec.get("cliente_extra"):
+        for item in build_pre_cliente_variables(spec["cliente_extra"], "client_extra"):
+            put(item["variable_name"], item["value"])
+
+    for item in build_company_variables(contratadas or []):
+        put(item["variable_name"], item["value"])
+
+    # custom.* vindos da contratada (nós = CF / escritório)
+    for k, v in build_custom_from_contratada((contratadas or [None])[0]).items():
+        put(k, v)
+
+    signatories = spec.get("signatories") or []
+    if signatories:
+        formatted = "\n".join(
+            f"{i}. {s.get('name')} - {s.get('email')} - CPF: {s.get('cpf')} - Nascimento: {s.get('birth_date', '')}"
+            for i, s in enumerate(signatories, 1)
+        )
+        put("signatory.list", formatted)
+        put("signatory.nameList", ", ".join(s.get("name", "") for s in signatories))
+        put("signatory.emailList", ", ".join(s.get("email", "") for s in signatories))
+        put("signatory.cpfList", ", ".join(str(s.get("cpf") or "") for s in signatories))
+        put("signatory.birthList", ", ".join(str(s.get("birth_date") or "") for s in signatories))
+        put("contact.nomeList", ", ".join(s.get("name", "") for s in signatories))
+        put("contact.emailList", ", ".join(s.get("email", "") for s in signatories))
+        put("contact.telefoneList", ", ".join(str(s.get("telefone") or "") for s in signatories))
+        put("contact.cpfList", ", ".join(str(s.get("cpf") or "") for s in signatories))
+
+    produtos = spec.get("produtos_dados") or []
+    if produtos:
+        product_list = "\n".join(
+            f"{i}. {p.get('nome')} - Quantidade: {p.get('quantidade', 1)} "
+            f"- Descrição: {p.get('descricao', '')} - Valor: {p.get('valor_de_venda', p.get('valor', 0))}"
+            for i, p in enumerate(produtos, 1)
+        )
+        put("product.list", product_list)
+        put("product.nomeList", ", ".join(str(p.get("nome") or "") for p in produtos))
+        put("product.nameList", ", ".join(str(p.get("nome") or "") for p in produtos))
+        put("product.valorList", ", ".join(str(p.get("valor") or p.get("valor_de_venda") or "") for p in produtos))
+        put(
+            "product.valor_de_vendaList",
+            ", ".join(str(p.get("valor_de_venda") or p.get("valor") or "") for p in produtos),
+        )
+        put(
+            "product.descricaoList",
+            "\n\n".join(f"{p.get('nome')}: {p.get('descricao') or ''}" for p in produtos),
+        )
+        tipos = {str(p.get("tipo") or "") for p in produtos}
+        put("contract.type", next(iter(tipos)) if len(tipos) == 1 else "multiplos")
+
+    if spec.get("valor") is not None:
+        put("contract.total_value", _fmt_brl(spec["valor"]))
+        put("contract.value", _fmt_brl(spec["valor"]))
+    if spec.get("valor_recorrente") is not None:
+        put("contract.mrr", _fmt_brl(spec["valor_recorrente"]))
+    put("contract.created_at", datetime.now().strftime("%d/%m/%Y"))
+    if spec.get("expires_at"):
+        put("contract.expires_at", _fmt_date_br(spec["expires_at"]))
+    if spec.get("start_at"):
+        put("contract.start_at", _fmt_date_br(spec["start_at"]))
+    if spec.get("end_at"):
+        put("contract.end_at", _fmt_date_br(spec["end_at"]))
+
+    extras = spec.get("variaveis_extras") or spec.get("variables") or {}
+    if isinstance(extras, dict):
+        for k, v in extras.items():
+            put(k, v)
+    elif isinstance(extras, list):
+        for item in extras:
+            if isinstance(item, dict) and item.get("variable_name"):
+                put(item["variable_name"], item.get("value", ""))
+
+    # custom explícito no JSON (prioridade)
+    custom = spec.get("custom") or {}
+    if isinstance(custom, dict):
+        for k, v in custom.items():
+            key = k if str(k).startswith("custom.") else f"custom.{k}"
+            put(key, v)
+
+    if usuario:
+        put("user.full_name", usuario.get("nome") or usuario.get("full_name") or "")
+        put("user.email", usuario.get("email") or "")
+
+    return [_var(k, v) for k, v in sorted(vars_map.items())]
+
+
+def checar_variaveis_faltantes(
+    template_vars: list[str],
+    filled: list[dict[str, str]],
+    *,
+    opcionais_vazias: set[str] | None = None,
+) -> list[str]:
+    """Retorna variáveis do template sem valor. Opcionais (ex.: custom.notes) podem ficar vazias."""
+    allow_empty = opcionais_vazias or {"custom.notes"}
+    filled_map = {i["variable_name"]: str(i.get("value") or "").strip() for i in filled}
+    faltando = []
+    for name in template_vars:
+        if name in allow_empty:
+            continue
+        val = filled_map.get(name, "")
+        if not val:
+            faltando.append(name)
+    return faltando
+
+
+def enriquecer_spec_com_api(
+    client: OnetyClient,
+    cfg: dict[str, Any],
+    spec: dict[str, Any],
+    *,
+    usuario: dict[str, Any] | None,
+) -> tuple[dict[str, Any], list[dict[str, str]], list[str], list[str]]:
+    """
+    Busca cliente + contratada + template.
+    Retorna (spec_enriquecido, variables, vars_do_template, faltando).
+    """
+    spec = dict(spec)
+    contratadas = client.listar_contratadas(cfg["empresa_id"])
+
+    if spec.get("client_id"):
+        try:
+            remoto = client.get_cliente(spec["client_id"])
+            local = dict(spec.get("cliente") or {})
+            # API preenche base; JSON local sobrescreve campos informados
+            merged = {**remoto, **{k: v for k, v in local.items() if v not in (None, "")}}
+            spec["cliente"] = merged
+        except Exception as exc:
+            print(f"  aviso: nao foi possivel recarregar cliente: {exc}")
+
+    template_vars: list[str] = []
+    if spec.get("template_id"):
+        try:
+            modelo = client.get_modelo(spec["template_id"])
+            template_vars = extrair_variaveis_template(modelo.get("conteudo") or "")
+        except Exception as exc:
+            print(f"  aviso: nao foi possivel ler template: {exc}")
+
+    variables = montar_variaveis(spec, usuario=usuario, contratadas=contratadas)
+    faltando = checar_variaveis_faltantes(template_vars, variables) if template_vars else []
+    return spec, variables, template_vars, faltando
+
+
+def validar_spec(spec: dict[str, Any], *, modo: str) -> list[str]:
+    erros: list[str] = []
+    if modo == "html" and not spec.get("template_id"):
+        erros.append("template_id é obrigatório no modo html")
+
+    vai_criar_cliente = bool(spec.get("criar_cliente")) or (
+        not spec.get("client_id") and isinstance(spec.get("cliente"), dict)
+    )
+    if not spec.get("client_id") and not vai_criar_cliente:
+        erros.append("client_id é obrigatório (ou use criar_cliente + bloco cliente)")
+    if vai_criar_cliente and not spec.get("client_id"):
+        cli = spec.get("cliente") or {}
+        if not cli.get("nome") and not cli.get("razao_social") and not cli.get("nome_fantasia"):
+            erros.append("cliente.nome é obrigatório para criar cliente")
+        if not cli.get("email"):
+            erros.append("cliente.email é obrigatório para criar cliente")
+
+    signs = spec.get("signatories") or []
+    if not signs:
+        erros.append("signatories precisa ter ao menos 1 signatário")
+    else:
+        for i, s in enumerate(signs, 1):
+            if not s.get("name") or not s.get("email"):
+                erros.append(f"signatário {i}: name e email são obrigatórios")
+    if not spec.get("expires_at"):
+        erros.append("expires_at é obrigatório (YYYY-MM-DD)")
+    return erros
+
+
+def montar_payload_novo_cliente(spec: dict[str, Any], empresa_id: str | int) -> dict[str, Any]:
+    cli = dict(spec.get("cliente") or {})
+    # Se o bloco cliente estiver magro, completa com o 1º signatário
+    sig0 = (spec.get("signatories") or [{}])[0]
+    nome = cli.get("nome") or cli.get("razao_social") or cli.get("nome_fantasia") or sig0.get("name")
+    email = cli.get("email") or sig0.get("email")
+    telefone = cli.get("telefone") or cli.get("telefone_celular") or sig0.get("telefone")
+    cpf_cnpj = cli.get("cpf_cnpj") or cli.get("cnpj") or cli.get("cpf") or sig0.get("cpf")
+    cpf_digits = "".join(ch for ch in str(cli.get("cpf_cnpj") or cli.get("cnpj") or "") if ch.isdigit())
+    tipo = cli.get("tipo") or ("empresa" if (cli.get("cnpj") or len(cpf_digits) > 11) else "pessoa_fisica")
+    if tipo in ("pessoa_juridica", "pj", "juridica"):
+        tipo = "empresa"
+
+    return {
+        "tipo": tipo,
+        "nome": nome,
+        "email": email,
+        "telefone": telefone,
+        "cpf_cnpj": cpf_cnpj,
+        "endereco": cli.get("endereco"),
+        "cep": cli.get("cep"),
+        "numero": cli.get("numero"),
+        "complemento": cli.get("complemento"),
+        "bairro": cli.get("bairro"),
+        "cidade": cli.get("cidade"),
+        "estado": cli.get("uf") or cli.get("estado"),
+        "empresa_id": int(empresa_id),
+    }
+
+
+def montar_payload(
+    spec: dict[str, Any],
+    empresa_id: str | int,
+    *,
+    variables: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    fin = spec.get("financeiro") or {}
+    payload: dict[str, Any] = {
+        "template_id": spec.get("template_id"),
+        "client_id": spec["client_id"],
+        "client_extra_id": spec.get("client_extra_id"),
+        "signatories": spec["signatories"],
+        "variables": variables if variables is not None else montar_variaveis(spec),
+        "empresa_id": int(empresa_id),
+        "valor": spec.get("valor"),
+        "valor_recorrente": spec.get("valor_recorrente"),
+        "expires_at": spec["expires_at"],
+        "start_at": spec.get("start_at"),
+        "end_at": spec.get("end_at"),
+        "produtos_dados": spec.get("produtos_dados") or [],
+    }
+    for key in ("categoria_id", "sub_categoria_id", "centro_de_custo_id", "conta_id", "conta_api_id"):
+        val = fin.get(key) if key in fin else spec.get(key)
+        if val is not None:
+            payload[key] = val
+    return payload
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CLI
+# ─────────────────────────────────────────────────────────────────────────────
+
+def autenticar(client: OnetyClient, cfg: dict[str, Any]) -> dict[str, Any]:
+    usuario: dict[str, Any] = {}
+    if cfg.get("token"):
+        client.token = cfg["token"]
+        print("Usando TOKEN do config.env")
+    else:
+        if not cfg["email"] or not cfg["senha"]:
+            raise SystemExit(
+                "Configure EMAIL e SENHA em config.env (copie de config.example.env) "
+                "ou defina TOKEN."
+            )
+        print(f"Login em {cfg['api_url']} como {cfg['email']}...")
+        data = client.request(
+            "POST",
+            "/auth/login",
+            json_body={"email": cfg["email"], "senha": cfg["senha"]},
+        )
+        token = data.get("token") if isinstance(data, dict) else None
+        if not token:
+            raise RuntimeError(f"Login sem token. Resposta: {data}")
+        client.token = token
+        usuario = (data.get("user") if isinstance(data, dict) else None) or {}
+        print("Login OK")
+
+    if not cfg.get("empresa_id"):
+        raise SystemExit("EMPRESA_ID é obrigatório em config.env")
+
+    print(f"Selecionando empresa {cfg['empresa_id']}...")
+    client.empresa_id = cfg["empresa_id"]
+    client.login_empresa(cfg["empresa_id"])
+    print("Empresa OK")
+    return usuario
+
+
+IGNORAR_ENTRADA = {
+    "exemplo_contrato.json",
+    "lote_exemplo.json",
+    "exemplo_lote_gpt.json",
+    "COMO_PREENCHER.txt",
+    "PROMPT_PARA_GPT.txt",
+    "modelo_contratos.xlsx",
+}
+
+
+def carregar_specs_de_arquivo(arquivo: Path) -> list[dict[str, Any]]:
+    """JSON ou Excel (.xlsx) → lista de specs de contrato (com padrão FOCO MEI)."""
+    from padrao_lote import carregar_padrao, expandir_lista
+
+    padrao = carregar_padrao(ENTRADA)
+    suf = arquivo.suffix.lower()
+    if suf in (".xlsx", ".xlsm"):
+        from excel_import import planilha_para_specs
+
+        return expandir_lista(planilha_para_specs(arquivo), padrao)
+    dados = json.loads(arquivo.read_text(encoding="utf-8"))
+    return expandir_lista(extrair_specs(dados), padrao)
+
+
+def cmd_listar_modelos(client: OnetyClient) -> None:
+    modelos = client.listar_modelos()
+    if not modelos:
+        print("Nenhum modelo retornado.")
+        return
+    print(f"\n{len(modelos)} modelo(s) — use o id em template_id:\n")
+    for m in modelos:
+        mid = m.get("id")
+        nome = m.get("nome") or m.get("titulo") or m.get("name") or "?"
+        print(f"  id={mid}  {nome}")
+
+
+def cmd_listar_clientes(client: OnetyClient, empresa_id: str | int) -> None:
+    clientes = client.listar_clientes(empresa_id)
+    if not clientes:
+        print("Nenhum pré-cliente retornado.")
+        return
+    print(f"\n{len(clientes)} cliente(s) — use o id em client_id:\n")
+    for c in clientes[:100]:
+        cid = c.get("id")
+        nome = (
+            c.get("nome_fantasia")
+            or c.get("razao_social")
+            or c.get("nome")
+            or c.get("apelido")
+            or "?"
+        )
+        print(f"  id={cid}  {nome}")
+    if len(clientes) > 100:
+        print(f"  ... e mais {len(clientes) - 100}")
+
+
+def salvar_saida(resultado: dict[str, Any], origem: Path | str) -> Path:
+    SAIDA.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stem = origem.stem if isinstance(origem, Path) else str(origem)
+    out = SAIDA / f"resultado_{stem}_{stamp}.json"
+    out.write_text(json.dumps(resultado, ensure_ascii=False, indent=2), encoding="utf-8")
+    return out
+
+
+def extrair_specs(dados: Any) -> list[dict[str, Any]]:
+    """Aceita 1 contrato, lista, ou { \"contratos\": [...] }."""
+    if isinstance(dados, list):
+        return [x for x in dados if isinstance(x, dict)]
+    if isinstance(dados, dict):
+        if isinstance(dados.get("contratos"), list):
+            return [x for x in dados["contratos"] if isinstance(x, dict)]
+        return [dados]
+    raise ValueError("JSON deve ser um objeto, uma lista ou { contratos: [...] }")
+
+
+def resolver_arquivo(caminho: str | None) -> Path:
+    if not caminho:
+        raise FileNotFoundError("arquivo não informado")
+    arquivo = Path(caminho)
+    if not arquivo.is_absolute():
+        cand = (Path.cwd() / arquivo).resolve()
+        if cand.exists():
+            return cand
+        return (ROOT / caminho).resolve()
+    return arquivo
+
+
+def listar_arquivos_entrada() -> list[Path]:
+    return sorted(
+        [
+            p
+            for p in ENTRADA.glob("*.json")
+            if p.name not in IGNORAR_ENTRADA and not p.name.startswith("_")
+        ],
+        key=lambda p: p.name.lower(),
+    )
+
+
+def processar_spec(
+    client: OnetyClient,
+    cfg: dict[str, Any],
+    spec: dict[str, Any],
+    *,
+    rotulo: str,
+    dry_run: bool,
+    pdf_arg: str | None,
+    usuario: dict[str, Any] | None = None,
+    force: bool = False,
+) -> tuple[bool, str]:
+    modo = (pdf_arg and "pdf") or (spec.get("modo") or "html")
+    erros = validar_spec(spec, modo=modo)
+    if erros:
+        return False, "invalido: " + "; ".join(erros)
+
+    cliente_criado_id = None
+    precisa_criar = bool(spec.get("criar_cliente")) or not spec.get("client_id")
+
+    if precisa_criar and not spec.get("client_id"):
+        body_cli = montar_payload_novo_cliente(spec, cfg["empresa_id"])
+        if dry_run:
+            spec = {**spec, "client_id": 0}
+        else:
+            try:
+                criado = client.criar_cliente(body_cli)
+            except Exception as exc:
+                msg = str(exc)
+                # Se já existe, tenta achar pelo CPF/CNPJ e segue
+                if "já cadastrado" in msg.lower() or "ja cadastrado" in msg.lower() or "400" in msg:
+                    doc = "".join(
+                        ch
+                        for ch in str(
+                            (spec.get("cliente") or {}).get("cpf_cnpj")
+                            or (spec.get("cliente") or {}).get("cnpj")
+                            or ""
+                        )
+                        if ch.isdigit()
+                    )
+                    achado = None
+                    if doc:
+                        try:
+                            for c in client.listar_clientes(cfg["empresa_id"]):
+                                d = "".join(
+                                    ch
+                                    for ch in str(
+                                        c.get("cpf_cnpj") or c.get("cnpj") or c.get("cpf") or ""
+                                    )
+                                    if ch.isdigit()
+                                )
+                                if d == doc:
+                                    achado = c.get("id")
+                                    break
+                        except Exception:
+                            achado = None
+                    if achado:
+                        spec = {**spec, "client_id": int(achado)}
+                        precisa_criar = False
+                    else:
+                        return False, f"falha ao criar cliente: {exc}"
+                else:
+                    return False, f"falha ao criar cliente: {exc}"
+            else:
+                cliente_criado_id = criado.get("clientId") or criado.get("id")
+                if not cliente_criado_id:
+                    return False, f"API nao retornou clientId: {criado}"
+                spec = {**spec, "client_id": int(cliente_criado_id)}
+
+    try:
+        spec, variables, template_vars, faltando = enriquecer_spec_com_api(
+            client, cfg, spec, usuario=usuario
+        )
+    except Exception as exc:
+        return False, f"falha ao montar variaveis: {exc}"
+
+    if faltando and not force and not dry_run:
+        preview = {
+            "rotulo": rotulo,
+            "faltando": faltando,
+            "variables": variables,
+            "template_vars": template_vars,
+        }
+        out = salvar_saida(preview, f"faltando_{rotulo}")
+        return (
+            False,
+            "variaveis vazias no template (ficariam vermelhas): "
+            + ", ".join(faltando)
+            + f" | detalhe em {out.name} | use --force para gerar mesmo assim",
+        )
+
+    payload = montar_payload(spec, cfg["empresa_id"], variables=variables)
+
+    if dry_run:
+        preview = {
+            "rotulo": rotulo,
+            "modo": modo,
+            "api": cfg["api_url"],
+            "empresa_id": cfg["empresa_id"],
+            "criar_cliente": precisa_criar,
+            "cliente": spec.get("cliente"),
+            "template_vars": template_vars,
+            "faltando": faltando,
+            "variables": variables,
+            "payload": payload,
+        }
+        out = salvar_saida(preview, rotulo)
+        extra = f" | faltando={len(faltando)}" if faltando else " | vars OK"
+        return True, f"dry-run -> {out.name}{extra}"
+
+    try:
+        if modo == "pdf":
+            if not pdf_arg:
+                return False, "modo pdf exige --pdf"
+            pdf_path = Path(pdf_arg)
+            if not pdf_path.is_absolute():
+                pdf_path = (ROOT / pdf_arg).resolve()
+            if not pdf_path.exists():
+                return False, f"PDF nao encontrado: {pdf_path}"
+            resultado = client.criar_contrato_pdf(
+                nome=spec.get("nome") or f"Contrato {spec['client_id']}",
+                pdf_path=pdf_path,
+                payload_base=payload,
+            )
+        else:
+            resultado = client.criar_contrato_html(payload)
+    except Exception as exc:
+        return False, str(exc)
+
+    resultado["_meta"] = {
+        "client_id": spec.get("client_id"),
+        "cliente_criado": cliente_criado_id is not None,
+        "cliente_criado_id": cliente_criado_id,
+        "faltando": faltando,
+    }
+    out = salvar_saida(resultado, rotulo)
+    contract_id = (
+        resultado.get("contract_id")
+        or resultado.get("id")
+        or (resultado.get("contract") or {}).get("id")
+    )
+    parts = []
+    if cliente_criado_id:
+        parts.append(f"cliente={cliente_criado_id}")
+    if contract_id:
+        parts.append(f"contrato={contract_id}")
+    if faltando:
+        parts.append(f"faltando={len(faltando)}")
+    extra = (" " + " ".join(parts)) if parts else ""
+    return True, f"OK{extra} -> {out.name}"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Gera contrato Contratual (Autentique) via API do Onety.",
+    )
+    parser.add_argument(
+        "--arquivo",
+        "-a",
+        help="JSON de 1 contrato ou lote (lista / {contratos:[]}). Ex.: entrada/lote.json",
+    )
+    parser.add_argument(
+        "--excel",
+        "-e",
+        help="Planilha .xlsx no modelo (abas padrao + contratos). Ex.: entrada/lote.xlsx",
+    )
+    parser.add_argument(
+        "--gerar-modelo-excel",
+        action="store_true",
+        help="Cria entrada/modelo_contratos.xlsx para copiar e preencher.",
+    )
+    parser.add_argument(
+        "--todos",
+        action="store_true",
+        help="Processa TODOS os .json em entrada/ (exceto exemplos).",
+    )
+    parser.add_argument(
+        "--pdf",
+        help="PDF local (só para 1 contrato) — POST /contratos-autentique.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Só valida e salva o payload em saida/, sem criar na Autentique.",
+    )
+    parser.add_argument(
+        "--listar-modelos",
+        action="store_true",
+        help="Lista modelos (template_id) da empresa.",
+    )
+    parser.add_argument(
+        "--listar-clientes",
+        action="store_true",
+        help="Lista pré-clientes (client_id) da empresa.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Gera mesmo com variaveis do template faltando (apareceriam em vermelho).",
+    )
+    args = parser.parse_args(argv)
+
+    if args.gerar_modelo_excel:
+        from excel_import import gerar_modelo_excel
+
+        destino = ENTRADA / "modelo_contratos.xlsx"
+        gerar_modelo_excel(destino)
+        print(f"Modelo criado: {destino}")
+        print("Copie, preencha a aba padrao + contratos e rode:")
+        print('  python gerar_contrato.py --excel entrada/seu_lote.xlsx --dry-run')
+        return 0
+
+    cfg = resolver_config()
+    if not cfg["config_path"] and not cfg.get("token") and not (cfg["email"] and cfg["senha"]):
+        print(
+            "Crie config.env a partir de config.example.env e preencha EMAIL/SENHA/EMPRESA_ID.",
+            file=sys.stderr,
+        )
+        return 1
+
+    client = OnetyClient(
+        cfg["api_url"],
+        token=cfg.get("token") or None,
+        empresa_id=cfg.get("empresa_id"),
+    )
+
+    try:
+        usuario = autenticar(client, cfg)
+    except Exception as exc:
+        print(f"Falha na autenticação: {exc}", file=sys.stderr)
+        return 1
+
+    if args.listar_modelos:
+        try:
+            cmd_listar_modelos(client)
+        except Exception as exc:
+            print(f"Erro ao listar modelos: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    if args.listar_clientes:
+        try:
+            cmd_listar_clientes(client, cfg["empresa_id"])
+        except Exception as exc:
+            print(f"Erro ao listar clientes: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    # Monta fila de jobs: (rotulo, spec, pdf_opcional)
+    jobs: list[tuple[str, dict[str, Any], str | None]] = []
+
+    if args.todos:
+        arquivos = listar_arquivos_entrada()
+        if not arquivos:
+            print(
+                "Nenhum JSON em entrada/. Copie exemplo_contrato.json ou use lote_exemplo.json.",
+                file=sys.stderr,
+            )
+            return 1
+        for arq in arquivos:
+            specs = carregar_specs_de_arquivo(arq)
+            if len(specs) == 1:
+                jobs.append((arq.stem, specs[0], None))
+            else:
+                for i, spec in enumerate(specs, 1):
+                    nome = spec.get("nome") or spec.get("cliente", {}).get("nome") or f"{arq.stem}_{i}"
+                    jobs.append((str(nome).replace(" ", "_")[:60], spec, None))
+    elif args.excel or args.arquivo:
+        caminho = args.excel or args.arquivo
+        arquivo = resolver_arquivo(caminho)
+        if not arquivo.exists():
+            print(f"Arquivo não encontrado: {arquivo}", file=sys.stderr)
+            return 1
+        try:
+            specs = carregar_specs_de_arquivo(arquivo)
+        except Exception as exc:
+            print(f"Erro ao ler planilha/JSON: {exc}", file=sys.stderr)
+            return 1
+        for i, spec in enumerate(specs, 1):
+            nome = (
+                spec.get("nome")
+                or (spec.get("cliente") or {}).get("nome")
+                or f"{arquivo.stem}_{i}"
+            )
+            jobs.append(
+                (
+                    str(nome).replace(" ", "_")[:60],
+                    spec,
+                    args.pdf if len(specs) == 1 else None,
+                )
+            )
+    else:
+        arquivos = listar_arquivos_entrada()
+        if not arquivos:
+            print(
+                "Coloque JSONs em entrada/ ou use --arquivo / --todos.\n"
+                "Veja entrada/COMO_PREENCHER.txt",
+                file=sys.stderr,
+            )
+            return 1
+        if len(arquivos) > 1:
+            print(
+                f"Há {len(arquivos)} arquivos em entrada/. Use --todos para processar todos,\n"
+                f"ou --arquivo entrada/NOME.json para um só.",
+                file=sys.stderr,
+            )
+            for a in arquivos:
+                print(f"  - {a.name}")
+            return 1
+        arq = arquivos[0]
+        print(f"Usando: {arq.name}")
+        dados = json.loads(arq.read_text(encoding="utf-8"))
+        for i, spec in enumerate(extrair_specs(dados), 1):
+            nome = spec.get("nome") or (spec.get("cliente") or {}).get("nome") or f"{arq.stem}_{i}"
+            jobs.append((str(nome).replace(" ", "_")[:60], spec, args.pdf if i == 1 else None))
+
+    print(f"\nFila: {len(jobs)} contrato(s){' (dry-run)' if args.dry_run else ''}\n")
+    ok = 0
+    falhas = 0
+    for idx, (rotulo, spec, pdf_arg) in enumerate(jobs, 1):
+        print(f"[{idx}/{len(jobs)}] {rotulo} ...", end=" ", flush=True)
+        sucesso, msg = processar_spec(
+            client,
+            cfg,
+            spec,
+            rotulo=rotulo,
+            dry_run=args.dry_run,
+            pdf_arg=pdf_arg,
+            usuario=usuario,
+            force=args.force,
+        )
+        print(msg)
+        if sucesso:
+            ok += 1
+        else:
+            falhas += 1
+
+    print(f"\nResumo: {ok} ok, {falhas} falha(s). Saídas em: {SAIDA}")
+    return 0 if falhas == 0 else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
