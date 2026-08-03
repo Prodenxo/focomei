@@ -5,6 +5,7 @@ import {
   ensureMeiRegimeEspecialPlugnotasEmpresa,
 } from './empresa.service.js';
 import {
+  PLUGNOTAS_MEI_INSCRICAO_ESTADUAL_QUANDO_VAZIA,
   PLUGNOTAS_REGIME_ESPECIAL_MEI,
 } from './plugnotas-mei-empresa-policy.js';
 
@@ -101,13 +102,13 @@ export const hydrateMeiNfeEmitenteIeFromEmpresa = (payload, empresa) => {
   if (existingIe) return payload;
 
   const empresaIe = String(empresa?.inscricaoEstadual || '').trim();
-  if (!empresaIe || empresaIe.toUpperCase() === 'ISENTO') return payload;
+  const ieToApply = empresaIe || PLUGNOTAS_MEI_INSCRICAO_ESTADUAL_QUANDO_VAZIA;
 
   return {
     ...payload,
     emitente: {
       ...emitente,
-      inscricaoEstadual: empresaIe,
+      inscricaoEstadual: ieToApply,
     },
   };
 };
@@ -124,17 +125,16 @@ export const applyMeiNfeEmitForcePolicy = (payload) => {
   const emitente = toObject(payload.emitente);
   const config = toObject(payload.config);
   const existingIe = String(emitente.inscricaoEstadual || '').trim();
+  const ieEmitente = existingIe || PLUGNOTAS_MEI_INSCRICAO_ESTADUAL_QUANDO_VAZIA;
 
   const nextEmitente = {
     ...emitente,
+    inscricaoEstadual: ieEmitente,
     crt: PLUGNOTAS_CRT_MEI,
     regimeTributario: 1,
     regimeTributarioEspecial: PLUGNOTAS_REGIME_ESPECIAL_MEI,
     simplesNacional: true,
   };
-  if (existingIe) {
-    nextEmitente.inscricaoEstadual = existingIe;
-  }
 
   return {
     ...payload,

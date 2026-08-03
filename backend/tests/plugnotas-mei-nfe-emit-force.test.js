@@ -22,6 +22,7 @@ test('applyMeiNfeEmitForcePolicy força CRT 4 e regime MEI no emitente', () => {
     assert.equal(out.emitente.regimeTributario, 1);
     assert.equal(out.emitente.regimeTributarioEspecial, 5);
     assert.equal(out.emitente.simplesNacional, true);
+    assert.equal(out.emitente.inscricaoEstadual, 'ISENTO');
     assert.equal(out.config.versaoEsquema, 'pl_010c');
   } finally {
     if (prev === undefined) delete process.env.MEI_NFE_FORCE_CRT_EMIT;
@@ -47,10 +48,18 @@ test('hydrateMeiNfeEmitenteIeFromEmpresa usa IE do cadastro quando payload vazio
   assert.equal(out.emitente.inscricaoEstadual, '987654321');
 });
 
-test('hydrateMeiNfeEmitenteIeFromEmpresa ignora ISENTO', () => {
+test('hydrateMeiNfeEmitenteIeFromEmpresa aplica ISENTO do cadastro', () => {
   const out = hydrateMeiNfeEmitenteIeFromEmpresa(
     { emitente: { cpfCnpj: '67146579000176' } },
     { inscricaoEstadual: 'ISENTO' },
   );
-  assert.equal(out.emitente.inscricaoEstadual, undefined);
+  assert.equal(out.emitente.inscricaoEstadual, 'ISENTO');
+});
+
+test('hydrateMeiNfeEmitenteIeFromEmpresa usa ISENTO quando cadastro sem IE', () => {
+  const out = hydrateMeiNfeEmitenteIeFromEmpresa(
+    { emitente: { cpfCnpj: '67146579000176' } },
+    {},
+  );
+  assert.equal(out.emitente.inscricaoEstadual, 'ISENTO');
 });
