@@ -329,6 +329,12 @@ export function MeiPaymentApprovalsTab({
                   <Text style={styles.factLabel}>Aprovado em</Text>
                   <Text style={styles.factValue}>{formatDateTime(item.approvedAt || item.createdAt)}</Text>
                 </View>
+                <View style={[styles.itemFact, isDesktop && styles.itemFactWide]}>
+                  <Text style={styles.factLabel}>Liberado por</Text>
+                  <Text style={styles.factValue} numberOfLines={2}>
+                    {item.releasedByLabel}
+                  </Text>
+                </View>
                 <View style={styles.itemFact}>
                   <Text style={styles.factLabel}>Acesso admin</Text>
                   <Text style={[styles.factValue, { color: item.accessReleased ? theme.success : theme.error }]}>
@@ -344,10 +350,6 @@ export function MeiPaymentApprovalsTab({
                   </View>
                 </View>
               </View>
-
-              {item.approvedByEmail ? (
-                <Text style={styles.approverText}>Confirmado por: {item.approvedByEmail}</Text>
-              ) : null}
 
               {item.contratoError ? (
                 <Text style={[styles.contratoError, { color: theme.error }]} numberOfLines={3}>
@@ -570,6 +572,10 @@ function createStyles(
       minWidth: isDesktop ? 140 : 120,
       gap: 2,
     },
+    itemFactWide: {
+      minWidth: isDesktop ? 220 : 160,
+      flex: isDesktop ? 1 : undefined,
+    },
     factLabel: {
       fontSize: 11,
       color: theme.textTertiary,
@@ -580,10 +586,6 @@ function createStyles(
       fontSize: 14,
       color: theme.text,
       fontWeight: '600',
-    },
-    approverText: {
-      fontSize: 12,
-      color: theme.textSecondary,
     },
     contratoError: {
       fontSize: 12,

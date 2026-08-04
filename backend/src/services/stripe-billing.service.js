@@ -966,6 +966,8 @@ export const reconcileMeiStripePayment = async (accessToken, input = {}) => {
 
   const activeLine = activeLines?.[0] || null;
   if (activeLine) {
+    await stampLineApprovalIfMissing(adminClient, activeLine.id, requester.userId);
+
     const activated = await activateEmpresaMeiAccessAfterPayment(
       adminClient,
       empresaId,
@@ -1032,6 +1034,71 @@ const contratoStatusLabel = (status) => {
   return "Não registrado";
 };
 
+const userSummaryFromRow = (user) => {
+  if (!user?.id) return null;
+  const meta = user.raw_user_meta_data || user.user_metadata || {};
+  return {
+    id: user.id,
+    email: user.email || null,
+    displayName: meta.display_name || meta.name || meta.full_name || null,
+  };
+};
+
+const loadUserSummariesByIds = async (adminClient, userIds = []) => {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  const map = new Map();
+  if (!ids.length) return map;
+
+  const { data: rows, error } = await adminClient
+    .from("users")
+    .select("id, email, raw_user_meta_data")
+    .in("id", ids);
+
+  if (!error && rows?.length) {
+    for (const row of rows) {
+      const summary = userSummaryFromRow(row);
+      if (summary) map.set(summary.id, summary);
+    }
+  }
+
+  const missing = ids.filter((id) => !map.has(id));
+  for (const userId of missing) {
+    try {
+      const { data: authData } = await adminClient.auth.admin.getUserById(userId);
+      const summary = userSummaryFromRow(authData?.user);
+      if (summary) map.set(userId, summary);
+    } catch {
+      // ignore
+    }
+  }
+
+  return map;
+};
+
+const buildReleasedByLabel = ({ approver, paymentChannel }) => {
+  if (approver?.displayName && approver?.email) {
+    return `${approver.displayName} · ${approver.email}`;
+  }
+  if (approver?.displayName) return approver.displayName;
+  if (approver?.email) return approver.email;
+  if (paymentChannel === "pix") return "Não registrado (liberação anterior)";
+  if (paymentChannel === "card") return "Stripe (automático)";
+  return "—";
+};
+
+const stampLineApprovalIfMissing = async (adminClient, lineId, userId) => {
+  if (!lineId || !userId) return;
+  await adminClient
+    .from("empresa_mei_subscription_lines")
+    .update({
+      approved_by: userId,
+      approved_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", lineId)
+    .is("approved_by", null);
+};
+
 /**
  * Superadmin: fila global de aprovações MEI (PIX, cartão, contrato, acesso liberado).
  */
@@ -1087,7 +1154,6 @@ export const listMeiPaymentApprovalsForAdmin = async (accessToken, queryParams =
   const ownerIds = [...new Set((empresas || []).map((e) => e.requested_by).filter(Boolean))];
 
   const ownerLinkMap = new Map();
-  const ownerUserMap = new Map();
 
   if (ownerIds.length) {
     const { data: ownerLinks, error: linkErr } = await adminClient
@@ -1098,44 +1164,13 @@ export const listMeiPaymentApprovalsForAdmin = async (accessToken, queryParams =
     for (const link of ownerLinks || []) {
       ownerLinkMap.set(`${link.user_id}:${link.empresas_id}`, link);
     }
-
-    const { data: ownerUsers, error: userErr } = await adminClient
-      .from("users")
-      .select("id, email, raw_user_meta_data")
-      .in("id", ownerIds);
-    if (!userErr && ownerUsers) {
-      for (const user of ownerUsers) {
-        ownerUserMap.set(user.id, user);
-      }
-    } else {
-      for (const ownerId of ownerIds) {
-        try {
-          const { data: authUser } = await adminClient.auth.admin.getUserById(ownerId);
-          if (authUser?.user) {
-            ownerUserMap.set(ownerId, {
-              id: ownerId,
-              email: authUser.user.email,
-              raw_user_meta_data: authUser.user.user_metadata || {},
-            });
-          }
-        } catch {
-          // ignore missing auth user
-        }
-      }
-    }
   }
 
   const approverIds = [...new Set(rawLines.map((l) => l.approved_by).filter(Boolean))];
-  const approverMap = new Map();
-  if (approverIds.length) {
-    const { data: approvers } = await adminClient
-      .from("users")
-      .select("id, email, raw_user_meta_data")
-      .in("id", approverIds);
-    for (const user of approvers || []) {
-      approverMap.set(user.id, user);
-    }
-  }
+  const userSummaryMap = await loadUserSummariesByIds(
+    adminClient,
+    [...ownerIds, ...approverIds],
+  );
 
   let items = rawLines.map((line) => {
     const empresa = empresaMap.get(line.empresa_id) || null;
@@ -1143,10 +1178,11 @@ export const listMeiPaymentApprovalsForAdmin = async (accessToken, queryParams =
     const ownerLink = ownerId && empresa?.id
       ? ownerLinkMap.get(`${ownerId}:${empresa.id}`)
       : null;
-    const ownerUser = ownerId ? ownerUserMap.get(ownerId) : null;
-    const approver = line.approved_by ? approverMap.get(line.approved_by) : null;
+    const ownerUser = ownerId ? userSummaryMap.get(ownerId) : null;
+    const approver = line.approved_by ? userSummaryMap.get(line.approved_by) : null;
     const channel = normalizePaymentChannel(line.billing_type);
     const accessReleased = Boolean(ownerLink?.status !== false && ownerLink?.mei === true);
+    const releasedByLabel = buildReleasedByLabel({ approver, paymentChannel: channel });
 
     return {
       lineId: line.id,
@@ -1163,6 +1199,8 @@ export const listMeiPaymentApprovalsForAdmin = async (accessToken, queryParams =
       approvedAt: line.approved_at || (line.status === "active" ? line.updated_at : null),
       approvedBy: line.approved_by || null,
       approvedByEmail: approver?.email || null,
+      approvedByName: approver?.displayName || null,
+      releasedByLabel,
       contratoStatus: line.contrato_status || null,
       contratoStatusLabel: contratoStatusLabel(line.contrato_status),
       contratoSentAt: line.contrato_sent_at || null,
@@ -1170,7 +1208,7 @@ export const listMeiPaymentApprovalsForAdmin = async (accessToken, queryParams =
       accessReleased,
       ownerId: ownerId || null,
       ownerEmail: ownerUser?.email || null,
-      ownerDisplayName: ownerUser?.raw_user_meta_data?.display_name || null,
+      ownerDisplayName: ownerUser?.displayName || null,
       maxMei: empresa?.max_mei ?? null,
       legacyMeiSlotsPix: empresa?.legacy_mei_slots_pix ?? null,
       createdAt: line.created_at,
@@ -1193,6 +1231,8 @@ export const listMeiPaymentApprovalsForAdmin = async (accessToken, queryParams =
         item.ownerDisplayName,
         item.description,
         item.approvedByEmail,
+        item.approvedByName,
+        item.releasedByLabel,
       ]
         .filter(Boolean)
         .join(" ")

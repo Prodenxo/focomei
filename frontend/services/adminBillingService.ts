@@ -35,6 +35,8 @@ export interface MeiPaymentApprovalItem {
   approvedAt: string | null;
   approvedBy: string | null;
   approvedByEmail: string | null;
+  approvedByName: string | null;
+  releasedByLabel: string;
   contratoStatus: 'pending' | 'sent' | 'failed' | 'skipped' | null;
   contratoStatusLabel: string;
   contratoSentAt: string | null;
