@@ -279,6 +279,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         inviteToken,
       });
       await applyLocalApiResultToStore(result, set);
+      if (inviteToken && !result.empresaId && result.session?.access_token) {
+        try {
+          const { acceptInviteRequest } = await import('../services/invitesService');
+          await acceptInviteRequest({ token: inviteToken, mei: false });
+          const session = await fetchAuthSession();
+          set({
+            role: session.role,
+            mei: session.mei ?? null,
+            empresaId: session.empresaId,
+          });
+        } catch (inviteAcceptError) {
+          console.warn('Falha ao aceitar convite após signUp local:', inviteAcceptError);
+        }
+      }
       return { needsEmailConfirmation: false };
     }
 

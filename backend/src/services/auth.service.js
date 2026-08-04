@@ -12,7 +12,6 @@ import {
   assignN8nPhoneToUser,
   buildPhoneLookupCandidates,
 } from './n8n-link-phone.service.js';
-import crypto from 'crypto';
 import {
   sendPasswordResetEmail,
   sendPasswordResetViaSupabase,
@@ -30,6 +29,7 @@ import {
   localUpdatePassword,
   verifyLocalAccessToken,
 } from './local-auth.service.js';
+import { claimInviteTokenForSignup } from './invite-claim.service.js';
 
 const assertValidWhatsappPhone = (phone) => {
   const digits = normalizeWhatsappPhoneDigits(phone);
@@ -101,8 +101,6 @@ const mapAuthPhoneUpdateError = (authError) => {
   }
   throw badRequest(msg);
 };
-
-const hashInviteToken = (rawToken) => crypto.createHash('sha256').update(String(rawToken).trim(), 'utf8').digest('hex');
 
 const ROLE_DEFAULT = 'usuario';
 const ROLE_ALLOWED = new Set(['superadmin', 'admin', 'usuario', 'outsider']);
@@ -307,54 +305,8 @@ export const signUp = async ({ email, password, phone, displayName, inviteToken,
     
     let empresaId = null;
     const tokenToUse = inviteToken || deps.inviteToken;
-    console.log('[AuthService] Tentando processar convite no signUp. Token:', tokenToUse);
-    
     if (tokenToUse) {
-      const tokenHash = hashInviteToken(tokenToUse);
-      console.log('[AuthService] Hash gerado:', tokenHash);
-      
-      const { data: inviteData, error: inviteErr } = await adminClient
-        .from('empresa_invites')
-        .select('id, empresas_id, expires_at, used_at, revoked_at, is_reusable, uses_count')
-        .eq('token_hash', tokenHash)
-        .maybeSingle();
-      
-      if (inviteErr) {
-        console.error('[AuthService] Erro DB ao buscar convite:', inviteErr);
-      }
-      
-      const now = new Date();
-      const expires = inviteData?.expires_at ? new Date(inviteData.expires_at) : null;
-      const isExpired = expires && expires <= now;
-
-      // Se for reutilizável, ignoramos used_at
-      const isPending = inviteData && 
-                        (inviteData.is_reusable || !inviteData.used_at) && 
-                        !inviteData.revoked_at && 
-                        !isExpired;
-
-      if (isPending) {
-        empresaId = inviteData.empresas_id;
-        
-        if (inviteData.is_reusable) {
-          // Apenas incrementa o contador
-          await adminClient.rpc('increment_invite_uses', { invite_id: inviteData.id });
-          // Fallback caso a RPC não exista:
-          await adminClient
-            .from('empresa_invites')
-            .update({ uses_count: (inviteData.uses_count || 0) + 1 })
-            .eq('id', inviteData.id);
-        } else {
-          // Comportamento clássico: marca como usado
-          await adminClient
-            .from('empresa_invites')
-            .update({ used_at: new Date().toISOString(), uses_count: 1 })
-            .eq('id', inviteData.id);
-        }
-      }
- else {
-        console.warn('[AuthService] Convite inválido, expirado ou já usado.');
-      }
+      empresaId = await claimInviteTokenForSignup(tokenToUse);
     }
 
     await adminClient

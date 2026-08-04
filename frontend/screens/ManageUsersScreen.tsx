@@ -979,7 +979,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
   };
 
   const fetchEmpresas = async () => {
-    if (role !== 'superadmin') {
+    if (role !== 'superadmin' && role !== 'admin') {
       setInitialEmpresasLoading(false);
       return;
     }
@@ -1160,6 +1160,15 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
   const pendingPlanoUsers = useMemo(
     () => filterFocoMeiAdminUsers(users, empresasAguardandoPlano),
     [users, empresasAguardandoPlano],
+  );
+  /** Admin da empresa: API já retorna só membros — não aplicar filtro MEI global. */
+  const usersForManagement = useMemo(
+    () => (role === 'admin' ? users : focomeiUsers),
+    [role, users, focomeiUsers],
+  );
+  const empresasForManagement = useMemo(
+    () => (role === 'admin' ? empresas : focomeiEmpresas),
+    [role, empresas, focomeiEmpresas],
   );
 
   const empresaMembersList = useMemo(() => {
@@ -1531,11 +1540,11 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
           ? [...focomeiUsers, ...pendingPlanoUsers].filter(
             (user, index, list) => list.findIndex((u) => u.id === user.id) === index,
           )
-          : focomeiUsers;
+          : usersForManagement;
     return role === 'admin'
       ? base.filter((user) => user.role !== 'superadmin' && user.role !== 'outsider')
       : base;
-  }, [role, focomeiUsers, pendingPlanoUsers, users, searchTerm]);
+  }, [role, focomeiUsers, pendingPlanoUsers, users, usersForManagement, searchTerm]);
 
   const searchedUsers = useMemo(() => {
     if (!searchTerm.trim()) return filteredUsers;
@@ -1612,11 +1621,12 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
   const showEmpresasTab = role === 'superadmin';
 
   const pageStats = useMemo(() => {
-    const activeCount = focomeiUsers.filter((u) => u.status !== false).length;
-    // Todos os Admins das empresas com MEI disponível (max_mei) ou em uso.
-    const empresaAdminCount = countFocoMeiEmpresaAdmins(users, focomeiEmpresas);
+    const statsUsers = role === 'admin' ? users : focomeiUsers;
+    const statsEmpresas = role === 'admin' ? empresas : focomeiEmpresas;
+    const activeCount = statsUsers.filter((u) => u.status !== false).length;
+    const empresaAdminCount = countFocoMeiEmpresaAdmins(statsUsers, statsEmpresas);
     const items = [
-      { label: 'Usuários', value: focomeiUsers.length },
+      { label: 'Usuários', value: statsUsers.length },
       { label: 'Ativos', value: activeCount },
       { label: 'Bloqueados', value: blockedCount },
       { label: 'Admins empresa', value: empresaAdminCount },
@@ -1625,7 +1635,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
       items.splice(1, 0, { label: 'Empresas MEI', value: focomeiEmpresas.length });
     }
     return items;
-  }, [users, focomeiUsers, focomeiEmpresas, blockedCount, showEmpresasTab]);
+  }, [role, users, empresas, focomeiUsers, focomeiEmpresas, blockedCount, showEmpresasTab]);
 
   // ----------------------------------------------------------------------
   // Render
@@ -1700,7 +1710,11 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
             isDesktop={isDesktop}
             role={role}
             stats={pageStats}
-            subtitle="Empresas com MEI disponível/em uso e todos os usuários vinculados a elas."
+            subtitle={
+              role === 'admin'
+                ? 'Membros, convites e lista da sua empresa.'
+                : 'Empresas com MEI disponível/em uso e todos os usuários vinculados a elas.'
+            }
             loading={initialUsersLoading || (showEmpresasTab && initialEmpresasLoading)}
             rightAction={
               isDesktop && activeTab !== 'invites'
@@ -1955,8 +1969,8 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
             <View style={styles.tabPanel}>
             <InvitesTab
               role={role}
-              empresas={focomeiEmpresas}
-              users={focomeiUsers}
+              empresas={empresasForManagement}
+              users={usersForManagement}
               theme={theme}
               isDesktop={isDesktop}
               onFeedback={({ type, message }) => {

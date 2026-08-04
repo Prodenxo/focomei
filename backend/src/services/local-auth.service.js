@@ -7,6 +7,7 @@ import {
   buildRecoveryUrl,
   sendPasswordResetEmailViaResend,
 } from './password-reset-email.service.js';
+import { claimInviteTokenForSignup } from './invite-claim.service.js';
 
 const ROLE_DEFAULT = 'usuario';
 const TOKEN_TTL_SEC = 60 * 60 * 24 * 7; // 7 dias
@@ -410,8 +411,7 @@ export const localSignUp = async ({
 
   let empresaId = null;
   if (inviteToken) {
-    // Convites completos ficam para fase seguinte; token ignorado com log.
-    console.warn('[LocalAuth] inviteToken recebido — processamento completo em fase seguinte');
+    empresaId = await claimInviteTokenForSignup(inviteToken);
   }
 
   const { rows } = await query(

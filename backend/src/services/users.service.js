@@ -746,14 +746,49 @@ const buildAuthUserMapForIds = async (adminClient, userIds, seedUsers = []) => {
   return userMap;
 };
 
+const buildListUsersPgLinkJoin = (empresaScopeParamIndex = null) => {
+  if (empresaScopeParamIndex != null) {
+    return `
+     LEFT JOIN LATERAL (
+       SELECT empresas_id, roles_id, status, mei, expires_at
+       FROM public.role_x_user_x_empresa
+       WHERE user_id = u.id
+         AND empresas_id = $${empresaScopeParamIndex}
+         AND COALESCE(status, true) = true
+       ORDER BY created_at DESC
+       LIMIT 1
+     ) link ON true`;
+  }
+
+  return `
+     LEFT JOIN LATERAL (
+       SELECT empresas_id, roles_id, status, mei, expires_at
+       FROM public.role_x_user_x_empresa
+       WHERE user_id = u.id
+         AND COALESCE(status, true) = true
+       ORDER BY
+         CASE WHEN empresas_id IS NOT NULL THEN 0 ELSE 1 END,
+         created_at DESC
+       LIMIT 1
+     ) link ON true`;
+};
+
 const listUsersPg = async ({ role, empresaId, search }) => {
   const params = [];
   const clauses = ['u.deleted_at IS NULL'];
+  let empresaScopeParamIndex = null;
 
   if (role === 'admin') {
     if (!empresaId) throw forbidden();
     params.push(empresaId);
-    clauses.push(`link.empresas_id = $${params.length}`);
+    empresaScopeParamIndex = params.length;
+    clauses.push(`EXISTS (
+      SELECT 1
+      FROM public.role_x_user_x_empresa rx
+      WHERE rx.user_id = u.id
+        AND rx.empresas_id = $${empresaScopeParamIndex}
+        AND COALESCE(rx.status, true) = true
+    )`);
   }
 
   const searchTerm = String(search || '').trim().toLowerCase();
@@ -768,6 +803,8 @@ const listUsersPg = async ({ role, empresaId, search }) => {
       OR lower(coalesce(e.nome_fantasia, '')) LIKE $${i}
     )`);
   }
+
+  const linkJoin = buildListUsersPgLinkJoin(empresaScopeParamIndex);
 
   const { rows } = await query(
     `SELECT
@@ -787,13 +824,7 @@ const listUsersPg = async ({ role, empresaId, search }) => {
        e.max_mei
      FROM public.users u
      LEFT JOIN public.profiles p ON p.id = u.id
-     LEFT JOIN LATERAL (
-       SELECT empresas_id, roles_id, status, mei, expires_at
-       FROM public.role_x_user_x_empresa
-       WHERE user_id = u.id
-       ORDER BY created_at DESC
-       LIMIT 1
-     ) link ON true
+     ${linkJoin}
      LEFT JOIN public.roles r ON r.id = link.roles_id
      LEFT JOIN public.empresas e ON e.id = link.empresas_id
      WHERE ${clauses.join(' AND ')}
