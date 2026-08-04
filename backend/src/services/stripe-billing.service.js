@@ -14,6 +14,12 @@ import {
   emitContratoForEmpresaOrThrow,
   buildStripeContratoPayloadForEmpresa,
 } from "./stripe-contract-payload.service.js";
+import {
+  buildMeiLineInsertPayload,
+  hasMeiLineApprovalColumns,
+  insertMeiSubscriptionLine,
+  updateMeiSubscriptionLine,
+} from "./mei-line-approval-columns.service.js";
 
 const ONLY_DIGITS = (s) => String(s || "").replace(/\D/g, "");
 
@@ -642,9 +648,9 @@ export const confirmMeiPixPaymentForEmpresa = async (accessToken, input = {}) =>
   const emitContrato = input.emitContrato !== false;
   const approvedAt = new Date().toISOString();
 
-  const { data: row, error: insErr } = await adminClient
-    .from("empresa_mei_subscription_lines")
-    .insert({
+  const insertPayload = await buildMeiLineInsertPayload(
+    adminClient,
+    {
       empresa_id: empresaId,
       mei_slots: meiSlots,
       status: "active",
@@ -652,13 +658,21 @@ export const confirmMeiPixPaymentForEmpresa = async (accessToken, input = {}) =>
       billing_type: "pix_manual",
       external_reference: externalReference,
       description,
+    },
+    {
       approved_at: approvedAt,
       approved_by: requester.userId,
       contrato_status: emitContrato ? "pending" : "skipped",
-    })
-    .select()
-    .maybeSingle();
-  if (insErr) throw badRequest(insErr.message);
+    },
+  );
+
+  let row;
+  try {
+    row = await insertMeiSubscriptionLine(adminClient, insertPayload);
+  } catch (insErr) {
+    throw badRequest(insErr.message);
+  }
+  if (!row?.id) throw badRequest("Falha ao registrar pagamento PIX");
 
   const legacyPix = Number(empresa.legacy_mei_slots_pix || 0) + meiSlots;
   await adminClient
@@ -732,22 +746,22 @@ export const finalizeMeiLineFromCheckoutSession = async (session) => {
     status = "active";
   }
 
-  const { error: upErr } = await adminClient
-    .from("empresa_mei_subscription_lines")
-    .update({
-      stripe_subscription_id: subId || null,
-      status,
-      updated_at: new Date().toISOString(),
-      ...(status === "active"
-        ? {
-            approved_at: new Date().toISOString(),
-            contrato_status: "pending",
-          }
-        : {}),
-    })
-    .eq("id", existing.id);
+  const statusPatch = {
+    stripe_subscription_id: subId || null,
+    status,
+    ...(status === "active"
+      ? {
+          approved_at: new Date().toISOString(),
+          contrato_status: "pending",
+        }
+      : {}),
+  };
 
-  if (upErr) throw badRequest(upErr.message);
+  try {
+    await updateMeiSubscriptionLine(adminClient, existing.id, statusPatch);
+  } catch (upErr) {
+    throw badRequest(upErr.message);
+  }
 
   await syncEmpresaMaxMeiFromLines(adminClient, existing.empresa_id, {
     force: true,
@@ -1088,6 +1102,9 @@ const buildReleasedByLabel = ({ approver, paymentChannel }) => {
 
 const stampLineApprovalIfMissing = async (adminClient, lineId, userId) => {
   if (!lineId || !userId) return;
+  const supported = await hasMeiLineApprovalColumns(adminClient);
+  if (!supported) return;
+
   await adminClient
     .from("empresa_mei_subscription_lines")
     .update({
@@ -1113,6 +1130,7 @@ export const listMeiPaymentApprovalsForAdmin = async (accessToken, queryParams =
   const searchTerm = String(queryParams.search || "").trim().toLowerCase();
 
   const adminClient = createSupabaseClient({ useServiceRole: true });
+  const approvalColumnsSupported = await hasMeiLineApprovalColumns(adminClient);
   let lineQuery = adminClient
     .from("empresa_mei_subscription_lines")
     .select("*")
@@ -1127,7 +1145,7 @@ export const listMeiPaymentApprovalsForAdmin = async (accessToken, queryParams =
   } else if (paymentChannel === "card") {
     lineQuery = lineQuery.in("billing_type", ["stripe_checkout", "stripe_next_cycle"]);
   }
-  if (contratoFilter && ["pending", "sent", "failed", "skipped"].includes(contratoFilter)) {
+  if (approvalColumnsSupported && contratoFilter && ["pending", "sent", "failed", "skipped"].includes(contratoFilter)) {
     if (contratoFilter === "pending") {
       lineQuery = lineQuery.or("contrato_status.eq.pending,contrato_status.is.null");
     } else {

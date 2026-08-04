@@ -3,6 +3,7 @@ import { query } from '../config/pg.js'
 import { badRequest } from '../utils/errors.js'
 import { isLocalAuthMode } from './local-auth.service.js'
 import { resolveMeiPricing } from './mei-billing-pricing.js'
+import { updateMeiSubscriptionLine } from './mei-line-approval-columns.service.js'
 
 const ONLY_DIGITS = (value) => String(value || '').replace(/\D/g, '')
 
@@ -319,14 +320,10 @@ export const emitOnetyContratoAfterStripePayment = async (
   if (!payload) {
     if (lineId && adminClient) {
       try {
-        await adminClient
-          .from('empresa_mei_subscription_lines')
-          .update({
-            contrato_status: 'failed',
-            contrato_error: 'Não foi possível montar payload do contrato',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', lineId)
+        await updateMeiSubscriptionLine(adminClient, lineId, {
+          contrato_status: 'failed',
+          contrato_error: 'Não foi possível montar payload do contrato',
+        })
       } catch {
         // ignore
       }
@@ -342,17 +339,13 @@ export const emitOnetyContratoAfterStripePayment = async (
 
   if (lineId && adminClient) {
     try {
-      await adminClient
-        .from('empresa_mei_subscription_lines')
-        .update({
-          contrato_status: dispatch?.dispatched && onetyOk ? 'sent' : 'failed',
-          contrato_sent_at: dispatch?.dispatched ? new Date().toISOString() : null,
-          contrato_error: dispatch?.dispatched && onetyOk
-            ? null
-            : (dispatch?.error || dispatch?.response?.resultados?.find((r) => !r?.ok)?.mensagem || 'Falha ao enviar contrato'),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', lineId)
+      await updateMeiSubscriptionLine(adminClient, lineId, {
+        contrato_status: dispatch?.dispatched && onetyOk ? 'sent' : 'failed',
+        contrato_sent_at: dispatch?.dispatched ? new Date().toISOString() : null,
+        contrato_error: dispatch?.dispatched && onetyOk
+          ? null
+          : (dispatch?.error || dispatch?.response?.resultados?.find((r) => !r?.ok)?.mensagem || 'Falha ao enviar contrato'),
+      })
     } catch (recordErr) {
       console.warn('[onety-contrato] falha ao gravar status na linha', recordErr)
     }
