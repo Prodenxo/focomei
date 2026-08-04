@@ -243,6 +243,15 @@ const resolveMeiValue = (value, defaultValue = false) => (
   typeof value === 'boolean' ? value : defaultValue
 );
 
+/** Admin criado no cadastro/self-serve não ocupa vaga MEI — só após pagamento ou toggle manual. */
+const resolveMeiForNewLink = (role, inputMei) => {
+  const explicit = typeof inputMei === 'boolean' ? inputMei : undefined;
+  if (normalizeRoleValue(role) === 'admin' && explicit !== true) {
+    return false;
+  }
+  return resolveMeiValue(explicit, false);
+};
+
 /** Vaga MEI ocupada só quando `role_x_user_x_empresa.mei === true`. */
 const isMeiSlotActive = (value) => value === true;
 
@@ -1231,7 +1240,7 @@ export const createUser = async (accessToken, input, deps = {}) => {
     finalEmpresaId = requestedEmpresaId;
   }
 
-  const targetMei = resolveMeiValue(input?.mei, false);
+  const targetMei = resolveMeiForNewLink(finalRole, input?.mei);
   const finalPassword = password || generateStrongRandomPassword();
 
   if (isLocalAuthMode()) {
@@ -1570,7 +1579,11 @@ export const updateUser = async (accessToken, userId, input) => {
   const updatePayload = {
     roles_id: roleId,
     empresas_id: finalEmpresaId,
-    ...(requestedMei !== undefined ? { mei: requestedMei } : {})
+    ...(requestedMei !== undefined
+      ? { mei: requestedMei }
+      : finalRole === 'admin' && targetRole !== 'admin'
+        ? { mei: false }
+        : {}),
   };
   if (targetRole === 'usuario' && requestedExpiresAt !== undefined) {
     updatePayload.expires_at = requestedExpiresAt;

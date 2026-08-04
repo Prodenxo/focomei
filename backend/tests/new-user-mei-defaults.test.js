@@ -164,6 +164,49 @@ test('users.service.createUser define mei=false por padrao quando campo não é 
   assert.equal(capturedLinks[0].mei, false);
 });
 
+test('users.service.createUser define mei=false para admin mesmo sem enviar mei no body', async () => {
+  const usersService = await import('../src/services/users.service.js');
+  const capturedLinks = [];
+
+  const adminClient = makeAdminClientForCreateUser(capturedLinks);
+  adminClient.from = (table) => {
+    if (table === 'roles') {
+      return {
+        select() { return this; },
+        or() { return this; },
+        limit() { return this; },
+        maybeSingle: async () => ({
+          data: {
+            id: 'role-admin-id',
+            roles: 'admin'
+          },
+          error: null
+        })
+      };
+    }
+    return makeAdminClientForCreateUser(capturedLinks).from(table);
+  };
+
+  await usersService.createUser(
+    'access-token',
+    {
+      email: 'admin@empresa.com',
+      role: 'admin',
+      empresaId: 'empresa-1'
+    },
+    {
+      getRequesterContextFn: async () => ({
+        role: 'superadmin',
+        empresaId: 'empresa-9'
+      }),
+      createSupabaseClientFn: () => adminClient
+    }
+  );
+
+  assert.equal(capturedLinks.length, 1);
+  assert.equal(capturedLinks[0].mei, false);
+});
+
 test('auth.service.signUp cria vínculo com mei=false quando não há vínculo ativo', async () => {
   const authService = await import('../src/services/auth.service.js');
   const capture = { insertedLinkPayload: null, updatedLinkPayload: null };
