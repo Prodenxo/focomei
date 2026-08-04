@@ -16,6 +16,76 @@ const normalizePhone55 = (raw) => {
 
 const str = (value) => String(value ?? '').trim()
 
+const extractEmpresaCnpjDigits = (empresa) => {
+  const direct = ONLY_DIGITS(empresa?.cnpj)
+  if (direct.length === 14) return direct
+
+  const haystack = [
+    empresa?.razao_social,
+    empresa?.nome_fantasia,
+    empresa?.empresa,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const formatted = haystack.match(/\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/)
+  if (formatted?.[0]) {
+    const digits = ONLY_DIGITS(formatted[0])
+    if (digits.length === 14) return digits
+  }
+
+  const loose = ONLY_DIGITS(haystack)
+  if (loose.length >= 14) return loose.slice(0, 14)
+  return direct
+}
+
+const validateContratoPayload = (payload) => {
+  const contrato = payload?.contratos?.[0]
+  if (!contrato) return ['Payload do contrato vazio']
+
+  const errors = []
+  const cnpj = ONLY_DIGITS(contrato.cpf_cnpj)
+  if (cnpj.length !== 14) {
+    errors.push(
+      `CNPJ inválido no envio ao Onety (${cnpj.length || 0} dígitos). Confira o campo CNPJ na empresa.`,
+    )
+  }
+
+  const emailEmpresa = str(contrato.email)
+  const emailSignatario = str(contrato.signatario_email)
+  if (!emailEmpresa && !emailSignatario) {
+    errors.push(
+      'Falta e-mail para o contrato: preencha "Contato → E-mail" na empresa ou vincule um admin com e-mail.',
+    )
+  }
+
+  const nome = str(contrato.signatario_nome) || str(contrato.razao_social)
+  if (!nome) {
+    errors.push('Nome do signatário ou razão social da empresa é obrigatório.')
+  }
+
+  return errors
+}
+
+const parseOnetyWebhookFailureMessage = (dispatch) => {
+  const rawBody = str(dispatch?.body)
+  if (!rawBody) return null
+
+  try {
+    const parsed = JSON.parse(rawBody)
+    const resultados = Array.isArray(parsed?.resultados) ? parsed.resultados : []
+    const firstFail = resultados.find((item) => item?.ok === false)
+    if (firstFail?.mensagem) return String(firstFail.mensagem)
+
+    if (parsed?.error) return String(parsed.error)
+    if (parsed?.message) return String(parsed.message)
+  } catch {
+    // body não é JSON
+  }
+
+  return rawBody.length > 280 ? `${rawBody.slice(0, 280)}…` : rawBody
+}
+
 const readMeta = (raw) => {
   if (!raw || typeof raw !== 'object') return {}
   return raw
@@ -55,8 +125,8 @@ export const buildStripeContratoPayload = ({
       {
         tipo_cliente: 'empresa',
         razao_social: str(empresa?.razao_social || empresa?.nome_fantasia || empresa?.empresa),
-        cpf_cnpj: ONLY_DIGITS(empresa?.cnpj),
-        email: str(empresa?.email),
+        cpf_cnpj: extractEmpresaCnpjDigits(empresa),
+        email: str(empresa?.email) || str(signatario?.email),
         telefone: normalizePhone55(empresa?.telefone),
         endereco: str(empresa?.logradouro),
         numero: str(empresa?.numero),
@@ -110,6 +180,70 @@ const loadSignatarioRow = async (adminClient, userId) => {
     .maybeSingle()
   if (error) throw new Error(error.message)
   return data
+}
+
+const loadEmpresaPrimaryContact = async (adminClient, empresaId) => {
+  const id = str(empresaId)
+  if (!id) return null
+
+  if (isLocalAuthMode()) {
+    const { rows } = await query(
+      `SELECT u.id, u.email, u.phone, u.raw_user_meta_data
+       FROM public.role_x_user_x_empresa rx
+       JOIN public.roles r ON r.id = rx.roles_id
+       JOIN public.users u ON u.id = rx.user_id
+       WHERE rx.empresas_id = $1
+         AND COALESCE(rx.status, true) = true
+         AND u.deleted_at IS NULL
+       ORDER BY
+         CASE
+           WHEN lower(r.roles) = 'admin' THEN 0
+           WHEN lower(r.roles) IN ('usuario', 'user') THEN 1
+           ELSE 2
+         END,
+         rx.created_at DESC
+       LIMIT 1`,
+      [id],
+    )
+    return rows[0] || null
+  }
+
+  const { data: links, error: linkErr } = await adminClient
+    .from('role_x_user_x_empresa')
+    .select('user_id, roles_id, created_at')
+    .eq('empresas_id', id)
+    .eq('status', true)
+    .order('created_at', { ascending: false })
+    .limit(20)
+
+  if (linkErr || !links?.length) return null
+
+  const roleIds = [...new Set(links.map((l) => l.roles_id).filter(Boolean))]
+  const { data: roles } = await adminClient
+    .from('roles')
+    .select('id, roles')
+    .in('id', roleIds.length ? roleIds : ['00000000-0000-0000-0000-000000000000'])
+
+  const roleRank = new Map(
+    (roles || []).map((r) => [
+      r.id,
+      String(r.roles || '').toLowerCase() === 'admin' ? 0 : 1,
+    ]),
+  )
+
+  const sortedLinks = [...links].sort((a, b) => {
+    const rankA = roleRank.get(a.roles_id) ?? 2
+    const rankB = roleRank.get(b.roles_id) ?? 2
+    if (rankA !== rankB) return rankA - rankB
+    return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+  })
+
+  for (const link of sortedLinks) {
+    const user = await loadSignatarioRow(adminClient, link.user_id)
+    if (user?.email) return user
+  }
+
+  return null
 }
 
 const loadSubscriptionLine = async (adminClient, { empresaId, checkoutSessionId, lineId }) => {
@@ -171,7 +305,21 @@ export const buildStripeContratoPayloadForEmpresa = async (
   if (!line) return null
 
   const ownerId = str(empresa.requested_by)
-  const signatario = ownerId ? await loadSignatarioRow(adminClient, ownerId) : null
+  let signatario = ownerId ? await loadSignatarioRow(adminClient, ownerId) : null
+
+  if (!str(signatario?.email)) {
+    const fallbackContact = await loadEmpresaPrimaryContact(adminClient, id)
+    if (fallbackContact) {
+      signatario = signatario
+        ? {
+            ...signatario,
+            email: signatario.email || fallbackContact.email,
+            phone: signatario.phone || fallbackContact.phone,
+            raw_user_meta_data: signatario.raw_user_meta_data || fallbackContact.raw_user_meta_data,
+          }
+        : fallbackContact
+    }
+  }
 
   return buildStripeContratoPayload({
     empresa,
@@ -215,16 +363,18 @@ export const dispatchOnetyContratoPayload = async (payload) => {
 
   if (!response.ok) {
     const body = await response.text().catch(() => '')
+    const parsedDetail = parseOnetyWebhookFailureMessage({ body })
     console.warn('[onety-contrato] webhook falhou', {
       url,
       status: response.status,
-      body: body.slice(0, 300),
+      body: body.slice(0, 500),
     })
     return {
       dispatched: false,
       reason: 'webhook_http_error',
       status: response.status,
-      body: body.slice(0, 300),
+      body: body.slice(0, 2000),
+      detail: parsedDetail,
       url,
     }
   }
@@ -258,6 +408,10 @@ const contratoDispatchErrorMessage = (dispatch) => {
     return `Robô de contrato inacessível em ${dispatch?.url || 'URL configurada'}: ${dispatch?.error || 'erro de rede'}.`
   }
   if (reason === 'webhook_http_error') {
+    const detail = dispatch?.detail || parseOnetyWebhookFailureMessage(dispatch)
+    if (detail) {
+      return `Robô de contrato falhou: ${detail}`
+    }
     return `Robô de contrato respondeu HTTP ${dispatch?.status || '?'}: ${dispatch?.body || 'sem detalhe'}.`
   }
   if (reason === 'no_payload') {
@@ -285,6 +439,9 @@ export const emitContratoForEmpresaOrThrow = async (
         'Não foi possível montar o contrato: verifique assinatura MEI ativa, CNPJ/endereço da empresa e dados do signatário.',
       )
     }
+    if (result.reason === 'payload_invalid') {
+      throw badRequest(result.message || result.errors?.join(' ') || 'Dados insuficientes para gerar contrato.')
+    }
     throw badRequest('Não foi possível gerar o contrato.')
   }
 
@@ -295,10 +452,13 @@ export const emitContratoForEmpresaOrThrow = async (
   const onetyOk = result.dispatch?.response?.ok
   if (onetyOk === false) {
     const firstFail = result.dispatch?.response?.resultados?.find((r) => !r?.ok)
+    const fromBody = parseOnetyWebhookFailureMessage(result.dispatch)
     throw badRequest(
       firstFail?.mensagem
         ? `Onety rejeitou o contrato: ${firstFail.mensagem}`
-        : 'Onety processou o contrato com falha — veja logs do robo-contrato.',
+        : fromBody
+          ? `Onety rejeitou o contrato: ${fromBody}`
+          : 'Onety processou o contrato com falha — veja logs do robo-contrato.',
     )
   }
 
@@ -329,6 +489,22 @@ export const emitOnetyContratoAfterStripePayment = async (
       }
     }
     return { ok: false, reason: 'payload_unavailable' }
+  }
+
+  const validationErrors = validateContratoPayload(payload)
+  if (validationErrors.length) {
+    const message = validationErrors.join(' ')
+    if (lineId && adminClient) {
+      try {
+        await updateMeiSubscriptionLine(adminClient, lineId, {
+          contrato_status: 'failed',
+          contrato_error: message,
+        })
+      } catch {
+        // ignore
+      }
+    }
+    return { ok: false, reason: 'payload_invalid', errors: validationErrors, message }
   }
 
   console.info('[onety-contrato] payload gerado', JSON.stringify(payload))

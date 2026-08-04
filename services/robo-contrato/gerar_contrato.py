@@ -563,12 +563,13 @@ def montar_payload_novo_cliente(spec: dict[str, Any], empresa_id: str | int) -> 
     email = cli.get("email") or sig0.get("email")
     telefone = cli.get("telefone") or cli.get("telefone_celular") or sig0.get("telefone")
     cpf_cnpj = cli.get("cpf_cnpj") or cli.get("cnpj") or cli.get("cpf") or sig0.get("cpf")
-    cpf_digits = "".join(ch for ch in str(cli.get("cpf_cnpj") or cli.get("cnpj") or "") if ch.isdigit())
-    tipo = cli.get("tipo") or ("empresa" if (cli.get("cnpj") or len(cpf_digits) > 11) else "pessoa_fisica")
+    cpf_digits = "".join(ch for ch in str(cpf_cnpj or "") if ch.isdigit())
+    cpf_cnpj = cpf_digits or cpf_cnpj
+    tipo = cli.get("tipo") or ("empresa" if len(cpf_digits) > 11 else "pessoa_fisica")
     if tipo in ("pessoa_juridica", "pj", "juridica"):
         tipo = "empresa"
 
-    return {
+    payload = {
         "tipo": tipo,
         "nome": nome,
         "email": email,
@@ -583,6 +584,7 @@ def montar_payload_novo_cliente(spec: dict[str, Any], empresa_id: str | int) -> 
         "estado": cli.get("uf") or cli.get("estado"),
         "empresa_id": int(empresa_id),
     }
+    return {k: v for k, v in payload.items() if v not in (None, "")}
 
 
 def montar_payload(
@@ -778,8 +780,8 @@ def processar_spec(
                 criado = client.criar_cliente(body_cli)
             except Exception as exc:
                 msg = str(exc)
-                # Se já existe, tenta achar pelo CPF/CNPJ e segue
-                if "já cadastrado" in msg.lower() or "ja cadastrado" in msg.lower() or "400" in msg:
+                doc = "".join(ch for ch in str(body_cli.get("cpf_cnpj") or "") if ch.isdigit())
+                if not doc:
                     doc = "".join(
                         ch
                         for ch in str(
@@ -789,6 +791,15 @@ def processar_spec(
                         )
                         if ch.isdigit()
                     )
+                msg_lower = msg.lower()
+                duplicate_hint = (
+                    "já cadastrado" in msg_lower
+                    or "ja cadastrado" in msg_lower
+                    or "already exists" in msg_lower
+                    or "duplicad" in msg_lower
+                )
+                # Se já existe, tenta achar pelo CPF/CNPJ e segue
+                if duplicate_hint or "400" in msg or "409" in msg:
                     achado = None
                     if doc:
                         try:
