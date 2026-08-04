@@ -270,24 +270,77 @@ export const updateUser = async (
 };
 
 export const banUser = async (userId: string) => {
+  const hasMeiApi = Boolean(getMeiApiBaseUrl());
+
+  if (hasMeiApi) {
+    try {
+      return await apiClient.post<{ userId: string; status: boolean }>(
+        `/users/${encodeURIComponent(userId)}/ban`,
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Erro ao bloquear usuário';
+      throw new Error(formatManageUserError(message));
+    }
+  }
+
   const { data, error } = await supabase.functions.invoke('ban-user', { body: { userId } });
   if (error) await handleFunctionError(error, 'Erro ao bloquear usuário');
   return data;
 };
 
 export const unbanUser = async (userId: string) => {
+  const hasMeiApi = Boolean(getMeiApiBaseUrl());
+
+  if (hasMeiApi) {
+    try {
+      return await apiClient.post<{ userId: string; status: boolean }>(
+        `/users/${encodeURIComponent(userId)}/unban`,
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Erro ao desbloquear usuário';
+      throw new Error(formatManageUserError(message));
+    }
+  }
+
   const { data, error } = await supabase.functions.invoke('unban-user', { body: { userId } });
   if (error) await handleFunctionError(error, 'Erro ao desbloquear usuário');
   return data;
 };
 
 export const deleteUser = async (userId: string) => {
+  const hasMeiApi = Boolean(getMeiApiBaseUrl());
+
+  if (hasMeiApi) {
+    try {
+      return await apiClient.delete<{ userId: string; deleted?: boolean; orphan?: boolean }>(
+        `/users/${encodeURIComponent(userId)}`,
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Erro ao excluir usuário';
+      throw new Error(formatManageUserError(message));
+    }
+  }
+
   const { data, error } = await supabase.functions.invoke('delete-user', { body: { userId } });
   if (error) await handleFunctionError(error, 'Erro ao excluir usuário');
   return data;
 };
 
 export const resetUserPassword = async (userId: string, password?: string) => {
+  const hasMeiApi = Boolean(getMeiApiBaseUrl());
+
+  if (hasMeiApi) {
+    try {
+      return await apiClient.post<{ userId: string; password: string }>(
+        `/users/${encodeURIComponent(userId)}/reset-password`,
+        password ? { password } : {},
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Erro ao redefinir senha';
+      throw new Error(formatManageUserError(message));
+    }
+  }
+
   const { data, error } = await supabase.functions.invoke('reset-user-password', {
     body: { userId, password },
   });

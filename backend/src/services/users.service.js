@@ -773,6 +773,56 @@ const buildListUsersPgLinkJoin = (empresaScopeParamIndex = null) => {
      ) link ON true`;
 };
 
+const resolveTargetUserLinkPg = async (userId, requester) => {
+  if (requester.role === 'admin' && requester.empresaId) {
+    const { rows } = await query(
+      `SELECT empresas_id, roles_id
+       FROM public.role_x_user_x_empresa
+       WHERE user_id = $1 AND empresas_id = $2
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [userId, requester.empresaId],
+    );
+    return rows[0] || null;
+  }
+
+  const { rows } = await query(
+    `SELECT empresas_id, roles_id
+     FROM public.role_x_user_x_empresa
+     WHERE user_id = $1
+     ORDER BY CASE WHEN empresas_id IS NOT NULL THEN 0 ELSE 1 END, created_at DESC
+     LIMIT 1`,
+    [userId],
+  );
+  return rows[0] || null;
+};
+
+const resolveTargetUserLinkSupabase = async (adminClient, userId, requester) => {
+  if (requester.role === 'admin' && requester.empresaId) {
+    const { data, error } = await adminClient
+      .from('role_x_user_x_empresa')
+      .select('empresas_id, roles_id')
+      .eq('user_id', userId)
+      .eq('empresas_id', requester.empresaId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw badRequest(error.message);
+    return data;
+  }
+
+  const { data: links, error } = await adminClient
+    .from('role_x_user_x_empresa')
+    .select('empresas_id, roles_id')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(20);
+
+  if (error) throw badRequest(error.message);
+  const rows = links || [];
+  return rows.find((row) => row.empresas_id) || rows[0] || null;
+};
+
 const listUsersPg = async ({ role, empresaId, search }) => {
   const params = [];
   const clauses = ['u.deleted_at IS NULL'];
@@ -1765,15 +1815,7 @@ export const banUser = async (accessToken, userId, status = false) => {
   }
 
   if (isLocalAuthMode()) {
-    const { rows: linkRows } = await query(
-      `SELECT id, empresas_id, roles_id
-       FROM public.role_x_user_x_empresa
-       WHERE user_id = $1
-       ORDER BY created_at DESC
-       LIMIT 1`,
-      [userId],
-    );
-    const linkData = linkRows[0];
+    const linkData = await resolveTargetUserLinkPg(userId, requester);
     if (!linkData?.roles_id) throw badRequest('Vínculo de role não encontrado');
 
     const { rows: roleRows } = await query(
@@ -1806,15 +1848,7 @@ export const banUser = async (accessToken, userId, status = false) => {
   }
 
   const adminClient = createSupabaseClient({ useServiceRole: true });
-  const { data: linkData, error: linkError } = await adminClient
-    .from('role_x_user_x_empresa')
-    .select('id, empresas_id, roles_id')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (linkError) throw badRequest(linkError.message);
+  const linkData = await resolveTargetUserLinkSupabase(adminClient, userId, requester);
   if (!linkData?.roles_id) throw badRequest('Vínculo de role não encontrado');
 
   const { data: roleData, error: roleError } = await adminClient
@@ -1835,10 +1869,20 @@ export const banUser = async (accessToken, userId, status = false) => {
     if (!ROLE_UPDATE_ALLOWED_SUPERADMIN.has(targetRole)) throw forbidden();
   }
 
+  const { data: latestLink, error: latestLinkError } = await adminClient
+    .from('role_x_user_x_empresa')
+    .select('id')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (latestLinkError) throw badRequest(latestLinkError.message);
+  if (!latestLink?.id) throw badRequest('Vínculo de role não encontrado');
+
   const { error: banError } = await adminClient
     .from('role_x_user_x_empresa')
     .update({ status })
-    .eq('id', linkData.id);
+    .eq('id', latestLink.id);
   if (banError) throw badRequest(banError.message);
 
   return { userId, status };
@@ -1881,15 +1925,7 @@ export const deleteUser = async (accessToken, userId) => {
   }
 
   if (isLocalAuthMode()) {
-    const { rows: linkRows } = await query(
-      `SELECT empresas_id, roles_id
-       FROM public.role_x_user_x_empresa
-       WHERE user_id = $1
-       ORDER BY created_at DESC
-       LIMIT 1`,
-      [userId],
-    );
-    const linkData = linkRows[0];
+    const linkData = await resolveTargetUserLinkPg(userId, requester);
     const isOrphanAccount = !linkData?.roles_id;
 
     if (!isOrphanAccount) {
@@ -1921,15 +1957,7 @@ export const deleteUser = async (accessToken, userId) => {
   }
 
   const adminClient = createSupabaseClient({ useServiceRole: true });
-  const { data: linkData, error: linkError } = await adminClient
-    .from('role_x_user_x_empresa')
-    .select('empresas_id, roles_id')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (linkError) throw badRequest(linkError.message);
+  const linkData = await resolveTargetUserLinkSupabase(adminClient, userId, requester);
 
   const isOrphanAccount = !linkData?.roles_id;
 
