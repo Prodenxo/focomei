@@ -13,6 +13,73 @@ export interface StripeMeiSubscriptionLine {
   updated_at?: string | null;
   stripe_subscription_id?: string | null;
   stripe_checkout_session_id?: string | null;
+  approved_at?: string | null;
+  approved_by?: string | null;
+  contrato_status?: 'pending' | 'sent' | 'failed' | 'skipped' | null;
+  contrato_sent_at?: string | null;
+  contrato_error?: string | null;
+}
+
+export interface MeiPaymentApprovalItem {
+  lineId: string;
+  empresaId: string;
+  empresaName: string;
+  empresaCnpj: string | null;
+  meiSlots: number;
+  valueNumeric: number;
+  lineStatus: string;
+  billingType: string;
+  paymentChannel: 'pix' | 'card' | 'other';
+  paymentChannelLabel: string;
+  description: string | null;
+  approvedAt: string | null;
+  approvedBy: string | null;
+  approvedByEmail: string | null;
+  contratoStatus: 'pending' | 'sent' | 'failed' | 'skipped' | null;
+  contratoStatusLabel: string;
+  contratoSentAt: string | null;
+  contratoError: string | null;
+  accessReleased: boolean;
+  ownerId: string | null;
+  ownerEmail: string | null;
+  ownerDisplayName: string | null;
+  maxMei: number | null;
+  legacyMeiSlotsPix: number | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface MeiPaymentApprovalsSummary {
+  total: number;
+  pix: number;
+  card: number;
+  accessReleased: number;
+  contratoSent: number;
+  contratoFailed: number;
+  contratoPending: number;
+}
+
+export interface ListMeiPaymentApprovalsQuery {
+  status?: 'pending' | 'active' | 'cancelled';
+  paymentChannel?: 'pix' | 'card';
+  contratoStatus?: 'pending' | 'sent' | 'failed' | 'skipped';
+  accessReleased?: 'yes' | 'no';
+  search?: string;
+}
+
+export async function listMeiPaymentApprovals(
+  query: ListMeiPaymentApprovalsQuery = {},
+): Promise<{ items: MeiPaymentApprovalItem[]; summary: MeiPaymentApprovalsSummary }> {
+  const params = new URLSearchParams();
+  if (query.status) params.set('status', query.status);
+  if (query.paymentChannel) params.set('paymentChannel', query.paymentChannel);
+  if (query.contratoStatus) params.set('contratoStatus', query.contratoStatus);
+  if (query.accessReleased) params.set('accessReleased', query.accessReleased);
+  if (query.search?.trim()) params.set('search', query.search.trim());
+  const qs = params.toString();
+  return apiClient.get<{ items: MeiPaymentApprovalItem[]; summary: MeiPaymentApprovalsSummary }>(
+    `/admin/billing/payment-approvals${qs ? `?${qs}` : ''}`,
+  );
 }
 
 export async function listStripeMeiSubscriptionLines(

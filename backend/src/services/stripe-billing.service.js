@@ -640,6 +640,7 @@ export const confirmMeiPixPaymentForEmpresa = async (accessToken, input = {}) =>
   const externalReference =
     String(input.externalReference || "").trim() || randomUUID();
   const emitContrato = input.emitContrato !== false;
+  const approvedAt = new Date().toISOString();
 
   const { data: row, error: insErr } = await adminClient
     .from("empresa_mei_subscription_lines")
@@ -651,6 +652,9 @@ export const confirmMeiPixPaymentForEmpresa = async (accessToken, input = {}) =>
       billing_type: "pix_manual",
       external_reference: externalReference,
       description,
+      approved_at: approvedAt,
+      approved_by: requester.userId,
+      contrato_status: emitContrato ? "pending" : "skipped",
     })
     .select()
     .maybeSingle();
@@ -734,6 +738,12 @@ export const finalizeMeiLineFromCheckoutSession = async (session) => {
       stripe_subscription_id: subId || null,
       status,
       updated_at: new Date().toISOString(),
+      ...(status === "active"
+        ? {
+            approved_at: new Date().toISOString(),
+            contrato_status: "pending",
+          }
+        : {}),
     })
     .eq("id", existing.id);
 
@@ -996,4 +1006,210 @@ export const reconcileMeiStripePayment = async (accessToken, input = {}) => {
     steps,
     snapshot,
   };
+};
+
+const BILLING_TYPE_PIX = new Set(["pix_manual"]);
+const BILLING_TYPE_CARD = new Set(["stripe_checkout", "stripe_next_cycle"]);
+
+const normalizePaymentChannel = (billingType) => {
+  const t = String(billingType || "").trim().toLowerCase();
+  if (BILLING_TYPE_PIX.has(t)) return "pix";
+  if (BILLING_TYPE_CARD.has(t)) return "card";
+  return "other";
+};
+
+const paymentChannelLabel = (channel) => {
+  if (channel === "pix") return "PIX manual";
+  if (channel === "card") return "Cartão (Stripe)";
+  return "Outro";
+};
+
+const contratoStatusLabel = (status) => {
+  if (status === "sent") return "Contrato enviado";
+  if (status === "failed") return "Contrato falhou";
+  if (status === "pending") return "Contrato pendente";
+  if (status === "skipped") return "Contrato não solicitado";
+  return "Não registrado";
+};
+
+/**
+ * Superadmin: fila global de aprovações MEI (PIX, cartão, contrato, acesso liberado).
+ */
+export const listMeiPaymentApprovalsForAdmin = async (accessToken, queryParams = {}) => {
+  const requester = await getRequesterContext(accessToken);
+  if (requester.role !== "superadmin") throw forbidden();
+
+  const statusFilter = String(queryParams.status || "").trim().toLowerCase();
+  const paymentChannel = String(queryParams.paymentChannel || "").trim().toLowerCase();
+  const contratoFilter = String(queryParams.contratoStatus || "").trim().toLowerCase();
+  const accessFilter = String(queryParams.accessReleased || "").trim().toLowerCase();
+  const searchTerm = String(queryParams.search || "").trim().toLowerCase();
+
+  const adminClient = createSupabaseClient({ useServiceRole: true });
+  let lineQuery = adminClient
+    .from("empresa_mei_subscription_lines")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (statusFilter && ["pending", "active", "cancelled"].includes(statusFilter)) {
+    lineQuery = lineQuery.eq("status", statusFilter);
+  }
+  if (paymentChannel === "pix") {
+    lineQuery = lineQuery.eq("billing_type", "pix_manual");
+  } else if (paymentChannel === "card") {
+    lineQuery = lineQuery.in("billing_type", ["stripe_checkout", "stripe_next_cycle"]);
+  }
+  if (contratoFilter && ["pending", "sent", "failed", "skipped"].includes(contratoFilter)) {
+    if (contratoFilter === "pending") {
+      lineQuery = lineQuery.or("contrato_status.eq.pending,contrato_status.is.null");
+    } else {
+      lineQuery = lineQuery.eq("contrato_status", contratoFilter);
+    }
+  }
+
+  const { data: lines, error: linesErr } = await lineQuery;
+  if (linesErr) throw badRequest(linesErr.message);
+
+  const rawLines = lines || [];
+  if (!rawLines.length) {
+    return { items: [], summary: { total: 0, pix: 0, card: 0, accessReleased: 0, contratoSent: 0 } };
+  }
+
+  const empresaIds = [...new Set(rawLines.map((l) => l.empresa_id).filter(Boolean))];
+  const { data: empresas, error: empErr } = await adminClient
+    .from("empresas")
+    .select("id, empresa, nome_fantasia, cnpj, max_mei, requested_by, legacy_mei_slots_pix")
+    .in("id", empresaIds);
+  if (empErr) throw badRequest(empErr.message);
+
+  const empresaMap = new Map((empresas || []).map((e) => [e.id, e]));
+  const ownerIds = [...new Set((empresas || []).map((e) => e.requested_by).filter(Boolean))];
+
+  const ownerLinkMap = new Map();
+  const ownerUserMap = new Map();
+
+  if (ownerIds.length) {
+    const { data: ownerLinks, error: linkErr } = await adminClient
+      .from("role_x_user_x_empresa")
+      .select("user_id, empresas_id, status, mei")
+      .in("user_id", ownerIds);
+    if (linkErr) throw badRequest(linkErr.message);
+    for (const link of ownerLinks || []) {
+      ownerLinkMap.set(`${link.user_id}:${link.empresas_id}`, link);
+    }
+
+    const { data: ownerUsers, error: userErr } = await adminClient
+      .from("users")
+      .select("id, email, raw_user_meta_data")
+      .in("id", ownerIds);
+    if (!userErr && ownerUsers) {
+      for (const user of ownerUsers) {
+        ownerUserMap.set(user.id, user);
+      }
+    } else {
+      for (const ownerId of ownerIds) {
+        try {
+          const { data: authUser } = await adminClient.auth.admin.getUserById(ownerId);
+          if (authUser?.user) {
+            ownerUserMap.set(ownerId, {
+              id: ownerId,
+              email: authUser.user.email,
+              raw_user_meta_data: authUser.user.user_metadata || {},
+            });
+          }
+        } catch {
+          // ignore missing auth user
+        }
+      }
+    }
+  }
+
+  const approverIds = [...new Set(rawLines.map((l) => l.approved_by).filter(Boolean))];
+  const approverMap = new Map();
+  if (approverIds.length) {
+    const { data: approvers } = await adminClient
+      .from("users")
+      .select("id, email, raw_user_meta_data")
+      .in("id", approverIds);
+    for (const user of approvers || []) {
+      approverMap.set(user.id, user);
+    }
+  }
+
+  let items = rawLines.map((line) => {
+    const empresa = empresaMap.get(line.empresa_id) || null;
+    const ownerId = String(empresa?.requested_by || "").trim();
+    const ownerLink = ownerId && empresa?.id
+      ? ownerLinkMap.get(`${ownerId}:${empresa.id}`)
+      : null;
+    const ownerUser = ownerId ? ownerUserMap.get(ownerId) : null;
+    const approver = line.approved_by ? approverMap.get(line.approved_by) : null;
+    const channel = normalizePaymentChannel(line.billing_type);
+    const accessReleased = Boolean(ownerLink?.status !== false && ownerLink?.mei === true);
+
+    return {
+      lineId: line.id,
+      empresaId: line.empresa_id,
+      empresaName: empresa?.nome_fantasia || empresa?.empresa || "—",
+      empresaCnpj: empresa?.cnpj || null,
+      meiSlots: line.mei_slots,
+      valueNumeric: line.value_numeric,
+      lineStatus: line.status,
+      billingType: line.billing_type,
+      paymentChannel: channel,
+      paymentChannelLabel: paymentChannelLabel(channel),
+      description: line.description || null,
+      approvedAt: line.approved_at || (line.status === "active" ? line.updated_at : null),
+      approvedBy: line.approved_by || null,
+      approvedByEmail: approver?.email || null,
+      contratoStatus: line.contrato_status || null,
+      contratoStatusLabel: contratoStatusLabel(line.contrato_status),
+      contratoSentAt: line.contrato_sent_at || null,
+      contratoError: line.contrato_error || null,
+      accessReleased,
+      ownerId: ownerId || null,
+      ownerEmail: ownerUser?.email || null,
+      ownerDisplayName: ownerUser?.raw_user_meta_data?.display_name || null,
+      maxMei: empresa?.max_mei ?? null,
+      legacyMeiSlotsPix: empresa?.legacy_mei_slots_pix ?? null,
+      createdAt: line.created_at,
+      updatedAt: line.updated_at,
+    };
+  });
+
+  if (accessFilter === "yes") {
+    items = items.filter((item) => item.accessReleased);
+  } else if (accessFilter === "no") {
+    items = items.filter((item) => !item.accessReleased);
+  }
+
+  if (searchTerm) {
+    items = items.filter((item) => {
+      const haystack = [
+        item.empresaName,
+        item.empresaCnpj,
+        item.ownerEmail,
+        item.ownerDisplayName,
+        item.description,
+        item.approvedByEmail,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(searchTerm);
+    });
+  }
+
+  const summary = {
+    total: items.length,
+    pix: items.filter((i) => i.paymentChannel === "pix").length,
+    card: items.filter((i) => i.paymentChannel === "card").length,
+    accessReleased: items.filter((i) => i.accessReleased).length,
+    contratoSent: items.filter((i) => i.contratoStatus === "sent").length,
+    contratoFailed: items.filter((i) => i.contratoStatus === "failed").length,
+    contratoPending: items.filter((i) => !i.contratoStatus || i.contratoStatus === "pending").length,
+  };
+
+  return { items, summary };
 };

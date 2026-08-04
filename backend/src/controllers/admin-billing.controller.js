@@ -87,3 +87,15 @@ export const confirmPixMeiPayment = async (req, res, next) => {
     return next(error);
   }
 };
+
+export const listMeiPaymentApprovals = async (req, res, next) => {
+  try {
+    const data = await stripeBillingService.listMeiPaymentApprovalsForAdmin(
+      req.accessToken,
+      req.query || {},
+    );
+    return sendSuccess(res, data);
+  } catch (error) {
+    return next(error);
+  }
+};

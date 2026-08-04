@@ -111,4 +111,11 @@ router.post(
   adminBillingController.confirmPixMeiPayment
 );
 
+router.get(
+  '/billing/payment-approvals',
+  requireAuth,
+  requireSuperAdmin,
+  adminBillingController.listMeiPaymentApprovals
+);
+
 export default router;

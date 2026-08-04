@@ -49,6 +49,7 @@ import {
 import EmpresaModal from '../components/EmpresaModal';
 import { EmpresaStripeMeiBillingModal } from '../components/EmpresaStripeMeiBillingModal';
 import { InvitesTab } from '../components/admin/InvitesTab';
+import { MeiPaymentApprovalsTab } from '../components/admin/MeiPaymentApprovalsTab';
 import { ManageUsersPageChrome } from '../components/admin/ManageUsersPageChrome';
 import {
   fetchAdminMeiCertificateStatus,
@@ -56,7 +57,7 @@ import {
 } from '../services/adminUserDataService';
 
 type RoleOption = 'admin' | 'usuario' | 'outsider';
-type TabKey = 'users' | 'invites' | 'empresas';
+type TabKey = 'users' | 'invites' | 'empresas' | 'billing';
 type EmpresaMeiFilter = 'active' | 'pending_planos' | 'all';
 type ClipboardModule = typeof import('expo-clipboard');
 
@@ -1717,7 +1718,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
             }
             loading={initialUsersLoading || (showEmpresasTab && initialEmpresasLoading)}
             rightAction={
-              isDesktop && activeTab !== 'invites'
+              isDesktop && activeTab !== 'invites' && activeTab !== 'billing'
                 ? {
                     label: activeTab === 'users' ? 'Novo usuário' : 'Nova empresa',
                     onPress: activeTab === 'users' ? openCreateUser : openCreateEmpresa,
@@ -1779,6 +1780,27 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
                 Convites
               </Text>
             </TouchableOpacity>
+            {showEmpresasTab ? (
+              <TouchableOpacity
+                style={[styles.tabBtn, activeTab === 'billing' && styles.tabBtnActive]}
+                onPress={() => setActiveTab('billing')}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: activeTab === 'billing' }}
+                accessibilityLabel="Cobranças"
+              >
+                <Ionicons
+                  name="receipt-outline"
+                  size={16}
+                  color={activeTab === 'billing' ? '#FFFFFF' : theme.textSecondary}
+                />
+                <Text
+                  style={[styles.tabBtnText, activeTab === 'billing' && styles.tabBtnTextActive]}
+                  numberOfLines={1}
+                >
+                  Cobranças
+                </Text>
+              </TouchableOpacity>
+            ) : null}
             {showEmpresasTab ? (
               <TouchableOpacity
                 style={[styles.tabBtn, activeTab === 'empresas' && styles.tabBtnActive]}
@@ -1983,6 +2005,23 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
                 }
               }}
             />
+            </View>
+          ) : activeTab === 'billing' ? (
+            <View style={styles.tabPanel}>
+              <MeiPaymentApprovalsTab
+                theme={theme}
+                isDesktop={isDesktop}
+                onOpenBilling={(empresa) => setBillingEmpresa(empresa)}
+                onFeedback={({ type, message }) => {
+                  if (type === 'success') {
+                    setSuccess(message);
+                    setError('');
+                  } else {
+                    setError(message);
+                    setSuccess('');
+                  }
+                }}
+              />
             </View>
           ) : (
             <View style={styles.tabPanel}>

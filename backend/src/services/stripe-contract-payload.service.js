@@ -317,11 +317,46 @@ export const emitOnetyContratoAfterStripePayment = async (
     lineId,
   })
   if (!payload) {
+    if (lineId && adminClient) {
+      try {
+        await adminClient
+          .from('empresa_mei_subscription_lines')
+          .update({
+            contrato_status: 'failed',
+            contrato_error: 'Não foi possível montar payload do contrato',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', lineId)
+      } catch {
+        // ignore
+      }
+    }
     return { ok: false, reason: 'payload_unavailable' }
   }
 
   console.info('[onety-contrato] payload gerado', JSON.stringify(payload))
 
   const dispatch = await dispatchOnetyContratoPayload(payload)
+  const onetyOk = dispatch?.response?.ok !== false
+    && !(dispatch?.response?.resultados || []).some((r) => r?.ok === false)
+
+  if (lineId && adminClient) {
+    try {
+      await adminClient
+        .from('empresa_mei_subscription_lines')
+        .update({
+          contrato_status: dispatch?.dispatched && onetyOk ? 'sent' : 'failed',
+          contrato_sent_at: dispatch?.dispatched ? new Date().toISOString() : null,
+          contrato_error: dispatch?.dispatched && onetyOk
+            ? null
+            : (dispatch?.error || dispatch?.response?.resultados?.find((r) => !r?.ok)?.mensagem || 'Falha ao enviar contrato'),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', lineId)
+    } catch (recordErr) {
+      console.warn('[onety-contrato] falha ao gravar status na linha', recordErr)
+    }
+  }
+
   return { ok: true, payload, dispatch }
 }
