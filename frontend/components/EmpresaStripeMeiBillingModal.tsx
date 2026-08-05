@@ -30,15 +30,19 @@ import { ActivationEyebrow } from './activation/activationUi';
 import { MeiPrimaryButton } from './mei/meiFlowUi';
 import { MfGlassCard } from './ui/MfGlassCard';
 import { MfScrollView } from './ui/MfScrollView';
+import { MfConfirmDialog } from './ui/MfConfirmDialog';
 import { useMfTheme } from './ui/useMfTheme';
 import { getTechTokens, mfTechInsetSurface, mfTechPanelChrome } from '../lib/techDesign';
 import { mfRadius, mfSpacing, mfTypography } from '../lib/theme';
 import { MEI_SLOT_PACKAGE_OPTIONS, resolveMeiPackagePrice } from '../lib/meiBillingPricing';
-import { confirmDialog } from '../lib/confirmDialog';
 
 const apiErrorMessage = (e: unknown, fallback: string) =>
   e instanceof Error ? e.message : fallback;
 const BILLING_MODAL_MAX_WIDTH = 720;
+
+type BillingConfirmAction =
+  | { kind: 'cancel-line'; line: StripeMeiSubscriptionLine }
+  | { kind: 'confirm-pix' };
 
 export interface EmpresaStripeMeiBillingModalProps {
   open: boolean;
@@ -102,6 +106,7 @@ export function EmpresaStripeMeiBillingModal({
   const [emitContratoLoading, setEmitContratoLoading] = useState(false);
   const [confirmPixLoading, setConfirmPixLoading] = useState(false);
   const [cancelLineId, setCancelLineId] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<BillingConfirmAction | null>(null);
   const pixIdempotencyKeyRef = useRef<string | null>(null);
   const pixSubmitLockRef = useRef(false);
 
@@ -137,8 +142,13 @@ export function EmpresaStripeMeiBillingModal({
     setLastCheckoutUrl(null);
     pixIdempotencyKeyRef.current = null;
     pixSubmitLockRef.current = false;
+    setConfirmAction(null);
     void loadLines();
   }, [open, empresa?.id, loadLines]);
+
+  useEffect(() => {
+    if (!open) setConfirmAction(null);
+  }, [open]);
 
   const hasActiveSubscription = useMemo(
     () =>
@@ -340,29 +350,54 @@ export function EmpresaStripeMeiBillingModal({
     }
   };
 
-  const handleConfirmPixPayment = async () => {
+  const handleConfirmPixPayment = () => {
     if (!empresa || confirmPixLoading) return;
-    const confirmed = await confirmDialog({
-      title: 'Confirmar PIX',
-      message: `Liberar ${meiSlots} vagas MEI para ${empresaDisplayName}? Só confirme uma vez — se o contrato falhar, use "Gerar contrato".`,
-      confirmLabel: 'Confirmar PIX',
-      cancelLabel: 'Cancelar',
-    });
-    if (!confirmed) return;
-    await runConfirmPixPayment();
+    setConfirmAction({ kind: 'confirm-pix' });
   };
 
-  const handleCancelLine = async (line: StripeMeiSubscriptionLine) => {
+  const handleCancelLine = (line: StripeMeiSubscriptionLine) => {
     if (!empresa || line.status !== 'active' || cancelLineId) return;
-    const confirmed = await confirmDialog({
-      title: 'Cancelar pacote',
-      message: `Remover ${line.mei_slots} vagas deste pacote? O limite MEI será recalculado.`,
-      confirmLabel: 'Sim, cancelar',
-      cancelLabel: 'Não',
-      destructive: true,
-    });
-    if (!confirmed) return;
+    setConfirmAction({ kind: 'cancel-line', line });
+  };
 
+  const confirmDialogLoading =
+    confirmAction?.kind === 'cancel-line'
+      ? cancelLineId === confirmAction.line.id
+      : confirmPixLoading;
+
+  const confirmDialogContent = useMemo(() => {
+    if (!confirmAction) return null;
+    if (confirmAction.kind === 'cancel-line') {
+      return {
+        title: 'Cancelar pacote',
+        message: `Remover ${confirmAction.line.mei_slots} vagas deste pacote PIX?`,
+        detail: `Valor: ${formatBrl(Number(confirmAction.line.value_numeric) || 0)}/mês. O limite MEI será recalculado.`,
+        confirmLabel: 'Sim, cancelar',
+        confirmIntent: 'danger' as const,
+        iconName: 'trash-outline' as const,
+      };
+    }
+    return {
+      title: 'Confirmar PIX',
+      message: `Liberar ${meiSlots} vagas MEI para ${empresaDisplayName}?`,
+      detail:
+        'Confirme só uma vez. Se o contrato falhar depois, use "Gerar contrato" — não clique em PIX de novo.',
+      confirmLabel: 'Confirmar PIX',
+      confirmIntent: 'primary' as const,
+      iconName: 'qr-code-outline' as const,
+    };
+  }, [confirmAction, meiSlots, empresaDisplayName]);
+
+  const handleConfirmDialogConfirm = async () => {
+    if (!confirmAction || !empresa) return;
+
+    if (confirmAction.kind === 'confirm-pix') {
+      await runConfirmPixPayment();
+      setConfirmAction(null);
+      return;
+    }
+
+    const line = confirmAction.line;
     setCancelLineId(line.id);
     try {
       const result = await cancelMeiSubscriptionLine({
@@ -373,6 +408,7 @@ export function EmpresaStripeMeiBillingModal({
       await onMaxMeiSynced?.();
       const maxMei = result.maxMei?.max_mei ?? '—';
       showToast(`Pacote cancelado — limite MEI: ${maxMei} vagas.`, 'success');
+      setConfirmAction(null);
     } catch (e: unknown) {
       showToast(apiErrorMessage(e, 'Erro ao cancelar pacote'), 'error');
     } finally {
@@ -405,6 +441,7 @@ export function EmpresaStripeMeiBillingModal({
   if (!open || !empresa) return null;
 
   return (
+    <>
     <Modal
       visible={open}
       animationType="slide"
@@ -791,6 +828,25 @@ export function EmpresaStripeMeiBillingModal({
         </SafeAreaView>
       </ActivationPageCanvas>
     </Modal>
+
+    {confirmDialogContent ? (
+      <MfConfirmDialog
+        visible={confirmAction !== null}
+        title={confirmDialogContent.title}
+        message={confirmDialogContent.message}
+        detail={confirmDialogContent.detail}
+        confirmLabel={confirmDialogContent.confirmLabel}
+        confirmIntent={confirmDialogContent.confirmIntent}
+        iconName={confirmDialogContent.iconName}
+        cancelLabel={confirmAction?.kind === 'confirm-pix' ? 'Cancelar' : 'Não'}
+        loading={confirmDialogLoading}
+        onConfirm={() => void handleConfirmDialogConfirm()}
+        onCancel={() => {
+          if (!confirmDialogLoading) setConfirmAction(null);
+        }}
+      />
+    ) : null}
+    </>
   );
 }
 
