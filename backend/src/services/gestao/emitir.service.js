@@ -91,6 +91,9 @@ const buildSerproHeaders = async ({
   if (!procuradorToken) {
     if (userId) {
       const { obterAutenticaProcuradorTokenSerpro } = await import('../mei-guide.service.js');
+      if (typeof obterAutenticaProcuradorTokenSerpro !== 'function') {
+        throw badRequest('Integração Serpro indisponível (procurador). Tente novamente.');
+      }
       procuradorToken = await obterAutenticaProcuradorTokenSerpro(userId, {
         contribuinteNumero: contribuinteLimpo,
         contribuinteTipo: contribuinteTipo ?? getDocTypeNumber(contribuinteLimpo),

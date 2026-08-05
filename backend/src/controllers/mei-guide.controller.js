@@ -1,6 +1,7 @@
 import * as meiGuideService from '../services/mei-guide.service.js';
 import * as meiGuideDasBase64Service from '../services/mei-guide-das-base64.service.js';
 import { getNfsePrestadorPrefill } from '../services/mei-prestador-prefill.service.js';
+import { badRequest } from '../utils/errors.js';
 import { sendSuccess } from '../utils/response.js';
 
 const persistDasBase64Safely = async (payload) => {
@@ -9,6 +10,17 @@ const persistDasBase64Safely = async (payload) => {
   } catch (persistError) {
     console.warn('[mei-guide] Falha ao persistir DAS (não-fatal):', persistError?.message || persistError);
   }
+};
+
+const forwardMeiGuideError = (error, next, actionLabel = 'operar o DAS') => {
+  if (error?.status) return next(error);
+  console.error(`[mei-guide] erro inesperado ao ${actionLabel}:`, error?.message || error, error?.stack);
+  return next(
+    badRequest(
+      error?.message || `Não foi possível ${actionLabel}. Tente novamente em instantes.`,
+      { code: 'MEI_DAS_INTERNAL' },
+    ),
+  );
 };
 
 export const createGuide = async (req, res, next) => {
@@ -48,7 +60,7 @@ export const regenerateGuide = async (req, res, next) => {
     }
     return sendSuccess(res, data, 'DAS regenerado na Receita e guardado');
   } catch (error) {
-    return next(error);
+    return forwardMeiGuideError(error, next, 'atualizar o DAS na Receita');
   }
 };
 
@@ -101,7 +113,7 @@ export const downloadGuide = async (req, res, next) => {
     res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
     return res.send(buffer);
   } catch (error) {
-    return next(error);
+    return forwardMeiGuideError(error, next, 'baixar o DAS');
   }
 };
 

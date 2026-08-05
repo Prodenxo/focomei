@@ -769,41 +769,52 @@ const extractPfxKeyAndCert = (pfxBuffer, passphrase) => {
 };
 
 const signAutorizacaoXml = (xml, pfxBuffer, passphrase) => {
-  const { privateKeyPem, certificatePem } = extractPfxKeyAndCert(pfxBuffer, passphrase);
-  const x509B64 = certificatePem.replace(/-----(BEGIN|END) CERTIFICATE-----|\s+/g, '');
-  const xmlCompact = String(xml || '').replace(/>\s+</g, '><').trim();
-  const sig = new SignedXml();
-  sig.signatureAlgorithm = 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256';
-  sig.canonicalizationAlgorithm = 'http://www.w3.org/TR/2001/REC-xml-c14n-20010315';
-  // Serpro/eSocial: Reference URI="" (documento inteiro), não URI="#_0".
-  sig.addReference({
-    xpath: '/*',
-    transforms: [
-      'http://www.w3.org/2000/09/xmldsig#enveloped-signature',
-      'http://www.w3.org/TR/2001/REC-xml-c14n-20010315'
-    ],
-    digestAlgorithm: 'http://www.w3.org/2001/04/xmlenc#sha256',
-    isEmptyUri: true
-  });
-  sig.privateKey = privateKeyPem;
-  // xml-crypto v6: getKeyInfoContent (não usar keyInfoProvider legado + publicCert — duplica X509Data).
-  sig.getKeyInfoContent = () =>
-    `<X509Data><X509Certificate>${x509B64}</X509Certificate></X509Data>`;
-  sig.computeSignature(xmlCompact, {
-    location: { reference: '/*', action: 'append' }
-  });
-  const signed = sig.getSignedXml();
-  if (env.NODE_ENV !== 'production') {
-    const x509DataCount = (signed.match(/<(?:\w+:)?X509Data\b/gi) || []).length;
-    const keyInfoCount = (signed.match(/<(?:\w+:)?KeyInfo\b/gi) || []).length;
-    if (!/<Reference[^>]*URI=""/.test(signed)) {
-      console.warn('[mei-guide] Assinatura XML sem Reference URI="" — Serpro pode rejeitar');
+  try {
+    const { privateKeyPem, certificatePem } = extractPfxKeyAndCert(pfxBuffer, passphrase);
+    const x509B64 = certificatePem.replace(/-----(BEGIN|END) CERTIFICATE-----|\s+/g, '');
+    const xmlCompact = String(xml || '').replace(/>\s+</g, '><').trim();
+    const sig = new SignedXml();
+    sig.signatureAlgorithm = 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256';
+    sig.canonicalizationAlgorithm = 'http://www.w3.org/TR/2001/REC-xml-c14n-20010315';
+    // Serpro/eSocial: Reference URI="" (documento inteiro), não URI="#_0".
+    sig.addReference({
+      xpath: '/*',
+      transforms: [
+        'http://www.w3.org/2000/09/xmldsig#enveloped-signature',
+        'http://www.w3.org/TR/2001/REC-xml-c14n-20010315'
+      ],
+      digestAlgorithm: 'http://www.w3.org/2001/04/xmlenc#sha256',
+      isEmptyUri: true
+    });
+    sig.privateKey = privateKeyPem;
+    // xml-crypto v6: getKeyInfoContent (não usar keyInfoProvider legado + publicCert — duplica X509Data).
+    sig.getKeyInfoContent = () =>
+      `<X509Data><X509Certificate>${x509B64}</X509Certificate></X509Data>`;
+    sig.computeSignature(xmlCompact, {
+      location: { reference: '/*', action: 'append' }
+    });
+    const signed = sig.getSignedXml();
+    if (env.NODE_ENV !== 'production') {
+      const x509DataCount = (signed.match(/<(?:\w+:)?X509Data\b/gi) || []).length;
+      const keyInfoCount = (signed.match(/<(?:\w+:)?KeyInfo\b/gi) || []).length;
+      if (!/<Reference[^>]*URI=""/.test(signed)) {
+        console.warn('[mei-guide] Assinatura XML sem Reference URI="" — Serpro pode rejeitar');
+      }
+      if (x509DataCount !== 1 || keyInfoCount !== 1) {
+        console.warn('[mei-guide] Assinatura XML KeyInfo/X509Data', { keyInfoCount, x509DataCount });
+      }
     }
-    if (x509DataCount !== 1 || keyInfoCount !== 1) {
-      console.warn('[mei-guide] Assinatura XML KeyInfo/X509Data', { keyInfoCount, x509DataCount });
+    return signed;
+  } catch (error) {
+    if (isInvalidPfxPasswordError(error)) {
+      throw badRequest('A senha do certificado MEI está inválida.', {
+        code: MEI_CERT_INVALID_PASSWORD,
+      });
     }
+    throw badRequest(
+      'Falha ao assinar o termo do procurador Serpro. Reenvie o certificado A1 ou tente de novo.',
+    );
   }
-  return signed;
 };
 
 const fetchAutenticaProcuradorTokenOnce = async (userId, authContext) => {
@@ -2011,9 +2022,15 @@ export const downloadGuide = async (payload, dependencies = {}) => {
   const cnpjFromRequest = normalizeDoc(contribuinte?.numero || cnpj);
   const hasCert = userId ? await userHasMeiCertificate(userId) : false;
 
-  const paid = userId && competencia
-    ? await isCompetenciaPaidFn({ userId, competencia })
-    : false;
+  let paid = false;
+  if (userId && competencia) {
+    try {
+      paid = await isCompetenciaPaidFn({ userId, competencia });
+    } catch (paidError) {
+      console.warn('[mei-guide] isCompetenciaPaid falhou (tratado como não pago):', paidError?.message || paidError);
+      paid = false;
+    }
+  }
   const shouldRefreshExpired = Boolean(forceRefresh)
     || (Boolean(competencia) && !paid && isDasCompetenciaVencida(competencia));
 
@@ -2036,7 +2053,12 @@ export const downloadGuide = async (payload, dependencies = {}) => {
   }
 
   if (userId && competencia && period && !shouldRefreshExpired) {
-    const storedBase64 = await getDasBase64Fn({ userId, periodoApuracao: period });
+    let storedBase64 = null;
+    try {
+      storedBase64 = await getDasBase64Fn({ userId, periodoApuracao: period });
+    } catch (cacheError) {
+      console.warn('[mei-guide] getDasBase64 falhou (seguindo para Receita):', cacheError?.message || cacheError);
+    }
     if (storedBase64 && String(storedBase64).trim()) {
       const label = competencia.replace('-', '/');
       return {
@@ -2049,7 +2071,13 @@ export const downloadGuide = async (payload, dependencies = {}) => {
     if (fromStorage) return fromStorage;
     /* Sem PDF local — tenta SERPRO abaixo (pago ou não) */
   } else if (userId && competencia) {
-    const paidInCache = await isCompetenciaPaidFn({ userId, competencia });
+    let paidInCache = false;
+    try {
+      paidInCache = await isCompetenciaPaidFn({ userId, competencia });
+    } catch (paidCacheError) {
+      console.warn('[mei-guide] isCompetenciaPaid (cache) falhou:', paidCacheError?.message || paidCacheError);
+      paidInCache = false;
+    }
     if (paidInCache && !period) {
       throw paidPeriodNoPdfError();
     }

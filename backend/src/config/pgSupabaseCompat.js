@@ -408,8 +408,26 @@ class PgQueryBuilder {
       const result = await this._execute()
       resolve(result)
     } catch (error) {
-      if (typeof reject === 'function') reject(error)
-      else resolve({ data: null, error })
+      // Compatível com Supabase JS: erros de query retornam { error }, não rejeitam a Promise.
+      resolve({
+        data: null,
+        error: {
+          message: error?.message || String(error),
+          code: error?.code,
+          details: error?.detail,
+        },
+      })
+    }
+  }
+
+  _pgErrorResult(error) {
+    return {
+      data: null,
+      error: {
+        message: error?.message || String(error),
+        code: error?.code,
+        details: error?.detail,
+      },
     }
   }
 
@@ -417,99 +435,103 @@ class PgQueryBuilder {
     const table = quoteIdent(this.table)
     const params = []
 
-    if (this.action === 'select') {
-      const cols = this.columns.includes('*')
-        ? '*'
-        : this.columns.map(quoteIdent).join(', ')
-      let sql = `SELECT ${cols} FROM ${table}`
-      sql += this._whereSql(params)
-      sql += this._orderSql()
-      if (this.limitN != null && Number.isFinite(this.limitN)) {
-        sql += ` LIMIT ${Math.max(0, Math.trunc(this.limitN))}`
+    try {
+      if (this.action === 'select') {
+        const cols = this.columns.includes('*')
+          ? '*'
+          : this.columns.map(quoteIdent).join(', ')
+        let sql = `SELECT ${cols} FROM ${table}`
+        sql += this._whereSql(params)
+        sql += this._orderSql()
+        if (this.limitN != null && Number.isFinite(this.limitN)) {
+          sql += ` LIMIT ${Math.max(0, Math.trunc(this.limitN))}`
+        }
+        if (this.offsetN != null && Number.isFinite(this.offsetN)) {
+          sql += ` OFFSET ${Math.max(0, Math.trunc(this.offsetN))}`
+        }
+        const { rows } = await query(sql, params)
+        return this._formatSelect(rows)
       }
-      if (this.offsetN != null && Number.isFinite(this.offsetN)) {
-        sql += ` OFFSET ${Math.max(0, Math.trunc(this.offsetN))}`
+
+      if (this.action === 'insert') {
+        const rows = Array.isArray(this.payload) ? this.payload : [this.payload]
+        if (!rows.length) return { data: null, error: null }
+        const keys = Object.keys(rows[0] || {})
+        if (!keys.length) return { data: null, error: { message: 'insert sem colunas' } }
+        const colSql = keys.map(quoteIdent).join(', ')
+        const valuesSql = rows.map((row) => {
+          const placeholders = keys.map((key) => {
+            params.push(serializePgBindValue(row[key]))
+            return `$${params.length}`
+          })
+          return `(${placeholders.join(', ')})`
+        }).join(', ')
+        const returning = this.returning || this.expect
+          ? ' RETURNING *'
+          : ''
+        const sql = `INSERT INTO ${table} (${colSql}) VALUES ${valuesSql}${returning}`
+        const { rows: out } = await query(sql, params)
+        return this._formatMutate(out, rows.length)
       }
-      const { rows } = await query(sql, params)
-      return this._formatSelect(rows)
-    }
 
-    if (this.action === 'insert') {
-      const rows = Array.isArray(this.payload) ? this.payload : [this.payload]
-      if (!rows.length) return { data: null, error: null }
-      const keys = Object.keys(rows[0] || {})
-      if (!keys.length) return { data: null, error: { message: 'insert sem colunas' } }
-      const colSql = keys.map(quoteIdent).join(', ')
-      const valuesSql = rows.map((row) => {
-        const placeholders = keys.map((key) => {
-          params.push(serializePgBindValue(row[key]))
-          return `$${params.length}`
+      if (this.action === 'update') {
+        const values = this.payload || {}
+        const keys = Object.keys(values)
+        if (!keys.length) return { data: null, error: { message: 'update sem colunas' } }
+        const sets = keys.map((key) => {
+          params.push(serializePgBindValue(values[key]))
+          return `${quoteIdent(key)} = $${params.length}`
         })
-        return `(${placeholders.join(', ')})`
-      }).join(', ')
-      const returning = this.returning || this.expect
-        ? ' RETURNING *'
-        : ''
-      const sql = `INSERT INTO ${table} (${colSql}) VALUES ${valuesSql}${returning}`
-      const { rows: out } = await query(sql, params)
-      return this._formatMutate(out, rows.length)
-    }
+        let sql = `UPDATE ${table} SET ${sets.join(', ')}`
+        sql += this._whereSql(params)
+        const returning = this.returning || this.expect ? ' RETURNING *' : ''
+        sql += returning
+        const { rows: out } = await query(sql, params)
+        return this._formatMutate(out, out.length)
+      }
 
-    if (this.action === 'update') {
-      const values = this.payload || {}
-      const keys = Object.keys(values)
-      if (!keys.length) return { data: null, error: { message: 'update sem colunas' } }
-      const sets = keys.map((key) => {
-        params.push(serializePgBindValue(values[key]))
-        return `${quoteIdent(key)} = $${params.length}`
-      })
-      let sql = `UPDATE ${table} SET ${sets.join(', ')}`
-      sql += this._whereSql(params)
-      const returning = this.returning || this.expect ? ' RETURNING *' : ''
-      sql += returning
-      const { rows: out } = await query(sql, params)
-      return this._formatMutate(out, out.length)
-    }
-
-    if (this.action === 'upsert') {
-      const rows = Array.isArray(this.payload) ? this.payload : [this.payload]
-      if (!rows.length) return { data: null, error: null }
-      const keys = Object.keys(rows[0] || {})
-      if (!keys.length) return { data: null, error: { message: 'upsert sem colunas' } }
-      const conflictCols = String(this.onConflict || keys[0])
-        .split(',')
-        .map((c) => c.trim())
-        .filter(Boolean)
-      const colSql = keys.map(quoteIdent).join(', ')
-      const valuesSql = rows.map((row) => {
-        const placeholders = keys.map((key) => {
-          params.push(serializePgBindValue(row[key]))
-          return `$${params.length}`
-        })
-        return `(${placeholders.join(', ')})`
-      }).join(', ')
-      const updateCols = keys.filter((k) => !conflictCols.includes(k))
-      const setSql = updateCols.length
-        ? updateCols.map((k) => `${quoteIdent(k)} = EXCLUDED.${quoteIdent(k)}`).join(', ')
-        : `${quoteIdent(keys[0])} = EXCLUDED.${quoteIdent(keys[0])}`
-      const conflictSql = conflictCols.map(quoteIdent).join(', ')
-      const returning = this.returning || this.expect ? ' RETURNING *' : ''
-      const sql = `INSERT INTO ${table} (${colSql}) VALUES ${valuesSql}
+      if (this.action === 'upsert') {
+        const rows = Array.isArray(this.payload) ? this.payload : [this.payload]
+        if (!rows.length) return { data: null, error: null }
+        const keys = Object.keys(rows[0] || {})
+        if (!keys.length) return { data: null, error: { message: 'upsert sem colunas' } }
+        const conflictCols = String(this.onConflict || keys[0])
+          .split(',')
+          .map((c) => c.trim())
+          .filter(Boolean)
+        const colSql = keys.map(quoteIdent).join(', ')
+        const valuesSql = rows.map((row) => {
+          const placeholders = keys.map((key) => {
+            params.push(serializePgBindValue(row[key]))
+            return `$${params.length}`
+          })
+          return `(${placeholders.join(', ')})`
+        }).join(', ')
+        const updateCols = keys.filter((k) => !conflictCols.includes(k))
+        const setSql = updateCols.length
+          ? updateCols.map((k) => `${quoteIdent(k)} = EXCLUDED.${quoteIdent(k)}`).join(', ')
+          : `${quoteIdent(keys[0])} = EXCLUDED.${quoteIdent(keys[0])}`
+        const conflictSql = conflictCols.map(quoteIdent).join(', ')
+        const returning = this.returning || this.expect ? ' RETURNING *' : ''
+        const sql = `INSERT INTO ${table} (${colSql}) VALUES ${valuesSql}
         ON CONFLICT (${conflictSql}) DO UPDATE SET ${setSql}${returning}`
-      const { rows: out } = await query(sql, params)
-      return this._formatMutate(out, rows.length)
-    }
+        const { rows: out } = await query(sql, params)
+        return this._formatMutate(out, rows.length)
+      }
 
-    if (this.action === 'delete') {
-      let sql = `DELETE FROM ${table}`
-      sql += this._whereSql(params)
-      const returning = this.returning || this.expect ? ' RETURNING *' : ''
-      sql += returning
-      const { rows: out } = await query(sql, params)
-      return this._formatMutate(out, out.length)
-    }
+      if (this.action === 'delete') {
+        let sql = `DELETE FROM ${table}`
+        sql += this._whereSql(params)
+        const returning = this.returning || this.expect ? ' RETURNING *' : ''
+        sql += returning
+        const { rows: out } = await query(sql, params)
+        return this._formatMutate(out, out.length)
+      }
 
-    return { data: null, error: { message: `ação não suportada: ${this.action}` } }
+      return { data: null, error: { message: `ação não suportada: ${this.action}` } }
+    } catch (error) {
+      return this._pgErrorResult(error)
+    }
   }
 
   _formatSelect(rows) {
