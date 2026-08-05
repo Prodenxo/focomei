@@ -39,9 +39,10 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 try:
     import requests
@@ -97,12 +98,65 @@ def resolver_config() -> dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class OnetyClient:
-    def __init__(self, api_url: str, token: str | None = None, empresa_id: str | int | None = None):
+    SESSION_IDLE_SECONDS = 180
+    _AUTH_PATHS = ("/auth/login", "/auth/login-empresa")
+
+    def __init__(
+        self,
+        api_url: str,
+        token: str | None = None,
+        empresa_id: str | int | None = None,
+        *,
+        reauth_fn: Callable[[], None] | None = None,
+        session_idle_seconds: int | None = None,
+    ):
         self.api_url = api_url.rstrip("/")
         self.token = token
         self.empresa_id = empresa_id
         self.session = requests.Session()
         self.session.headers.update({"Accept": "application/json"})
+        self._reauth_fn = reauth_fn
+        self._session_idle_seconds = int(
+            session_idle_seconds or self.SESSION_IDLE_SECONDS
+        )
+        self._last_auth_at: float | None = None
+        self._reauth_in_progress = False
+
+    def set_reauth_fn(self, fn: Callable[[], None] | None) -> None:
+        self._reauth_fn = fn
+
+    def touch_auth(self) -> None:
+        self._last_auth_at = time.monotonic()
+
+    def _is_auth_path(self, path: str) -> bool:
+        normalized = path if path.startswith("/") else f"/{path}"
+        return any(normalized.startswith(p) for p in self._AUTH_PATHS)
+
+    def _session_expired(self) -> bool:
+        if self._last_auth_at is None:
+            return True
+        return (time.monotonic() - self._last_auth_at) > self._session_idle_seconds
+
+    def _ensure_fresh_session(self) -> None:
+        if not self._reauth_fn or self._reauth_in_progress:
+            return
+        if not self._session_expired():
+            return
+        self._reauth_in_progress = True
+        try:
+            self._reauth_fn()
+            self.touch_auth()
+        finally:
+            self._reauth_in_progress = False
+
+    @staticmethod
+    def _is_token_error_response(resp: requests.Response) -> bool:
+        if resp.status_code in (401, 403):
+            return True
+        if resp.status_code != 400:
+            return False
+        body = (resp.text or "").lower()
+        return "token" in body and ("inválido" in body or "invalido" in body or "expir" in body)
 
     def _headers(self, json_body: bool = True) -> dict[str, str]:
         headers: dict[str, str] = {}
@@ -126,7 +180,11 @@ class OnetyClient:
         data: Any | None = None,
         files: Any | None = None,
         timeout: int = 120,
+        _retry_on_token: bool = True,
     ) -> Any:
+        if not self._is_auth_path(path):
+            self._ensure_fresh_session()
+
         use_json = files is None and data is None
         resp = self.session.request(
             method,
@@ -137,6 +195,29 @@ class OnetyClient:
             files=files,
             timeout=timeout,
         )
+
+        if (
+            _retry_on_token
+            and self._reauth_fn
+            and self._is_token_error_response(resp)
+            and not self._is_auth_path(path)
+        ):
+            self._reauth_in_progress = True
+            try:
+                self._reauth_fn()
+                self.touch_auth()
+            finally:
+                self._reauth_in_progress = False
+            resp = self.session.request(
+                method,
+                self._url(path),
+                headers=self._headers(json_body=use_json),
+                json=json_body if use_json else None,
+                data=data,
+                files=files,
+                timeout=timeout,
+            )
+
         if not resp.ok:
             detail = resp.text[:2000]
             raise RuntimeError(f"HTTP {resp.status_code} em {path}: {detail}")
@@ -148,7 +229,12 @@ class OnetyClient:
         return resp.content
 
     def login(self, email: str, senha: str) -> str:
-        data = self.request("POST", "/auth/login", json_body={"email": email, "senha": senha})
+        data = self.request(
+            "POST",
+            "/auth/login",
+            json_body={"email": email, "senha": senha},
+            _retry_on_token=False,
+        )
         token = data.get("token") if isinstance(data, dict) else None
         if not token:
             raise RuntimeError(f"Login sem token. Resposta: {data}")
@@ -619,29 +705,42 @@ def montar_payload(
 # CLI
 # ─────────────────────────────────────────────────────────────────────────────
 
-def autenticar(client: OnetyClient, cfg: dict[str, Any]) -> dict[str, Any]:
+def autenticar(
+    client: OnetyClient,
+    cfg: dict[str, Any],
+    *,
+    force_login: bool = False,
+) -> dict[str, Any]:
     usuario: dict[str, Any] = {}
-    if cfg.get("token"):
+    use_static_token = bool(cfg.get("token")) and not force_login
+
+    if use_static_token:
         client.token = cfg["token"]
         print("Usando TOKEN do config.env")
     else:
         if not cfg["email"] or not cfg["senha"]:
-            raise SystemExit(
-                "Configure EMAIL e SENHA em config.env (copie de config.example.env) "
-                "ou defina TOKEN."
+            if cfg.get("token"):
+                client.token = cfg["token"]
+                print("TOKEN estático — relogin de empresa apenas")
+            else:
+                raise SystemExit(
+                    "Configure EMAIL e SENHA em config.env (copie de config.example.env) "
+                    "ou defina TOKEN."
+                )
+        else:
+            print(f"Login em {cfg['api_url']} como {cfg['email']}...")
+            data = client.request(
+                "POST",
+                "/auth/login",
+                json_body={"email": cfg["email"], "senha": cfg["senha"]},
+                _retry_on_token=False,
             )
-        print(f"Login em {cfg['api_url']} como {cfg['email']}...")
-        data = client.request(
-            "POST",
-            "/auth/login",
-            json_body={"email": cfg["email"], "senha": cfg["senha"]},
-        )
-        token = data.get("token") if isinstance(data, dict) else None
-        if not token:
-            raise RuntimeError(f"Login sem token. Resposta: {data}")
-        client.token = token
-        usuario = (data.get("user") if isinstance(data, dict) else None) or {}
-        print("Login OK")
+            token = data.get("token") if isinstance(data, dict) else None
+            if not token:
+                raise RuntimeError(f"Login sem token. Resposta: {data}")
+            client.token = token
+            usuario = (data.get("user") if isinstance(data, dict) else None) or {}
+            print("Login OK")
 
     if not cfg.get("empresa_id"):
         raise SystemExit("EMPRESA_ID é obrigatório em config.env")
@@ -649,6 +748,7 @@ def autenticar(client: OnetyClient, cfg: dict[str, Any]) -> dict[str, Any]:
     print(f"Selecionando empresa {cfg['empresa_id']}...")
     client.empresa_id = cfg["empresa_id"]
     client.login_empresa(cfg["empresa_id"])
+    client.touch_auth()
     print("Empresa OK")
     return usuario
 

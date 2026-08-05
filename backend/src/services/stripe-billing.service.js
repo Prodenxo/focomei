@@ -614,6 +614,106 @@ export const emitMeiContratoForEmpresaAdmin = async (accessToken, empresaIdInput
   });
 };
 
+const PIX_IDEMPOTENCY_WINDOW_MS = 10 * 60 * 1000;
+
+const findExistingPixManualLine = async (
+  adminClient,
+  { empresaId, externalReference, meiSlots },
+) => {
+  const ref = String(externalReference || "").trim();
+  if (ref) {
+    const { data, error } = await adminClient
+      .from("empresa_mei_subscription_lines")
+      .select("*")
+      .eq("empresa_id", empresaId)
+      .eq("external_reference", ref)
+      .maybeSingle();
+    if (error) throw badRequest(error.message);
+    if (data?.id) return data;
+  }
+
+  const since = new Date(Date.now() - PIX_IDEMPOTENCY_WINDOW_MS).toISOString();
+  const { data: recent, error: recentErr } = await adminClient
+    .from("empresa_mei_subscription_lines")
+    .select("*")
+    .eq("empresa_id", empresaId)
+    .eq("billing_type", "pix_manual")
+    .eq("status", "active")
+    .eq("mei_slots", meiSlots)
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (recentErr) throw badRequest(recentErr.message);
+  return recent?.id ? recent : null;
+};
+
+/**
+ * Superadmin: cancela linha de pacote MEI (ex.: PIX duplicado) e recalcula max_mei.
+ */
+export const cancelMeiSubscriptionLineForEmpresa = async (accessToken, input = {}) => {
+  const requester = await getRequesterContext(accessToken);
+  if (requester.role !== "superadmin") throw forbidden();
+
+  const lineId = String(input.lineId || "").trim();
+  const empresaId = String(input.empresaId || "").trim();
+  if (!lineId || !empresaId) {
+    throw badRequest("lineId e empresaId são obrigatórios");
+  }
+
+  const adminClient = createSupabaseClient({ useServiceRole: true });
+  const { data: line, error: lineErr } = await adminClient
+    .from("empresa_mei_subscription_lines")
+    .select("id, empresa_id, status, billing_type, mei_slots")
+    .eq("id", lineId)
+    .eq("empresa_id", empresaId)
+    .maybeSingle();
+  if (lineErr) throw badRequest(lineErr.message);
+  if (!line?.id) throw badRequest("Linha de pacote não encontrada para esta empresa");
+  if (String(line.status || "").toLowerCase() === "cancelled") {
+    throw badRequest("Este pacote já está cancelado");
+  }
+
+  const { error: upErr } = await adminClient
+    .from("empresa_mei_subscription_lines")
+    .update({
+      status: "cancelled",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", lineId);
+  if (upErr) throw badRequest(upErr.message);
+
+  let legacyPix = null;
+  if (String(line.billing_type || "").toLowerCase() === "pix_manual") {
+    const { data: empresa, error: empErr } = await adminClient
+      .from("empresas")
+      .select("legacy_mei_slots_pix")
+      .eq("id", empresaId)
+      .maybeSingle();
+    if (empErr) throw badRequest(empErr.message);
+    legacyPix = Math.max(
+      0,
+      Number(empresa?.legacy_mei_slots_pix || 0) - Number(line.mei_slots || 0),
+    );
+    await adminClient
+      .from("empresas")
+      .update({ legacy_mei_slots_pix: legacyPix })
+      .eq("id", empresaId);
+  }
+
+  const maxMei = await syncEmpresaMaxMeiFromLines(adminClient, empresaId, {
+    force: true,
+  });
+
+  return {
+    lineId,
+    cancelled: true,
+    meiSlotsRemoved: Number(line.mei_slots || 0),
+    maxMei,
+    legacy_mei_slots_pix: legacyPix,
+  };
+};
+
 /**
  * Superadmin: confirma pagamento PIX manual — libera /planos (max_mei + admin mei=true).
  * Cria linha `pix_manual` ativa (mesma tabela da Stripe para o gate de billing).
@@ -647,6 +747,51 @@ export const confirmMeiPixPaymentForEmpresa = async (accessToken, input = {}) =>
     String(input.externalReference || "").trim() || randomUUID();
   const emitContrato = input.emitContrato !== false;
   const approvedAt = new Date().toISOString();
+
+  const existingLine = await findExistingPixManualLine(adminClient, {
+    empresaId,
+    externalReference,
+    meiSlots,
+  });
+
+  if (existingLine?.id) {
+    const maxMei = await syncEmpresaMaxMeiFromLines(adminClient, empresaId, {
+      force: true,
+    });
+    const activated = await activateEmpresaMeiAccessAfterPayment(
+      adminClient,
+      empresaId,
+    );
+
+    /** @type {Record<string, unknown>|null} */
+    let contrato = null;
+    const contratoStatus = String(existingLine.contrato_status || "").toLowerCase();
+    const shouldEmitContrato =
+      emitContrato && !["sent", "skipped"].includes(contratoStatus);
+
+    if (shouldEmitContrato) {
+      try {
+        contrato = await emitContratoForEmpresaOrThrow(adminClient, {
+          empresaId,
+          lineId: existingLine.id,
+        });
+      } catch (error) {
+        contrato = {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+
+    return {
+      line: existingLine,
+      maxMei,
+      activated,
+      legacy_mei_slots_pix: Number(empresa.legacy_mei_slots_pix || 0),
+      contrato,
+      idempotent: true,
+    };
+  }
 
   const insertPayload = await buildMeiLineInsertPayload(
     adminClient,

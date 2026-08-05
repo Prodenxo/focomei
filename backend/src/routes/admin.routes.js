@@ -110,6 +110,12 @@ router.post(
   requireSuperAdmin,
   adminBillingController.confirmPixMeiPayment
 );
+router.post(
+  '/billing/mei-subscription-lines/cancel',
+  requireAuth,
+  requireSuperAdmin,
+  adminBillingController.cancelMeiSubscriptionLine
+);
 
 router.get(
   '/billing/payment-approvals',

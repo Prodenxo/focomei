@@ -78,10 +78,26 @@ export const confirmPixMeiPayment = async (req, res, next) => {
       req.body || {},
     );
     const maxMei = data?.maxMei?.max_mei ?? data?.maxMei ?? '—';
+    const msg = data?.idempotent
+      ? `PIX já confirmado — ${maxMei} vagas MEI (sem duplicar pacote)`
+      : `PIX confirmado — ${maxMei} vagas MEI liberadas`;
+    return sendSuccess(res, data, msg);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const cancelMeiSubscriptionLine = async (req, res, next) => {
+  try {
+    const data = await stripeBillingService.cancelMeiSubscriptionLineForEmpresa(
+      req.accessToken,
+      req.body || {},
+    );
+    const maxMei = data?.maxMei?.max_mei ?? data?.maxMei ?? '—';
     return sendSuccess(
       res,
       data,
-      `PIX confirmado — ${maxMei} vagas MEI liberadas`,
+      `Pacote cancelado — limite MEI atualizado para ${maxMei} vagas`,
     );
   } catch (error) {
     return next(error);

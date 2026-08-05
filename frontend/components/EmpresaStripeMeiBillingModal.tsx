@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   Platform,
   Pressable,
@@ -18,6 +19,7 @@ import {
   reconcileStripeMeiPayment,
   emitStripeMeiContrato,
   confirmPixMeiPayment,
+  cancelMeiSubscriptionLine,
   syncMaxMeiFromStripeLines,
   type BillingTimingOption,
   type StripeMeiSubscriptionLine,
@@ -99,6 +101,19 @@ export function EmpresaStripeMeiBillingModal({
   const [reconcileLoading, setReconcileLoading] = useState(false);
   const [emitContratoLoading, setEmitContratoLoading] = useState(false);
   const [confirmPixLoading, setConfirmPixLoading] = useState(false);
+  const [cancelLineId, setCancelLineId] = useState<string | null>(null);
+  const pixIdempotencyKeyRef = useRef<string | null>(null);
+  const pixSubmitLockRef = useRef(false);
+
+  const ensurePixIdempotencyKey = useCallback(() => {
+    if (!pixIdempotencyKeyRef.current) {
+      pixIdempotencyKeyRef.current =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+    return pixIdempotencyKeyRef.current;
+  }, []);
 
   const loadLines = useCallback(async () => {
     if (!empresa?.id) return;
@@ -120,6 +135,8 @@ export function EmpresaStripeMeiBillingModal({
   useEffect(() => {
     if (!open || !empresa) return;
     setLastCheckoutUrl(null);
+    pixIdempotencyKeyRef.current = null;
+    pixSubmitLockRef.current = false;
     void loadLines();
   }, [open, empresa?.id, loadLines]);
 
@@ -281,14 +298,16 @@ export function EmpresaStripeMeiBillingModal({
     }
   };
 
-  const handleConfirmPixPayment = async () => {
-    if (!empresa) return;
+  const runConfirmPixPayment = async () => {
+    if (!empresa || pixSubmitLockRef.current) return;
+    pixSubmitLockRef.current = true;
     setConfirmPixLoading(true);
     try {
       const result = await confirmPixMeiPayment({
         empresaId: empresa.id,
         meiSlots,
         emitContrato: true,
+        externalReference: ensurePixIdempotencyKey(),
       });
       await loadLines();
       await onMaxMeiSynced?.();
@@ -298,9 +317,14 @@ export function EmpresaStripeMeiBillingModal({
 
       if (contratoErr) {
         showToast(
-          `PIX confirmado (${maxMei} vagas). Contrato falhou: ${contratoErr}`,
+          `PIX confirmado (${maxMei} vagas). Contrato falhou — use "Gerar contrato", não clique PIX de novo. ${contratoErr}`,
           'error',
         );
+        return;
+      }
+
+      if (result.idempotent) {
+        showToast(`PIX já estava confirmado — ${maxMei} vagas MEI (sem duplicar pacote).`, 'success');
         return;
       }
 
@@ -312,7 +336,54 @@ export function EmpresaStripeMeiBillingModal({
       showToast(apiErrorMessage(e, 'Erro ao confirmar pagamento PIX'), 'error');
     } finally {
       setConfirmPixLoading(false);
+      pixSubmitLockRef.current = false;
     }
+  };
+
+  const handleConfirmPixPayment = () => {
+    if (!empresa || confirmPixLoading) return;
+    Alert.alert(
+      'Confirmar PIX',
+      `Liberar ${meiSlots} vagas MEI para ${empresaDisplayName}? Só confirme uma vez — se o contrato falhar, use "Gerar contrato".`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Confirmar PIX', onPress: () => void runConfirmPixPayment() },
+      ],
+    );
+  };
+
+  const handleCancelLine = (line: StripeMeiSubscriptionLine) => {
+    if (!empresa || line.status !== 'active') return;
+    Alert.alert(
+      'Cancelar pacote',
+      `Remover ${line.mei_slots} vagas deste pacote? O limite MEI será recalculado.`,
+      [
+        { text: 'Não', style: 'cancel' },
+        {
+          text: 'Sim, cancelar',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setCancelLineId(line.id);
+              try {
+                const result = await cancelMeiSubscriptionLine({
+                  empresaId: empresa.id,
+                  lineId: line.id,
+                });
+                await loadLines();
+                await onMaxMeiSynced?.();
+                const maxMei = result.maxMei?.max_mei ?? '—';
+                showToast(`Pacote cancelado — limite MEI: ${maxMei} vagas.`, 'success');
+              } catch (e: unknown) {
+                showToast(apiErrorMessage(e, 'Erro ao cancelar pacote'), 'error');
+              } finally {
+                setCancelLineId(null);
+              }
+            })();
+          },
+        },
+      ],
+    );
   };
 
   const copyCheckoutUrl = async () => {
@@ -520,6 +591,24 @@ export function EmpresaStripeMeiBillingModal({
                         <Text style={styles.historyMeta}>
                           {billingTypeLabel(row.billing_type)} · {formatDateTime(row.created_at)}
                         </Text>
+                        {row.status === 'active' && row.billing_type === 'pix_manual' ? (
+                          <Pressable
+                            onPress={() => handleCancelLine(row)}
+                            disabled={cancelLineId === row.id}
+                            style={({ pressed }) => [
+                              styles.cancelLineBtn,
+                              pressed && styles.pressed,
+                            ]}
+                            accessibilityLabel={`Cancelar pacote PIX de ${row.mei_slots} vagas`}
+                          >
+                            {cancelLineId === row.id ? (
+                              <ActivityIndicator size="small" color={theme.error} />
+                            ) : (
+                              <Ionicons name="trash-outline" size={14} color={theme.error} />
+                            )}
+                            <Text style={styles.cancelLineBtnText}>Cancelar pacote</Text>
+                          </Pressable>
+                        ) : null}
                       </View>
                     ))
                   )}
@@ -948,6 +1037,23 @@ function createStyles(
       fontSize: 11,
       color: theme.textTertiary,
       marginTop: mfSpacing.xs,
+    },
+    cancelLineBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: mfSpacing.xs,
+      marginTop: mfSpacing.sm,
+      alignSelf: 'flex-start',
+      paddingVertical: mfSpacing.xs,
+      paddingHorizontal: mfSpacing.sm,
+      borderRadius: mfRadius.sm,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.error,
+    },
+    cancelLineBtnText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: theme.error,
     },
     errorInline: {
       color: theme.error,

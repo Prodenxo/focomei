@@ -157,6 +157,7 @@ export interface ConfirmPixMeiPaymentInput {
   meiSlots?: number;
   description?: string;
   emitContrato?: boolean;
+  externalReference?: string;
 }
 
 export interface ConfirmPixMeiPaymentResult {
@@ -165,6 +166,7 @@ export interface ConfirmPixMeiPaymentResult {
   activated: { activated: boolean; ownerId?: string | null };
   legacy_mei_slots_pix: number;
   contrato?: { ok?: boolean; error?: string } | null;
+  idempotent?: boolean;
 }
 
 export async function confirmPixMeiPayment(
@@ -172,6 +174,28 @@ export async function confirmPixMeiPayment(
 ): Promise<ConfirmPixMeiPaymentResult> {
   return apiClient.post<ConfirmPixMeiPaymentResult>(
     '/admin/billing/pix/confirm-payment',
+    body,
+  );
+}
+
+export interface CancelMeiSubscriptionLineInput {
+  empresaId: string;
+  lineId: string;
+}
+
+export interface CancelMeiSubscriptionLineResult {
+  lineId: string;
+  cancelled: boolean;
+  meiSlotsRemoved: number;
+  maxMei: { max_mei: number };
+  legacy_mei_slots_pix?: number | null;
+}
+
+export async function cancelMeiSubscriptionLine(
+  body: CancelMeiSubscriptionLineInput,
+): Promise<CancelMeiSubscriptionLineResult> {
+  return apiClient.post<CancelMeiSubscriptionLineResult>(
+    '/admin/billing/mei-subscription-lines/cancel',
     body,
   );
 }

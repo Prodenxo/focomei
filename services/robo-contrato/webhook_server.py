@@ -71,21 +71,52 @@ def carregar_webhook_secret(cfg: dict[str, Any]) -> str:
     ).strip()
 
 
-def get_client() -> tuple[OnetyClient, dict[str, Any], dict[str, Any]]:
+def invalidate_client() -> None:
+    global _onety_client, _onety_usuario
+    with _client_lock:
+        _onety_client = None
+        _onety_usuario = None
+
+
+def _create_authenticated_client(cfg: dict[str, Any]) -> tuple[OnetyClient, dict[str, Any], dict[str, Any]]:
+    padrao = carregar_padrao(ENTRADA)
+    client = OnetyClient(
+        cfg["api_url"],
+        token=cfg.get("token") or None,
+        empresa_id=cfg.get("empresa_id"),
+    )
+
+    def reauth() -> None:
+        global _onety_usuario
+        force_login = bool(cfg.get("email") and cfg.get("senha"))
+        _onety_usuario = autenticar(client, cfg, force_login=force_login)
+        log.info("Sessão Onety renovada (idle > %ss ou token inválido)", OnetyClient.SESSION_IDLE_SECONDS)
+
+    client.set_reauth_fn(reauth)
+    usuario = autenticar(client, cfg)
+    return client, usuario, padrao
+
+
+def get_client(force_refresh: bool = False) -> tuple[OnetyClient, dict[str, Any], dict[str, Any]]:
     global _onety_client, _onety_usuario, _padrao
     with _client_lock:
+        if force_refresh:
+            _onety_client = None
+            _onety_usuario = None
+
         if _onety_client is None:
             cfg = resolver_config()
-            _padrao = carregar_padrao(ENTRADA)
-            client = OnetyClient(
-                cfg["api_url"],
-                token=cfg.get("token") or None,
-                empresa_id=cfg.get("empresa_id"),
-            )
-            usuario = autenticar(client, cfg)
+            client, usuario, padrao = _create_authenticated_client(cfg)
             _onety_client = client
             _onety_usuario = usuario
+            _padrao = padrao
             log.info("Onety autenticado — empresa %s", cfg.get("empresa_id"))
+        elif _onety_client._session_expired():
+            cfg = resolver_config()
+            force_login = bool(cfg.get("email") and cfg.get("senha"))
+            _onety_usuario = autenticar(_onety_client, cfg, force_login=force_login)
+            log.info("Sessão Onety expirada por idle — relogin automático")
+
         return _onety_client, _onety_usuario or {}, _padrao or {}
 
 
@@ -198,6 +229,27 @@ class WebhookHandler(BaseHTTPRequestHandler):
             resultado = processar_payload_focomei(body)
             status = HTTPStatus.OK if resultado.get("ok") else HTTPStatus.UNPROCESSABLE_ENTITY
             self._send_json(status, resultado)
+        except RuntimeError as exc:
+            if "Token inválido" in str(exc) or "token" in str(exc).lower():
+                log.warning("Token Onety inválido — tentando relogin e reprocessando")
+                invalidate_client()
+                try:
+                    resultado = processar_payload_focomei(body)
+                    status = HTTPStatus.OK if resultado.get("ok") else HTTPStatus.UNPROCESSABLE_ENTITY
+                    self._send_json(status, resultado)
+                    return
+                except Exception as retry_exc:
+                    log.exception("Erro ao reprocessar webhook após relogin")
+                    self._send_json(
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                        {"ok": False, "error": str(retry_exc)},
+                    )
+                    return
+            log.exception("Erro ao processar webhook")
+            self._send_json(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"ok": False, "error": str(exc)},
+            )
         except Exception as exc:
             log.exception("Erro ao processar webhook")
             self._send_json(
