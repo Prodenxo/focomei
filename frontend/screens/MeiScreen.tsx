@@ -56,6 +56,7 @@ import {
 } from '../services/guidesMeiService';
 import {
   listarNfse,
+  importarHistoricoPlugnotas,
   obterNfse,
   baixarNfsePdf,
   baixarNfseXml,
@@ -96,6 +97,7 @@ import { confirmDialog } from '../lib/confirmDialog';
 import { NotaFiscalRowActions } from '../components/NotaFiscalRowActions';
 import { NotaFiscalFailureBanner } from '../components/NotaFiscalFailureBanner';
 import { getNotaCardAccentColor, NotaFiscalListRowHeader } from '../components/NotaFiscalListRowHeader';
+import { buildClienteCatalogByDocumento } from '../lib/notaFiscalDisplay';
 import {
   clearMeiOverviewCache,
   readMeiOverviewParcelamentos,
@@ -488,6 +490,9 @@ function MeiScreenContent() {
   // Notas
   const [notas, setNotas] = useState<NfseRecord[]>([]);
   const [notasLoading, setNotasLoading] = useState(false);
+  const [nfseClientesCatalogByDoc, setNfseClientesCatalogByDoc] = useState<Map<string, string>>(
+    () => new Map(),
+  );
   const [emitirNotaPending, setEmitirNotaPending] = useState(false);
   const [meiLimiteServidor, setMeiLimiteServidor] = useState<{
     totalUtilizadoReais: number;
@@ -497,6 +502,8 @@ function MeiScreenContent() {
   const [meiLimiteServidorLoading, setMeiLimiteServidorLoading] = useState(false);
   const [notaActionId, setNotaActionId] = useState<string | null>(null);
   const notasSyncInFlightRef = useRef(false);
+  const historicoPlugnotasImportInFlightRef = useRef(false);
+  const historicoPlugnotasImportDoneRef = useRef(false);
   const e0014ArchiveTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const meiPeriodsInFlightRef = useRef(false);
   const notasRef = useRef<NfseRecord[]>([]);
@@ -1367,11 +1374,63 @@ function MeiScreenContent() {
     }
   }, [syncNotasEmProcessamento]);
 
+  const syncHistoricoPlugnotas = useCallback(
+    async (options?: { maxPages?: number; force?: boolean; showErrorToast?: boolean }) => {
+      if (!hasCertificate) return null;
+      if (historicoPlugnotasImportInFlightRef.current) return null;
+      if (!options?.force && historicoPlugnotasImportDoneRef.current) return null;
+      historicoPlugnotasImportInFlightRef.current = true;
+      try {
+        const result = await importarHistoricoPlugnotas({
+          ...(normalizedCnpj.length === 14 ? { cnpj: normalizedCnpj } : {}),
+          maxPages: options?.maxPages ?? 20,
+        });
+        historicoPlugnotasImportDoneRef.current = true;
+        return result;
+      } catch (error: any) {
+        if (options?.force || options?.showErrorToast) {
+          showToast(
+            error?.message || 'Não foi possível importar notas da PlugNotas.',
+            'error',
+          );
+        }
+        return null;
+      } finally {
+        historicoPlugnotasImportInFlightRef.current = false;
+      }
+    },
+    [hasCertificate, normalizedCnpj, showToast],
+  );
+
+  const loadNfseClientesCatalog = useCallback(async () => {
+    if (!hasCertificate) {
+      setNfseClientesCatalogByDoc(new Map());
+      return;
+    }
+    try {
+      const list = await listarCatalogoNfseClientes({ limit: 5000, documentType: 'NFSE' });
+      setNfseClientesCatalogByDoc(buildClienteCatalogByDocumento(Array.isArray(list) ? list : []));
+    } catch {
+      setNfseClientesCatalogByDoc(new Map());
+    }
+  }, [hasCertificate]);
+
   const loadNotas = useCallback(
-    async (options?: { syncPending?: boolean; silent?: boolean }) => {
+    async (options?: {
+      syncPending?: boolean;
+      silent?: boolean;
+      skipHistoricoImport?: boolean;
+      historicoMaxPages?: number;
+    }) => {
       const syncPending = options?.syncPending !== false;
       if (!options?.silent) setNotasLoading(true);
       try {
+        void loadNfseClientesCatalog();
+        if (!options?.skipHistoricoImport) {
+          await syncHistoricoPlugnotas({
+            maxPages: options?.historicoMaxPages ?? 20,
+          });
+        }
         const list = await listarNfse({
           includeArchived: nfseIncludeArchived,
           ...(nfseDocumentTypeFilter !== 'all' ? { documentType: nfseDocumentTypeFilter } : {}),
@@ -1398,7 +1457,7 @@ function MeiScreenContent() {
         if (!options?.silent) setNotasLoading(false);
       }
     },
-    [nfseIncludeArchived, nfseDocumentTypeFilter, syncNotasEmProcessamento]
+    [nfseIncludeArchived, nfseDocumentTypeFilter, syncNotasEmProcessamento, syncHistoricoPlugnotas, loadNfseClientesCatalog]
   );
 
   const loadMeiLimiteServidor = useCallback(async () => {
@@ -1424,24 +1483,39 @@ function MeiScreenContent() {
     }
   }, [hasCertificate]);
 
+  useEffect(() => {
+    if (meiCertificateLoading || !hasCertificate || notasLoading) return;
+    void loadMeiLimiteServidor();
+  }, [notas, notasLoading, hasCertificate, meiCertificateLoading, loadMeiLimiteServidor]);
+
   const handleAtualizarNotasToolbar = useCallback(async () => {
     try {
-      const synced = await loadNotas({ syncPending: true });
+      const importResult = await syncHistoricoPlugnotas({ maxPages: 40, force: true });
+      const synced = await loadNotas({ syncPending: true, skipHistoricoImport: true });
       void loadMeiLimiteServidor();
       const pending = synced.filter((n) => {
         const key = getNfseStatusKey(n.status);
         return key === 'processando' || key === 'aguardando';
       }).length;
+      const importedTotal = (importResult?.imported ?? 0) + (importResult?.updated ?? 0);
+      const concluidas = importResult?.importedConcluidas ?? 0;
+      const arquivadas = importResult?.importedArquivadas ?? 0;
+      const importHint =
+        importResult && importedTotal > 0
+          ? ` ${concluidas} concluída(s) na lista${arquivadas > 0 ? `, ${arquivadas} cancelada(s)/rejeitada(s) arquivada(s)` : ''}.`
+          : importResult && importResult.totalFetched === 0
+            ? ' Nenhuma nota encontrada na PlugNotas neste intervalo.'
+            : '';
       showToast(
         pending > 0
-          ? `Lista atualizada. ${pending} nota(s) ainda em processamento no emissor.`
-          : 'Lista e status das notas atualizados.',
+          ? `Lista atualizada.${importHint} ${pending} nota(s) ainda em processamento no emissor.`
+          : `Lista e status das notas atualizados.${importHint}`,
         pending > 0 ? 'info' : 'success'
       );
     } catch {
       showToast('Não foi possível atualizar as notas.', 'error');
     }
-  }, [loadNotas, loadMeiLimiteServidor, showToast]);
+  }, [loadNotas, loadMeiLimiteServidor, showToast, syncHistoricoPlugnotas]);
 
   const atualizarParcelasPorCompetencia = useCallback(async (listaBase?: ParcelamentoItem[]) => {
     const base = listaBase ?? parcelamentos;
@@ -3451,6 +3525,7 @@ function MeiScreenContent() {
                           nota={n}
                           textColor={theme.text}
                           textSecondary={theme.textSecondary}
+                          clienteCatalogByDoc={nfseClientesCatalogByDoc}
                         />
                         <NotaFiscalFailureBanner nota={n} errorColor={theme.error} />
                         {n.id !== '__emit_pending__' ? (
@@ -3553,6 +3628,7 @@ function MeiScreenContent() {
                       nota={n}
                       textColor={theme.text}
                       textSecondary={theme.textSecondary}
+                      clienteCatalogByDoc={nfseClientesCatalogByDoc}
                     />
                     <NotaFiscalFailureBanner nota={n} errorColor={theme.error} />
                     {n.id !== '__emit_pending__' ? (

@@ -334,6 +334,8 @@ const collectPeriodoNotas = (body) => {
   return [];
 };
 
+export { collectPeriodoNotas };
+
 /**
  * @deprecated Preferir max conhecido via {@link readRpsNumeroFromNfseHistoryRow}.
  * Mantido só para testes de regressão — contagem de linhas ≠ número RPS na prefeitura.

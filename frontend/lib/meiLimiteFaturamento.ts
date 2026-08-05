@@ -153,6 +153,10 @@ function valorLimiteDeItemServico(item: Record<string, unknown>): number | null 
 
 export function extrairValorTotalServicosDeObjeto(raw: Record<string, unknown> | null): number | null {
   if (!raw) return null
+  const topLevel = parseValorMonetarioBr(
+    raw.valorServico ?? raw.valorTotal ?? raw.valorNfse ?? raw.valor,
+  )
+  if (topLevel !== null && topLevel >= 0) return topLevel
   let servicos = raw.servico ?? raw.servicos
   if (servicos && !Array.isArray(servicos)) {
     servicos = [servicos]
@@ -195,6 +199,26 @@ export function anoCivilFromIsoCreatedAt(createdAt: string | undefined | null): 
   return Number.isFinite(n) ? n : null
 }
 
+export function resolverDataEmissaoDaNota(record: NfseRecord): string | null {
+  const resp = resolverResponseJsonDaNota(record)
+  const r = record as Record<string, unknown>
+  const candidates = [
+    resp?.dataAutorizacao,
+    resp?.dataAutorizacaoNfse,
+    resp?.dataEmissao,
+    resp?.data_emissao,
+    resp?.emissao,
+    record.created_at,
+    r.createdAt,
+  ]
+  for (const value of candidates) {
+    if (value == null || value === '') continue
+    const parsed = new Date(String(value))
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString()
+  }
+  return null
+}
+
 export function somarNfseAutorizadasNoAnoCivil(
   records: NfseRecord[],
   options: { anoCivil: number },
@@ -205,7 +229,7 @@ export function somarNfseAutorizadasNoAnoCivil(
   for (const record of records) {
     if (!isNfseDocumento(record)) continue
     if (!nfseDeveEntrarNoSomatórioLimite(record.status)) continue
-    const y = anoCivilFromIsoCreatedAt(record.created_at)
+    const y = anoCivilFromIsoCreatedAt(resolverDataEmissaoDaNota(record))
     if (y !== anoCivil) continue
     const valor = extrairValorLimiteMeiDaNota(record)
     if (valor === null) continue
@@ -240,6 +264,14 @@ export function computeMeiLimiteProgresso(
   if (options.agregadoServidor !== undefined) {
     total = options.agregadoServidor.totalUtilizadoReais
     notasConsideradas = options.agregadoServidor.notasConsideradas
+    const local = somarNfseAutorizadasNoAnoCivil(records, { anoCivil: options.anoCivil })
+    if (local.notasConsideradas === 0 && total > 0) {
+      total = 0
+      notasConsideradas = 0
+    } else if (notasConsideradas === 0 && local.notasConsideradas > 0) {
+      total = local.total
+      notasConsideradas = local.notasConsideradas
+    }
   } else {
     const s = somarNfseAutorizadasNoAnoCivil(records, { anoCivil: options.anoCivil })
     total = s.total

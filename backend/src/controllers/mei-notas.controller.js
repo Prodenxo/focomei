@@ -35,6 +35,7 @@ import { enderecoFromCepLookupNfse } from '../services/plugnotas/plugnotas-nfse-
 import { badRequest, unauthorized } from '../utils/errors.js';
 import { parseCatalogLimit } from '../utils/mei-catalog-query.js';
 import { sendSuccess } from '../utils/response.js';
+import { importarHistoricoPlugnotas } from '../services/mei-notas-plugnotas-import.service.js';
 
 const firstValue = (value) => (Array.isArray(value) ? value[0] : value);
 const toToken = (value) => String(firstValue(value) || '').trim();
@@ -101,6 +102,22 @@ export const listar = async (req, res, next) => {
       limit
     });
     return sendSuccess(res, data, 'Notas fiscais listadas');
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/** Importa NFS-e já emitidas na PlugNotas para a lista local do usuário. */
+export const importarHistorico = async (req, res, next) => {
+  try {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const data = await importarHistoricoPlugnotas(req.user.id, {
+      cnpj: body.cnpj,
+      dataInicial: body.dataInicial,
+      dataFinal: body.dataFinal,
+      maxPages: body.maxPages,
+    });
+    return sendSuccess(res, data, 'Histórico de notas importado da PlugNotas');
   } catch (error) {
     return next(error);
   }

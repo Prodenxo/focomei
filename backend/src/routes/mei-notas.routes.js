@@ -50,6 +50,7 @@ router.get('/cnpj-lookup/:cnpj', requireAuth, controller.lookupCnpj);
 router.get('/cep-lookup/:cep', requireAuth, requireMeiEnabled, controller.lookupCep);
 router.get('/', requireAuth, requireMeiEnabled, controller.listar);
 router.get('/limite-faturamento', requireAuth, requireMeiEnabled, controller.limiteFaturamento);
+router.post('/importar/historico', requireAuth, requireMeiEnabled, controller.importarHistorico);
 router.get('/relatorio/nfe', requireAuth, requireMeiEnabled, controller.relatorioNfe);
 router.get('/catalogo/clientes', requireAuth, requireMeiEnabled, controller.listarCatalogoClientes);
 router.post('/catalogo/clientes', requireAuth, requireMeiEnabled, controller.criarCatalogoCliente);

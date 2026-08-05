@@ -133,6 +133,10 @@ function valorLimiteDeItemServico(item) {
 
 export function extrairValorTotalServicosDeObjeto(raw) {
   if (!raw) return null;
+  const topLevel = parseValorMonetarioBr(
+    raw.valorServico ?? raw.valorTotal ?? raw.valorNfse ?? raw.valor,
+  );
+  if (topLevel !== null && topLevel >= 0) return topLevel;
   let servicos = raw.servico ?? raw.servicos;
   if (servicos && !Array.isArray(servicos)) {
     servicos = [servicos];
@@ -180,6 +184,26 @@ export function anoCivilFromIsoCreatedAt(createdAt) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Data de emissão/autorização (PlugNotas) com fallback em created_at. */
+export function resolverDataEmissaoDaNota(record) {
+  const resp = resolverResponseJsonDaNota(record);
+  const candidates = [
+    resp?.dataAutorizacao,
+    resp?.dataAutorizacaoNfse,
+    resp?.dataEmissao,
+    resp?.data_emissao,
+    resp?.emissao,
+    record?.created_at,
+    record?.createdAt,
+  ];
+  for (const value of candidates) {
+    if (value == null || value === '') continue;
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  }
+  return null;
+}
+
 /**
  * @param {Array<Record<string, unknown>>} rows - linhas com payload_json, response_json, status, created_at, document_type
  * @param {number} anoCivil
@@ -191,7 +215,7 @@ export function agregarLimiteMeiDasLinhas(rows, anoCivil) {
   for (const record of rows || []) {
     if (!isNfseDocumentoRow(record)) continue;
     if (!nfseDeveEntrarNoSomatorioLimite(record.status)) continue;
-    const y = anoCivilFromIsoCreatedAt(record.created_at);
+    const y = anoCivilFromIsoCreatedAt(resolverDataEmissaoDaNota(record));
     if (y !== anoCivil) continue;
     const valor = extrairValorLimiteMeiDaNota(record);
     if (valor === null) continue;

@@ -2193,13 +2193,10 @@ export const agregarLimiteFaturamento = async (userId, anoCivil) => {
     throw badRequest('Ano civil inválido para o limite de faturamento');
   }
   const dbClient = getDb();
-  const { startIso, endExclusiveIso } = civilYearCreatedAtBoundsUtcIso(safeYear);
   let query = dbClient
     .from(TABLE)
     .select('payload_json, response_json, status, created_at, document_type, archived_at')
     .eq('user_id', userId)
-    .gte('created_at', startIso)
-    .lt('created_at', endExclusiveIso)
     .order('created_at', { ascending: false })
     .limit(MEI_LIMITE_AGG_QUERY_LIMIT);
   query = query.or(`document_type.eq.${DOCUMENT_TYPE_NFSE},document_type.is.null`);

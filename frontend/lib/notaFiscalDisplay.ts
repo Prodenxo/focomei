@@ -12,6 +12,11 @@ function pickTrimmedString(value: unknown): string | null {
   return s || null
 }
 
+function looksLikeFormattedDocument(name: string): boolean {
+  return /^\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}$/.test(name)
+    || /^\d{3}\.\d{3}\.\d{3}-\d{2}$/.test(name)
+}
+
 function extrairNomeDeObjeto(
   raw: Record<string, unknown> | null,
   documentType: string | null | undefined,
@@ -26,24 +31,86 @@ function extrairNomeDeObjeto(
       if (name) return name
     }
   }
+
+  const nomeTomador = pickTrimmedString(
+    raw.nomeTomador ?? raw.tomadorNome ?? raw.razaoSocialTomador,
+  )
+  if (nomeTomador) return nomeTomador
+
   const tomador = raw.tomador
   if (tomador && typeof tomador === 'object' && !Array.isArray(tomador)) {
     const t = tomador as Record<string, unknown>
     const name = pickTrimmedString(t.razaoSocial ?? t.nome ?? t.nomeFantasia)
     if (name) return name
   }
+
   return null
 }
 
-export function extrairNomeClienteDaNota(record: NfseRecord): string | null {
+export type ClienteCatalogByDoc = ReadonlyMap<string, string> | Record<string, string>
+
+export function buildClienteCatalogByDocumento(
+  clientes: Array<{ documento?: string | null; nome?: string | null }>,
+): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const item of clientes) {
+    const doc = String(item.documento ?? '').replace(/\D/g, '')
+    const nome = String(item.nome ?? '').trim()
+    if (doc.length >= 11 && nome) map.set(doc, nome)
+  }
+  return map
+}
+
+function lookupNomeNoCatalogo(
+  doc: string | null,
+  catalogByDoc?: ClienteCatalogByDoc | null,
+): string | null {
+  if (!doc || !catalogByDoc) return null
+  const key = doc.replace(/\D/g, '')
+  if (key.length < 11) return null
+  if (catalogByDoc instanceof Map) return catalogByDoc.get(key) ?? null
+  return catalogByDoc[key] ?? null
+}
+
+export function extrairDocumentoTomadorDaNota(record: NfseRecord): string | null {
+  const fromColumn = String(record.cnpj_tomador ?? '').replace(/\D/g, '')
+  if (fromColumn.length >= 11) return fromColumn
+
   const sources = [
-    resolverResponseJsonDaNota(record),
     resolverPayloadJsonDaNota(record),
+    resolverResponseJsonDaNota(record),
+  ].filter(Boolean) as Record<string, unknown>[]
+
+  for (const src of sources) {
+    const tomador = src.tomador
+    if (tomador && typeof tomador === 'object' && !Array.isArray(tomador)) {
+      const doc = String((tomador as Record<string, unknown>).cpfCnpj ?? '').replace(/\D/g, '')
+      if (doc.length >= 11) return doc
+    }
+    if (typeof tomador === 'string' || typeof tomador === 'number') {
+      const doc = String(tomador).replace(/\D/g, '')
+      if (doc.length >= 11) return doc
+    }
+  }
+  return null
+}
+
+export function extrairNomeClienteDaNota(
+  record: NfseRecord,
+  catalogByDoc?: ClienteCatalogByDoc | null,
+): string | null {
+  const sources = [
+    resolverPayloadJsonDaNota(record),
+    resolverResponseJsonDaNota(record),
   ].filter(Boolean) as Record<string, unknown>[]
   for (const src of sources) {
     const name = extrairNomeDeObjeto(src, record.document_type)
-    if (name) return name
+    if (name && !looksLikeFormattedDocument(name)) return name
   }
+
+  const fromCatalog = lookupNomeNoCatalogo(extrairDocumentoTomadorDaNota(record), catalogByDoc)
+  if (fromCatalog) return fromCatalog
+
   return null
 }
 

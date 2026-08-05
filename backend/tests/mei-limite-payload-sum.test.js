@@ -11,6 +11,36 @@ import {
   nfseDeveEntrarNoSomatorioLimite
 } from '../src/utils/meiLimitePayloadSum.js';
 
+test('extrairValorTotalServicosDeObjeto lê valorServico no root (PlugNotas periodo)', () => {
+  assert.equal(
+    extrairValorTotalServicosDeObjeto({
+      tomador: '18189174000160',
+      valorServico: 10.5,
+      situacao: 'CONCLUIDO',
+    }),
+    10.5,
+  );
+});
+
+test('agregarLimiteMeiDasLinhas: NFSE PlugNotas periodo com valorServico no root', () => {
+  const rows = [
+    {
+      document_type: 'NFSE',
+      status: 'CONCLUIDO',
+      created_at: '2026-03-23T12:00:00.000Z',
+      payload_json: null,
+      response_json: {
+        tomador: '18189174000160',
+        valorServico: 10.5,
+        dataAutorizacao: '2026-03-23T12:00:00.000Z',
+      },
+    },
+  ];
+  const r = agregarLimiteMeiDasLinhas(rows, 2026);
+  assert.equal(r.total, 10.5);
+  assert.equal(r.notasConsideradas, 1);
+});
+
 test('extrairValorServicoTotalDoPayload soma servico[].valor.servico', () => {
   const payload = {
     servico: [

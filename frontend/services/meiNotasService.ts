@@ -502,6 +502,41 @@ export async function listarNfse(options: ListarNotasInput = {}): Promise<NfseRe
   return await listarNotas(options);
 }
 
+export interface ImportarHistoricoPlugnotasInput {
+  cnpj?: string;
+  dataInicial?: string;
+  dataFinal?: string;
+  maxPages?: number;
+}
+
+export interface ImportarHistoricoPlugnotasResult {
+  cnpjPrestador: string;
+  dataInicial: string;
+  dataFinal: string;
+  windowsTotal?: number;
+  windowsProcessed?: number;
+  pagesFetched: number;
+  totalFetched: number;
+  imported: number;
+  updated: number;
+  skipped: number;
+  ignored?: number;
+  importedConcluidas?: number;
+  importedArquivadas?: number;
+  hasMore: boolean;
+  hashProximaPagina?: string | null;
+}
+
+/** Busca NFS-e já emitidas na PlugNotas e grava/atualiza na lista local. */
+export async function importarHistoricoPlugnotas(
+  input: ImportarHistoricoPlugnotasInput = {},
+): Promise<ImportarHistoricoPlugnotasResult> {
+  return await apiClient.post<ImportarHistoricoPlugnotasResult>(
+    '/mei-notas/importar/historico',
+    input,
+  );
+}
+
 export async function obterNota(id: string, sync = false): Promise<NfseRecord> {
   const query = new URLSearchParams({ ...(sync ? { sync: 'true' } : {}) });
   const suffix = query.toString() ? `?${query.toString()}` : '';
