@@ -1,5 +1,5 @@
 import { badRequest, serviceUnavailable } from '../utils/errors.js';
-import { MEI_GUIDE_SERPRO_UNAVAILABLE } from '../constants/mei-guide-error-codes.js';
+import { MEI_DAS_PAID_NO_PDF, MEI_GUIDE_SERPRO_UNAVAILABLE } from '../constants/mei-guide-error-codes.js';
 
 export const MEI_DAS_PERIODO_INDISPONIVEL_CODE = 'MEI_DAS_PERIODO_INDISPONIVEL';
 
@@ -144,7 +144,10 @@ export const periodoIndisponivelError = (serproText, competenciaLabel) => {
 export const assertSerproDasPeriodoDisponivel = (response, competenciaLabel) => {
   const serproText = collectSerproMessagesText(response);
   if (isPeriodoPagoSerproMessage(serproText)) {
-    throw new Error(serproText || 'Período já quitado na Receita');
+    throw badRequest(
+      serproText || 'Período já quitado na Receita',
+      { code: MEI_DAS_PAID_NO_PDF },
+    );
   }
   if (isPeriodoIndisponivelSerproMessage(serproText)) {
     throw periodoIndisponivelError(serproText, competenciaLabel);

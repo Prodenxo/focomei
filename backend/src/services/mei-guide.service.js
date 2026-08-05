@@ -60,7 +60,11 @@ import {
   isDasCompetenciaVencida,
 } from './mei-das-vencimento.js';
 
-const MEI_DAS_PAID_NO_PDF_CODE = 'MEI_DAS_PAID_NO_PDF';
+import {
+  MEI_DAS_PAID_NO_PDF,
+  MEI_GUIDE_INTEGRATION_SERPRO,
+  MEI_GUIDE_SERPRO_UNAVAILABLE,
+} from '../constants/mei-guide-error-codes.js';
 import * as parcelamentoPdfService from './mei-guide-parcelamento-pdf.service.js';
 
 const require = createRequire(import.meta.url);
@@ -322,7 +326,7 @@ const normalizePeriodoApuracao = (periodo, mes, ano) => {
 const PAID_PERIOD_BUSINESS_MESSAGE =
   'Este mês já está pago na Receita e ela não devolveu um novo PDF aqui. Abra o PGMEI (gov.br) → competência 02/2026 → comprovante/DAS, ou peça suporte para reimportar o arquivo.';
 const paidPeriodNoPdfError = () =>
-  badRequest(PAID_PERIOD_BUSINESS_MESSAGE, { code: MEI_DAS_PAID_NO_PDF_CODE });
+  badRequest(PAID_PERIOD_BUSINESS_MESSAGE, { code: MEI_DAS_PAID_NO_PDF });
 const HISTORICO_DAS_ERROR_FALLBACK = 'Falha técnica ao consultar período no Serpro.';
 const SERPRO_SEM_PDF_PATTERNS = [
   /pdf\s+do\s+das\s+n[aã]o\s+retornado/i,
@@ -345,6 +349,18 @@ const getPeriodHistoryErrorMessage = (error) => {
   const message = String(error?.message || '').trim();
   if (!message) return HISTORICO_DAS_ERROR_FALLBACK;
   return message.slice(0, 220);
+};
+
+const normalizeDasSerproError = (error, fallbackMessage) => {
+  if (error?.status) return error;
+  if (isPeriodoIndisponivelSerproError(error)) return error;
+  if (isSerproUnavailableError(error)) return error;
+  if (shouldMarkCompetenciaAsPaid(error)) return paidPeriodNoPdfError();
+  const message = String(error?.message || fallbackMessage || HISTORICO_DAS_ERROR_FALLBACK).trim();
+  if (isPeriodoIndisponivelSerproMessage(message)) {
+    return periodoIndisponivelError(message, null);
+  }
+  return badRequest(message || fallbackMessage || HISTORICO_DAS_ERROR_FALLBACK);
 };
 
 const normalizeDocumentoFiscalForStatus = (value) => {
@@ -1718,10 +1734,10 @@ const fetchDasPdfFromSerpro = async ({
       return { pdfBase64, period, status: emitResponse?.status || 'gerado' };
     }
     const serproHint = assertSerproDasPeriodoDisponivel(emitResponse, competenciaLabel);
-    lastError = new Error(serproHint || 'PDF do DAS não retornado');
+    lastError = badRequest(serproHint || 'PDF do DAS não retornado');
   } catch (error) {
     if (isPeriodoIndisponivelSerproError(error)) throw error;
-    lastError = error;
+    lastError = normalizeDasSerproError(error, 'PDF do DAS não retornado');
   }
 
   try {
@@ -1744,12 +1760,12 @@ const fetchDasPdfFromSerpro = async ({
       if (shouldMarkCompetenciaAsPaid(lastError)) {
         throw paidPeriodNoPdfError();
       }
-      throw lastError;
+      throw normalizeDasSerproError(lastError, 'A Receita Federal não devolveu o PDF do DAS para este período.');
     }
     if (shouldMarkCompetenciaAsPaid(error)) {
       throw paidPeriodNoPdfError();
     }
-    throw error;
+    throw normalizeDasSerproError(error, 'A Receita Federal não devolveu o PDF do DAS para este período.');
   }
 
   if (lastError) {

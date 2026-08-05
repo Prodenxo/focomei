@@ -34,6 +34,14 @@ export const errorHandler = (err, req, res, _next) => {
       url: req?.originalUrl,
       action: req?.body?.action,
     });
+  } else if (status >= 400 && String(req?.originalUrl || '').includes('/mei-guide')) {
+    // eslint-disable-next-line no-console
+    console.warn('[mei-guide]', {
+      status,
+      message: err?.message || '(sem mensagem)',
+      method: req?.method,
+      url: req?.originalUrl,
+    });
   }
 
   res.status(status).json({
