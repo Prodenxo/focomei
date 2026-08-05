@@ -94,7 +94,12 @@ morgan.token('url', (req) => redactSensitiveUrlsForLog(req.originalUrl || req.ur
 app.use(morgan('dev'));
 
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', buildId: BACKEND_BUILD_ID });
+  res.json({
+    status: 'ok',
+    buildId: BACKEND_BUILD_ID,
+    authMode: env.AUTH_MODE,
+    features: { dasLocalPersist: true },
+  });
 });
 
 app.get('/', (_req, res) => {

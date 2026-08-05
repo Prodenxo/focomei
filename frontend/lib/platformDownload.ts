@@ -50,7 +50,6 @@ function deliverOnWeb(data: Uint8Array, filename: string, mimeType: string): voi
     throw new Error('Download no browser indisponível neste ambiente.');
   }
   const safeName = filename.toLowerCase().endsWith('.pdf') ? filename : `${filename}.pdf`;
-  // application/pdf + atributo download → arquivo na pasta Downloads (sem diálogo "Salvar como").
   const blob = new Blob([data.slice()], { type: mimeType === 'application/pdf' ? 'application/pdf' : mimeType });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -61,7 +60,24 @@ function deliverOnWeb(data: Uint8Array, filename: string, mimeType: string): voi
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  window.setTimeout(() => {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      /* ignore */
+    }
+  }, 60_000);
+
+  // Alguns browsers bloqueiam download após fetch assíncrono — abre o PDF em nova aba como fallback.
+  window.setTimeout(() => {
+    try {
+      const popup = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!popup) return;
+      popup.opener = null;
+    } catch {
+      /* ignore */
+    }
+  }, 400);
 }
 
 export type PresentDownloadOptions = {
@@ -77,13 +93,6 @@ export async function presentDownloadedFile(
   options: PresentDownloadOptions
 ): Promise<void> {
   if (result.deliveredViaBrowser) {
-    if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-      const name = result.filename || 'documento.pdf';
-      Alert.alert(
-        options.dialogTitle || 'Download',
-        `O PDF "${name}" foi enviado para a pasta Downloads do seu navegador.`,
-      );
-    }
     return;
   }
 

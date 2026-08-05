@@ -28,7 +28,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { DEFAULT_APP_HREF } from '../lib/appNavConfig';
 import { CertificateIcon } from '../components/icons/CertificateIcon';
-import { presentDownloadedFile } from '../lib/platformDownload';
+import { presentDownloadedFile, type PersistDownloadResult } from '../lib/platformDownload';
 import { getWebScrollbarStyle } from '../lib/webScrollbar';
 import { BlurView } from 'expo-blur';
 import { useThemeStore } from '../store/themeStore';
@@ -1017,6 +1017,26 @@ function MeiScreenContent() {
     }
   };
 
+  const confirmDasDownload = async (
+    result: PersistDownloadResult,
+    options: { dialogTitle: string; successMessage?: string; toastMessage?: string },
+  ) => {
+    await presentDownloadedFile(result, {
+      mimeType: 'application/pdf',
+      dialogTitle: options.dialogTitle,
+      successMessage: options.successMessage,
+    });
+    if (result.deliveredViaBrowser) {
+      showToast(
+        options.toastMessage
+          || `PDF baixado (${result.filename || 'guia-mei.pdf'}). Verifique Downloads ou a nova aba do navegador.`,
+        'success',
+      );
+    } else if (options.toastMessage) {
+      showToast(options.toastMessage, 'success');
+    }
+  };
+
   const handleDownloadGuide = async (period?: MeiPeriod) => {
     if (normalizedCnpj.length !== 14) {
       Alert.alert('Erro', 'Informe um CNPJ válido do contribuinte');
@@ -1062,35 +1082,31 @@ function MeiScreenContent() {
             guide.pdfBase64,
             guide.filename || `guia-mei-${periodoApuracao}.pdf`,
           );
-          await presentDownloadedFile(
-            { localUri: saved.localUri, filename: saved.filename },
-            {
-              mimeType: 'application/pdf',
-              dialogTitle: 'Guia MEI atualizada',
-              successMessage: saved.localUri
-                ? `Guia com valor atualizado salva em: ${saved.localUri}`
-                : 'Guia regenerada na Receita com valor atualizado.',
-            },
-          );
+          await confirmDasDownload(saved, {
+            dialogTitle: 'Guia MEI atualizada',
+            successMessage: saved.localUri
+              ? `Guia com valor atualizado salva em: ${saved.localUri}`
+              : 'Guia regenerada na Receita com valor atualizado.',
+            toastMessage: 'Guia vencida regenerada na Receita com o valor atualizado.',
+          });
         } else {
           const result = await downloadMeiGuide(normalizedCnpj, periodoApuracao, contrib, {
             forceRefresh: true,
           });
-          await presentDownloadedFile(result, {
-            mimeType: 'application/pdf',
+          await confirmDasDownload(result, {
             dialogTitle: 'Guia MEI atualizada',
             successMessage: result.localUri
               ? `Guia com valor atualizado salva em: ${result.localUri}`
               : undefined,
+            toastMessage: 'Guia vencida regenerada na Receita com o valor atualizado.',
           });
         }
-        showToast('Guia vencida regenerada na Receita com o valor atualizado.', 'success');
       } else {
         const result = await downloadMeiGuide(normalizedCnpj, periodoApuracao, contrib);
-        await presentDownloadedFile(result, {
-          mimeType: 'application/pdf',
+        await confirmDasDownload(result, {
           dialogTitle: 'Guia MEI',
           successMessage: result.localUri ? `Guia salva em: ${result.localUri}` : undefined,
+          toastMessage: 'Guia MEI baixada com sucesso.',
         });
       }
       void loadMeiPeriods({ silent: true, refresh: true });

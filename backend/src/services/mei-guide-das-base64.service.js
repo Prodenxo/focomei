@@ -64,11 +64,21 @@ const getDasBase64Pg = async ({ userId, periodoApuracao }) => {
     throw badRequest('Período de apuração inválido para consulta do DAS');
   }
 
+  const year = Number(periodo.raw.slice(0, 4));
+  const month = Number(periodo.raw.slice(4, 6));
+  const periodStart = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0)).toISOString();
+  const periodEnd = new Date(Date.UTC(year, month, 1, 0, 0, 0)).toISOString();
+
   const { rows } = await query(
     `SELECT das FROM public.das_mei
-     WHERE user_id = $1 AND periodo_apuracao = $2
+     WHERE user_id = $1
+       AND (
+         periodo_apuracao = $2
+         OR (periodo_apuracao >= $3 AND periodo_apuracao < $4)
+       )
+     ORDER BY created_at DESC
      LIMIT 1`,
-    [userId, periodo.iso],
+    [userId, periodo.iso, periodStart, periodEnd],
   );
   return rows[0]?.das || null;
 };
@@ -77,10 +87,19 @@ const deleteDasBase64Pg = async ({ userId, periodoApuracao }) => {
   const periodo = normalizePeriodo(periodoApuracao);
   if (!periodo) throw badRequest('Período inválido');
 
+  const year = Number(periodo.raw.slice(0, 4));
+  const month = Number(periodo.raw.slice(4, 6));
+  const periodStart = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0)).toISOString();
+  const periodEnd = new Date(Date.UTC(year, month, 1, 0, 0, 0)).toISOString();
+
   await query(
     `DELETE FROM public.das_mei
-     WHERE user_id = $1 AND periodo_apuracao = $2`,
-    [userId, periodo.iso],
+     WHERE user_id = $1
+       AND (
+         periodo_apuracao = $2
+         OR (periodo_apuracao >= $3 AND periodo_apuracao < $4)
+       )`,
+    [userId, periodo.iso, periodStart, periodEnd],
   );
   return { deleted: true, periodoApuracao: periodo.raw };
 };

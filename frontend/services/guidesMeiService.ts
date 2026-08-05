@@ -1,4 +1,5 @@
 import { apiClient, downloadToFile } from '../lib/apiClient';
+import type { PersistDownloadResult } from '../lib/platformDownload';
 import { mimeFromFilename, persistBinaryDownload } from '../lib/platformDownload';
 
 export interface CreateMeiGuideInput {
@@ -129,11 +130,15 @@ export function base64PdfToUint8Array(pdfBase64: string): Uint8Array {
 export async function saveMeiGuidePdfFromBase64(
   pdfBase64: string,
   filename: string
-): Promise<{ localUri: string; filename: string | null }> {
+): Promise<PersistDownloadResult> {
   const bytes = base64PdfToUint8Array(pdfBase64);
   const safeName = filename || 'guia-mei.pdf';
   const saved = await persistBinaryDownload(bytes, safeName, mimeFromFilename(safeName));
-  return { localUri: saved.localUri, filename: saved.filename };
+  return {
+    localUri: saved.localUri,
+    filename: saved.filename || safeName,
+    deliveredViaBrowser: saved.deliveredViaBrowser,
+  };
 }
 
 export async function regenerateMeiGuide(

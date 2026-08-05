@@ -3,6 +3,14 @@ import * as meiGuideDasBase64Service from '../services/mei-guide-das-base64.serv
 import { getNfsePrestadorPrefill } from '../services/mei-prestador-prefill.service.js';
 import { sendSuccess } from '../utils/response.js';
 
+const persistDasBase64Safely = async (payload) => {
+  try {
+    await meiGuideDasBase64Service.upsertDasBase64(payload);
+  } catch (persistError) {
+    console.warn('[mei-guide] Falha ao persistir DAS (não-fatal):', persistError?.message || persistError);
+  }
+};
+
 export const createGuide = async (req, res, next) => {
   try {
     const data = await meiGuideService.createGuide(req.user.id, {
@@ -11,7 +19,7 @@ export const createGuide = async (req, res, next) => {
       contribuinte: req.body?.contribuinte
     });
     if (data?.pdfBase64 && data?.id) {
-      await meiGuideDasBase64Service.upsertDasBase64({
+      await persistDasBase64Safely({
         userId: req.user.id,
         periodoApuracao: data.id,
         pdfBase64: data.pdfBase64,
@@ -32,7 +40,7 @@ export const regenerateGuide = async (req, res, next) => {
       contribuinte: req.body?.contribuinte,
     });
     if (data?.pdfBase64 && data?.id) {
-      await meiGuideDasBase64Service.upsertDasBase64({
+      await persistDasBase64Safely({
         userId: req.user.id,
         periodoApuracao: data.id,
         pdfBase64: data.pdfBase64,
@@ -78,15 +86,11 @@ export const downloadGuide = async (req, res, next) => {
     if (!isPdf) {
       return next(Object.assign(new Error('Resposta da Receita não é um PDF válido'), { status: 502 }));
     }
-    try {
-      await meiGuideDasBase64Service.upsertDasBase64({
-        userId: req.user.id,
-        periodoApuracao: id,
-        pdfBase64: buffer.toString('base64')
-      });
-    } catch (persistError) {
-      console.warn('[mei-guide] Falha ao persistir DAS após download (não-fatal):', persistError?.message || persistError);
-    }
+    await persistDasBase64Safely({
+      userId: req.user.id,
+      periodoApuracao: id,
+      pdfBase64: buffer.toString('base64'),
+    });
     if (file.refreshed) {
       res.setHeader('X-DAS-Refreshed', '1');
     }
