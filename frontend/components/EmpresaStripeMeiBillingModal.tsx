@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Modal,
   Platform,
   Pressable,
@@ -35,6 +34,7 @@ import { useMfTheme } from './ui/useMfTheme';
 import { getTechTokens, mfTechInsetSurface, mfTechPanelChrome } from '../lib/techDesign';
 import { mfRadius, mfSpacing, mfTypography } from '../lib/theme';
 import { MEI_SLOT_PACKAGE_OPTIONS, resolveMeiPackagePrice } from '../lib/meiBillingPricing';
+import { confirmDialog } from '../lib/confirmDialog';
 
 const apiErrorMessage = (e: unknown, fallback: string) =>
   e instanceof Error ? e.message : fallback;
@@ -340,50 +340,44 @@ export function EmpresaStripeMeiBillingModal({
     }
   };
 
-  const handleConfirmPixPayment = () => {
+  const handleConfirmPixPayment = async () => {
     if (!empresa || confirmPixLoading) return;
-    Alert.alert(
-      'Confirmar PIX',
-      `Liberar ${meiSlots} vagas MEI para ${empresaDisplayName}? Só confirme uma vez — se o contrato falhar, use "Gerar contrato".`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Confirmar PIX', onPress: () => void runConfirmPixPayment() },
-      ],
-    );
+    const confirmed = await confirmDialog({
+      title: 'Confirmar PIX',
+      message: `Liberar ${meiSlots} vagas MEI para ${empresaDisplayName}? Só confirme uma vez — se o contrato falhar, use "Gerar contrato".`,
+      confirmLabel: 'Confirmar PIX',
+      cancelLabel: 'Cancelar',
+    });
+    if (!confirmed) return;
+    await runConfirmPixPayment();
   };
 
-  const handleCancelLine = (line: StripeMeiSubscriptionLine) => {
-    if (!empresa || line.status !== 'active') return;
-    Alert.alert(
-      'Cancelar pacote',
-      `Remover ${line.mei_slots} vagas deste pacote? O limite MEI será recalculado.`,
-      [
-        { text: 'Não', style: 'cancel' },
-        {
-          text: 'Sim, cancelar',
-          style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              setCancelLineId(line.id);
-              try {
-                const result = await cancelMeiSubscriptionLine({
-                  empresaId: empresa.id,
-                  lineId: line.id,
-                });
-                await loadLines();
-                await onMaxMeiSynced?.();
-                const maxMei = result.maxMei?.max_mei ?? '—';
-                showToast(`Pacote cancelado — limite MEI: ${maxMei} vagas.`, 'success');
-              } catch (e: unknown) {
-                showToast(apiErrorMessage(e, 'Erro ao cancelar pacote'), 'error');
-              } finally {
-                setCancelLineId(null);
-              }
-            })();
-          },
-        },
-      ],
-    );
+  const handleCancelLine = async (line: StripeMeiSubscriptionLine) => {
+    if (!empresa || line.status !== 'active' || cancelLineId) return;
+    const confirmed = await confirmDialog({
+      title: 'Cancelar pacote',
+      message: `Remover ${line.mei_slots} vagas deste pacote? O limite MEI será recalculado.`,
+      confirmLabel: 'Sim, cancelar',
+      cancelLabel: 'Não',
+      destructive: true,
+    });
+    if (!confirmed) return;
+
+    setCancelLineId(line.id);
+    try {
+      const result = await cancelMeiSubscriptionLine({
+        empresaId: empresa.id,
+        lineId: line.id,
+      });
+      await loadLines();
+      await onMaxMeiSynced?.();
+      const maxMei = result.maxMei?.max_mei ?? '—';
+      showToast(`Pacote cancelado — limite MEI: ${maxMei} vagas.`, 'success');
+    } catch (e: unknown) {
+      showToast(apiErrorMessage(e, 'Erro ao cancelar pacote'), 'error');
+    } finally {
+      setCancelLineId(null);
+    }
   };
 
   const copyCheckoutUrl = async () => {
@@ -593,7 +587,7 @@ export function EmpresaStripeMeiBillingModal({
                         </Text>
                         {row.status === 'active' && row.billing_type === 'pix_manual' ? (
                           <Pressable
-                            onPress={() => handleCancelLine(row)}
+                            onPress={() => void handleCancelLine(row)}
                             disabled={cancelLineId === row.id}
                             style={({ pressed }) => [
                               styles.cancelLineBtn,
