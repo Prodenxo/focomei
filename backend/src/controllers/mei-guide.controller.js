@@ -78,11 +78,15 @@ export const downloadGuide = async (req, res, next) => {
     if (!isPdf) {
       return next(Object.assign(new Error('Resposta da Receita não é um PDF válido'), { status: 502 }));
     }
-    await meiGuideDasBase64Service.upsertDasBase64({
-      userId: req.user.id,
-      periodoApuracao: id,
-      pdfBase64: buffer.toString('base64')
-    });
+    try {
+      await meiGuideDasBase64Service.upsertDasBase64({
+        userId: req.user.id,
+        periodoApuracao: id,
+        pdfBase64: buffer.toString('base64')
+      });
+    } catch (persistError) {
+      console.warn('[mei-guide] Falha ao persistir DAS após download (não-fatal):', persistError?.message || persistError);
+    }
     if (file.refreshed) {
       res.setHeader('X-DAS-Refreshed', '1');
     }

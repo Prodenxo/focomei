@@ -71,12 +71,19 @@ export type PresentDownloadOptions = {
   successMessage?: string;
 };
 
-/** Abre share sheet (native) ou ignora se o browser já baixou o ficheiro. */
+/** Abre share sheet (native) ou confirma download no browser. */
 export async function presentDownloadedFile(
   result: PersistDownloadResult,
   options: PresentDownloadOptions
 ): Promise<void> {
   if (result.deliveredViaBrowser) {
+    if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+      const name = result.filename || 'documento.pdf';
+      Alert.alert(
+        options.dialogTitle || 'Download',
+        `O PDF "${name}" foi enviado para a pasta Downloads do seu navegador.`,
+      );
+    }
     return;
   }
 
