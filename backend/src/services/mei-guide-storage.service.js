@@ -1,15 +1,22 @@
 import { createSupabaseClient } from '../config/supabase.js';
 import { env } from '../config/env.js';
 import { badRequest } from '../utils/errors.js';
+import { isLocalAuthMode } from './local-auth.service.js';
 
 const STORAGE_BUCKET = 'mei-das-pdfs';
 const DEFAULT_EXPIRATION_SECONDS = 60 * 60;
 let bucketEnsured = false;
 
+/** Supabase Storage real — não o cliente Postgres compatível (AUTH_MODE=local). */
+const isSupabaseStorageAvailable = () => {
+  if (isLocalAuthMode()) return false;
+  return Boolean(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY);
+};
+
 const ensureStorageBucket = async () => {
   if (bucketEnsured) return;
-  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw badRequest('Supabase não configurado para armazenamento do DAS');
+  if (!isSupabaseStorageAvailable()) {
+    throw badRequest('Armazenamento Supabase do DAS indisponível neste ambiente');
   }
   const supabase = createSupabaseClient({ useServiceRole: true });
   const { error } = await supabase.storage.createBucket(STORAGE_BUCKET, {
@@ -62,7 +69,7 @@ const normalizeCompetencia = (value) => {
 /** Tenta ler PDF já guardado no bucket (das_mensal_status ou caminhos padrão). */
 export const downloadStoredDasPdfBuffer = async ({ userId, competencia, periodoApuracao }) => {
   if (!userId) return null;
-  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return null;
+  if (!isSupabaseStorageAvailable()) return null;
 
   const periodo = normalizePeriodo(periodoApuracao);
   const comp = normalizeCompetencia(competencia || periodoApuracao);
@@ -103,7 +110,7 @@ export const downloadStoredDasPdfBuffer = async ({ userId, competencia, periodoA
 
 /** Remove PDFs armazenados para forçar nova geração na Receita. */
 export const deleteStoredDasPdf = async ({ userId, competencia, periodoApuracao }) => {
-  if (!userId || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return;
+  if (!userId || !isSupabaseStorageAvailable()) return;
   const periodo = normalizePeriodo(periodoApuracao);
   const comp = normalizeCompetencia(competencia || periodoApuracao);
   const supabase = createSupabaseClient({ useServiceRole: true });
@@ -132,8 +139,8 @@ export const createSignedPdfUrl = async ({ bucket = STORAGE_BUCKET, path, expire
   if (!bucket || !path) {
     throw badRequest('Bucket ou caminho inválidos para URL assinada');
   }
-  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw badRequest('Supabase não configurado para assinar URL do PDF');
+  if (!isSupabaseStorageAvailable()) {
+    throw badRequest('Armazenamento Supabase do DAS indisponível neste ambiente');
   }
   const supabase = createSupabaseClient({ useServiceRole: true });
   const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, expiresIn);
