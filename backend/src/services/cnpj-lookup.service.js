@@ -256,8 +256,8 @@ export const lookupCnpjBrasilApi = async (cnpjInput) => {
       ? Number(raw.codigo_natureza_juridica)
       : null,
     capitalSocial: raw?.capital_social || null,
-    opcaoSimples: raw?.opcao_pelo_simples || null,
-    opcaoMei: raw?.opcao_pelo_mei || null,
+    opcaoSimples: raw?.opcao_pelo_simples ?? null,
+    opcaoMei: raw?.opcao_pelo_mei ?? null,
     cnaePrincipal: raw?.cnae_fiscal
       ? { codigo: String(raw.cnae_fiscal), descricao: raw?.cnae_fiscal_descricao || null }
       : null,

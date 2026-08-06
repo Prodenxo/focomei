@@ -1,10 +1,13 @@
 import { badRequest } from '../utils/errors.js';
 import { env } from '../config/env.js';
-import { lookupCnpjBrasilApi } from './cnpj-lookup.service.js';
+import { lookupCnpjCascade } from './cnpj-lookup.service.js';
 
 export const MEI_CERT_CPF_NOT_ALLOWED = 'MEI_CERT_CPF_NOT_ALLOWED';
 export const MEI_CERT_CNPJ_NOT_MEI = 'MEI_CERT_CNPJ_NOT_MEI';
 export const MEI_CERT_MEI_LOOKUP_FAILED = 'MEI_CERT_MEI_LOOKUP_FAILED';
+
+/** Natureza jurídica Empresário (Individual) — enquadramento típico do MEI. */
+const MEI_NATUREZA_JURIDICA = 2135;
 
 const isEnforceMeiCertEnabled = () => {
   const raw = String(process.env.MEI_CERT_ENFORCE_MEI_CNPJ ?? env.MEI_CERT_ENFORCE_MEI_CNPJ ?? 'true')
@@ -25,9 +28,34 @@ const normalizeOpcaoBoolean = (value) => {
   return null;
 };
 
+const resolveNaturezaJuridica = (lookup) => {
+  const fromRoot = lookup?.codigoNaturezaJuridica;
+  const fromRaw = lookup?.raw?.codigo_natureza_juridica;
+  const code = Number(fromRoot ?? fromRaw);
+  return Number.isFinite(code) ? code : null;
+};
+
+const isMeiNaturezaJuridica = (lookup) => resolveNaturezaJuridica(lookup) === MEI_NATUREZA_JURIDICA;
+
+const hasMeiEnrollmentDate = (lookup) => {
+  const raw = lookup?.raw;
+  if (!raw || typeof raw !== 'object') return false;
+  return Boolean(String(raw.data_opcao_pelo_mei || '').trim());
+};
+
+const porteIndicatesMei = (lookup) => {
+  const porte = String(
+    lookup?.porte
+    || lookup?.raw?.descricao_porte
+    || lookup?.raw?.porte
+    || '',
+  ).trim().toUpperCase();
+  return porte.includes('MEI') || porte.includes('MICRO EMPREENDEDOR');
+};
+
 /**
- * Política estrita Mei Infinito: só aceita CNPJ com optante MEI confirmado na Receita.
- * Simples Nacional, LTDA, EPP, e-CPF e demais regimes são bloqueados.
+ * Política FocoMEI: aceita CNPJ MEI confirmado na Receita ou com indícios fortes (natureza 2135).
+ * Simples Nacional (não MEI), LTDA, EPP, e-CPF e demais regimes são bloqueados.
  *
  * @param {Record<string, unknown>|null|undefined} lookup
  * @returns {{ eligible: boolean, signal: string }}
@@ -49,6 +77,19 @@ export const classifyCnpjMeiEligibility = (lookup) => {
 
   if (opcaoMei === false) {
     return { eligible: false, signal: 'opcao_mei_false' };
+  }
+
+  // BrasilAPI/PlugNotas frequentemente retornam opcao_pelo_mei null mesmo para MEI ativo.
+  if (isMeiNaturezaJuridica(lookup)) {
+    return { eligible: true, signal: 'natureza_mei_2135' };
+  }
+
+  if (hasMeiEnrollmentDate(lookup)) {
+    return { eligible: true, signal: 'data_opcao_mei' };
+  }
+
+  if (porteIndicatesMei(lookup)) {
+    return { eligible: true, signal: 'porte_mei' };
   }
 
   const opcaoSimples = normalizeOpcaoBoolean(lookup.opcaoSimples);
@@ -117,7 +158,7 @@ export const assertMeiCertificateEligible = async (certDocument) => {
 
   let lookup;
   try {
-    lookup = await lookupCnpjBrasilApi(digits);
+    lookup = await lookupCnpjCascade(digits);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err || '');
     throw badRequest(

@@ -37,13 +37,24 @@ test('classifyCnpjMeiEligibility: Simples sem flag MEI explícita bloqueia', () 
   assert.equal(verdict.signal, 'simples_sem_mei');
 });
 
-test('classifyCnpjMeiEligibility: empresário individual sem opcao_mei bloqueia', () => {
+test('classifyCnpjMeiEligibility: empresário individual (2135) com opcao_mei ausente é permitido', () => {
   const verdict = classifyCnpjMeiEligibility({
     codigoNaturezaJuridica: 2135,
     situacaoCadastral: 'ATIVA',
+    opcaoMei: null,
+  });
+  assert.equal(verdict.eligible, true);
+  assert.equal(verdict.signal, 'natureza_mei_2135');
+});
+
+test('classifyCnpjMeiEligibility: empresário individual com opcao_mei false bloqueia', () => {
+  const verdict = classifyCnpjMeiEligibility({
+    codigoNaturezaJuridica: 2135,
+    opcaoMei: false,
+    situacaoCadastral: 'ATIVA',
   });
   assert.equal(verdict.eligible, false);
-  assert.equal(verdict.signal, 'mei_nao_confirmado');
+  assert.equal(verdict.signal, 'opcao_mei_false');
 });
 
 test('classifyCnpjMeiEligibility: LTDA bloqueia', () => {
