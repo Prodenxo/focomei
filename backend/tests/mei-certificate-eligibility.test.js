@@ -28,13 +28,22 @@ test('classifyCnpjMeiEligibility: Simples Nacional sem MEI bloqueia', () => {
   assert.equal(verdict.signal, 'opcao_mei_false');
 });
 
-test('classifyCnpjMeiEligibility: Simples sem flag MEI explícita bloqueia', () => {
+test('classifyCnpjMeiEligibility: Simples sem flag MEI explícita não bloqueia sozinho', () => {
   const verdict = classifyCnpjMeiEligibility({
     opcaoSimples: true,
     situacaoCadastral: 'ATIVA',
   });
   assert.equal(verdict.eligible, false);
-  assert.equal(verdict.signal, 'simples_sem_mei');
+  assert.equal(verdict.signal, 'mei_nao_confirmado');
+});
+
+test('classifyCnpjMeiEligibility: razão social com CPF no final é MEI', () => {
+  const verdict = classifyCnpjMeiEligibility({
+    razaoSocial: 'ELIANE FERREIRA LEITE 79262392753',
+    situacaoCadastral: 'ATIVA',
+  });
+  assert.equal(verdict.eligible, true);
+  assert.equal(verdict.signal, 'razao_social_mei');
 });
 
 test('classifyCnpjMeiEligibility: empresário individual (2135) com opcao_mei ausente é permitido', () => {

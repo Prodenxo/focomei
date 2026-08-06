@@ -1,6 +1,6 @@
 import { badRequest } from '../utils/errors.js';
 import { env } from '../config/env.js';
-import { lookupCnpjCascade } from './cnpj-lookup.service.js';
+import { lookupCnpjCascade, lookupCnpjPublicaCnpjWs } from './cnpj-lookup.service.js';
 
 export const MEI_CERT_CPF_NOT_ALLOWED = 'MEI_CERT_CPF_NOT_ALLOWED';
 export const MEI_CERT_CNPJ_NOT_MEI = 'MEI_CERT_CNPJ_NOT_MEI';
@@ -50,13 +50,22 @@ const porteIndicatesMei = (lookup) => {
     || lookup?.raw?.porte
     || '',
   ).trim().toUpperCase();
-  return porte.includes('MEI') || porte.includes('MICRO EMPREENDEDOR');
+  return (
+    porte.includes('MEI')
+    || porte.includes('MICRO EMPREENDEDOR')
+    || porte.includes('MICRO EMPRESA')
+  );
 };
 
 const razaoSocialLooksMei = (lookup) => {
   const razao = String(lookup?.razaoSocial || lookup?.raw?.razao_social || '').trim();
   if (!razao) return false;
-  return /^\d[\d.\s/-]{8,}\s+\S/.test(razao);
+  // "68.145.367 NOME" ou "68 145 367 NOME"
+  if (/^\d[\d.\s/-]{8,}\s+\S/.test(razao)) return true;
+  // "NOME 79262392753" — padrão comum de MEI (CPF no final)
+  if (/\s\d{3}\.?\d{3}\.?\d{3}-?\d{2}$/.test(razao)) return true;
+  if (/\s\d{11}$/.test(razao.replace(/[^\d\s]/g, ' ').trim())) return true;
+  return false;
 };
 
 const formatCnpjLabel = (digits) => {
@@ -108,10 +117,8 @@ export const classifyCnpjMeiEligibility = (lookup) => {
     return { eligible: true, signal: 'razao_social_mei' };
   }
 
-  const opcaoSimples = normalizeOpcaoBoolean(lookup.opcaoSimples);
-  if (opcaoSimples === true) {
-    return { eligible: false, signal: 'simples_sem_mei' };
-  }
+  // MEI costuma estar no Simples também — só bloqueia se opcao_mei for explicitamente false
+  // (já tratado acima). Simples=true sem flag MEI na API principal não é prova de exclusão.
 
   return { eligible: false, signal: 'mei_nao_confirmado' };
 };
@@ -142,6 +149,28 @@ const buildEligibilityError = (signal, cnpjDigits = '') => {
     `O CNPJ${cnpjSuffix} não está enquadrado como MEI. O FocoMEI exige certificado e-CNPJ do Microempreendedor Individual — não e-CPF, LTDA ou Simples Nacional comum.`,
     { code: MEI_CERT_CNPJ_NOT_MEI, meiEligibilitySignal: signal, cnpj: cnpjDigits || null }
   );
+};
+
+const ELIGIBILITY_RETRY_SIGNALS = new Set(['mei_nao_confirmado', 'simples_sem_mei', 'lookup_empty']);
+
+const resolveMeiEligibility = async (digits) => {
+  const primary = await lookupCnpjCascade(digits);
+  let verdict = classifyCnpjMeiEligibility(primary);
+  if (verdict.eligible) {
+    return { lookup: primary, verdict };
+  }
+
+  if (!ELIGIBILITY_RETRY_SIGNALS.has(verdict.signal)) {
+    return { lookup: primary, verdict };
+  }
+
+  const fallback = await lookupCnpjPublicaCnpjWs(digits);
+  if (!fallback) {
+    return { lookup: primary, verdict };
+  }
+
+  const fallbackVerdict = classifyCnpjMeiEligibility(fallback);
+  return { lookup: fallback, verdict: fallbackVerdict };
 };
 
 /**
@@ -175,9 +204,9 @@ export const assertMeiCertificateEligible = async (certDocument) => {
     );
   }
 
-  let lookup;
+  let verdict;
   try {
-    lookup = await lookupCnpjCascade(digits);
+    ({ verdict } = await resolveMeiEligibility(digits));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err || '');
     throw badRequest(
@@ -186,7 +215,6 @@ export const assertMeiCertificateEligible = async (certDocument) => {
     );
   }
 
-  const verdict = classifyCnpjMeiEligibility(lookup);
   if (!verdict.eligible) {
     throw buildEligibilityError(verdict.signal, digits);
   }
