@@ -22,6 +22,28 @@ test('extractCnaesSecundariosFromRaw lê BrasilAPI', () => {
   assert.equal(list[0].codigo, '7319002');
 });
 
+test('extractCnaesSecundariosFromRaw lê publica.cnpj.ws', () => {
+  const list = extractCnaesSecundariosFromRaw({
+    atividades_secundarias: [
+      { id: '7319002', descricao: 'Promoção de vendas' },
+    ],
+  });
+  assert.equal(list.length, 1);
+  assert.equal(list[0].codigo, '7319002');
+});
+
+test('attachNormalizedCnaes lê atividade principal via cnae_fiscal id string', () => {
+  const data = attachNormalizedCnaes({
+    raw: {
+      cnae_fiscal: '8219999',
+      cnae_fiscal_descricao: 'Preparação de documentos',
+    },
+  });
+  assert.equal(data.cnaes.length, 1);
+  assert.equal(data.cnaes[0].codigo, '8219999');
+  assert.equal(data.cnaes[0].principal, true);
+});
+
 test('attachNormalizedCnaes une principal + secundários', () => {
   const data = attachNormalizedCnaes({
     cnaePrincipal: { codigo: '6201501', descricao: 'Dev de software' },
