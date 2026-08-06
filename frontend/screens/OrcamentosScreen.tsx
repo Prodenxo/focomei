@@ -157,7 +157,7 @@ export default function OrcamentosScreen() {
     categoriasComOrcamento.forEach((cat) => {
       const budget = budgetsByCategoryId[cat.id];
       const summary = summaryByCategoryId[cat.id];
-      if (typeof budget === 'number') orcado += budget;
+      if (budget !== null && budget !== undefined) orcado += Number(budget) || 0;
       if (summary) {
         realizado +=
           cat.tipo === 'entrada'

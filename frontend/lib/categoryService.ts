@@ -1,4 +1,18 @@
 import { apiClient } from './apiClient';
+import { normalizarValor } from './dashboardUtils';
+
+const normalizeBudgetSummary = (item: CategoryBudgetSummary): CategoryBudgetSummary => {
+  const rawOrcado = item.valor_orcado;
+  return {
+    categorias_id: Number(item.categorias_id),
+    valor_orcado:
+      rawOrcado === null || rawOrcado === undefined
+        ? null
+        : normalizarValor(rawOrcado),
+    valor_gasto: normalizarValor(item.valor_gasto),
+    valor_recebido: normalizarValor(item.valor_recebido),
+  };
+};
 
 export type CategoryBudgetSummary = {
   categorias_id: number;
@@ -40,7 +54,7 @@ export async function fetchCategoryBudgetsSummary(
   const data = await apiClient.get<CategoryBudgetSummary[]>(
     `/categories/budgets/summary?year=${year}&month=${month}`,
   );
-  return data || [];
+  return (data || []).map(normalizeBudgetSummary);
 }
 
 export async function fetchCategoryBudgetsDreMatrix(

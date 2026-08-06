@@ -13,6 +13,7 @@ import { MfTechKpiCard } from '../../components/ui';
 import { useMfTheme } from '../../components/ui/useMfTheme';
 import { getCategorySliceColorForId } from '../../lib/categoryColors';
 import { getCategoryIconName } from '../../lib/categoryIcons';
+import { normalizarValor } from '../../lib/dashboardUtils';
 import { formatCurrencyBR } from '../../lib/numberFormat';
 import { mfRadius, mfSpacing } from '../../lib/theme';
 import type { CategoryBudgetSummary } from '../../lib/categoryService';
@@ -50,7 +51,8 @@ export function BudgetCategoryRow({
 }: Props) {
   const { theme, isDarkMode } = useMfTheme();
   const accent = getCategorySliceColorForId(cat.id, isDarkMode);
-  const orcado = typeof budgetValue === 'number' ? budgetValue : 0;
+  const hasBudget = budgetValue !== null && budgetValue !== undefined;
+  const orcado = hasBudget ? normalizarValor(budgetValue) : 0;
   const realizado =
     cat.tipo === 'entrada'
       ? Number(summary?.valor_recebido ?? 0)
@@ -80,7 +82,7 @@ export function BudgetCategoryRow({
               {cat.nome}
             </Text>
             <Text style={styles.budgetHint}>
-              Orçado: {typeof budgetValue === 'number' ? formatCurrencyBR(budgetValue) : '—'}
+              Orçado: {hasBudget ? formatCurrencyBR(orcado) : '—'}
             </Text>
           </Pressable>
           <View style={styles.cardActions}>

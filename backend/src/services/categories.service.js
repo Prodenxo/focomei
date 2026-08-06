@@ -30,6 +30,13 @@ const normalizeCategoryName = (value) => {
     .trim();
 };
 
+/** Postgres numeric chega como string no node-pg; normaliza para número JSON. */
+const normalizeBudgetAmount = (value) => {
+  if (value === null || value === undefined) return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
 const categoryCopyKey = (nome, tipo) =>
   `${normalizeCategoryName(nome)}:${normalizeTipo(tipo) || ''}`;
 
@@ -611,7 +618,10 @@ export const listCategoryBudgetsSummary = async (userId, { year, month } = {}) =
 
     const budgetByCategoryId = new Map();
     (budgets || []).forEach((budget) => {
-      budgetByCategoryId.set(Number(budget.categorias_id), budget.valor_orcado ?? null);
+      budgetByCategoryId.set(
+        Number(budget.categorias_id),
+        normalizeBudgetAmount(budget.valor_orcado),
+      );
     });
 
     return (categories || []).map((categoria) => {
@@ -620,8 +630,8 @@ export const listCategoryBudgetsSummary = async (userId, { year, month } = {}) =
       return {
         categorias_id: catId,
         valor_orcado: budgetByCategoryId.has(catId) ? budgetByCategoryId.get(catId) : null,
-        valor_gasto: spentByCategoryName.get(key) || 0,
-        valor_recebido: receivedByCategoryName.get(key) || 0,
+        valor_gasto: normalizeBudgetAmount(spentByCategoryName.get(key)) ?? 0,
+        valor_recebido: normalizeBudgetAmount(receivedByCategoryName.get(key)) ?? 0,
       };
     });
   }
@@ -692,7 +702,10 @@ export const listCategoryBudgetsSummary = async (userId, { year, month } = {}) =
 
   const budgetByCategoryId = new Map();
   (budgets || []).forEach((budget) => {
-    budgetByCategoryId.set(budget.categorias_id, budget.valor_orçado ?? null);
+    budgetByCategoryId.set(
+      budget.categorias_id,
+      normalizeBudgetAmount(budget.valor_orçado),
+    );
   });
 
   return allCategories.map((categoria) => {
@@ -700,8 +713,8 @@ export const listCategoryBudgetsSummary = async (userId, { year, month } = {}) =
     return {
       categorias_id: categoria.id,
       valor_orcado: budgetByCategoryId.has(categoria.id) ? budgetByCategoryId.get(categoria.id) : null,
-      valor_gasto: spentByCategoryName.get(key) || 0,
-      valor_recebido: receivedByCategoryName.get(key) || 0
+      valor_gasto: normalizeBudgetAmount(spentByCategoryName.get(key)) ?? 0,
+      valor_recebido: normalizeBudgetAmount(receivedByCategoryName.get(key)) ?? 0,
     };
   });
 };
