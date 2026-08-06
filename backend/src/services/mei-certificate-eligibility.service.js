@@ -53,6 +53,18 @@ const porteIndicatesMei = (lookup) => {
   return porte.includes('MEI') || porte.includes('MICRO EMPREENDEDOR');
 };
 
+const razaoSocialLooksMei = (lookup) => {
+  const razao = String(lookup?.razaoSocial || lookup?.raw?.razao_social || '').trim();
+  if (!razao) return false;
+  return /^\d[\d.\s/-]{8,}\s+\S/.test(razao);
+};
+
+const formatCnpjLabel = (digits) => {
+  const d = String(digits || '').replace(/\D/g, '');
+  if (d.length !== 14) return d || '—';
+  return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+};
+
 /**
  * Política FocoMEI: aceita CNPJ MEI confirmado na Receita ou com indícios fortes (natureza 2135).
  * Simples Nacional (não MEI), LTDA, EPP, e-CPF e demais regimes são bloqueados.
@@ -92,6 +104,10 @@ export const classifyCnpjMeiEligibility = (lookup) => {
     return { eligible: true, signal: 'porte_mei' };
   }
 
+  if (razaoSocialLooksMei(lookup)) {
+    return { eligible: true, signal: 'razao_social_mei' };
+  }
+
   const opcaoSimples = normalizeOpcaoBoolean(lookup.opcaoSimples);
   if (opcaoSimples === true) {
     return { eligible: false, signal: 'simples_sem_mei' };
@@ -100,28 +116,31 @@ export const classifyCnpjMeiEligibility = (lookup) => {
   return { eligible: false, signal: 'mei_nao_confirmado' };
 };
 
-const buildEligibilityError = (signal) => {
+const buildEligibilityError = (signal, cnpjDigits = '') => {
+  const cnpjLabel = formatCnpjLabel(cnpjDigits);
+  const cnpjSuffix = cnpjLabel && cnpjLabel !== '—' ? ` (CNPJ ${cnpjLabel})` : '';
+
   if (signal === 'situacao_nao_ativa') {
     return badRequest(
-      'Este CNPJ não está com situação cadastral ativa na Receita Federal. Regularize o cadastro antes de importar o certificado.',
-      { code: MEI_CERT_CNPJ_NOT_MEI, meiEligibilitySignal: signal }
+      `Este CNPJ${cnpjSuffix} não está com situação cadastral ativa na Receita Federal. Regularize o cadastro antes de importar o certificado.`,
+      { code: MEI_CERT_CNPJ_NOT_MEI, meiEligibilitySignal: signal, cnpj: cnpjDigits || null }
     );
   }
   if (signal === 'simples_sem_mei') {
     return badRequest(
-      'Este CNPJ está no Simples Nacional, mas não como MEI. O Mei Infinito aceita apenas certificado e-CNPJ de Microempreendedor Individual.',
-      { code: MEI_CERT_CNPJ_NOT_MEI, meiEligibilitySignal: signal }
+      `Este CNPJ${cnpjSuffix} está no Simples Nacional, mas não como MEI. Use o certificado e-CNPJ da empresa MEI — não e-CPF pessoal.`,
+      { code: MEI_CERT_CNPJ_NOT_MEI, meiEligibilitySignal: signal, cnpj: cnpjDigits || null }
     );
   }
   if (signal === 'lookup_empty' || signal === 'mei_nao_confirmado') {
     return badRequest(
-      'Não foi possível confirmar que este CNPJ é MEI na Receita Federal. Verifique o enquadramento no Portal do Empreendedor.',
-      { code: MEI_CERT_MEI_LOOKUP_FAILED, meiEligibilitySignal: signal }
+      `Não foi possível confirmar que o CNPJ${cnpjSuffix} é MEI na Receita Federal. Verifique no Portal do Empreendedor ou use o certificado e-CNPJ (não e-CPF).`,
+      { code: MEI_CERT_MEI_LOOKUP_FAILED, meiEligibilitySignal: signal, cnpj: cnpjDigits || null }
     );
   }
   return badRequest(
-    'Este CNPJ não está enquadrado como MEI na Receita Federal. O Mei Infinito aceita apenas certificado e-CNPJ de Microempreendedor Individual — Simples Nacional, LTDA e outros regimes não são permitidos.',
-    { code: MEI_CERT_CNPJ_NOT_MEI, meiEligibilitySignal: signal }
+    `O CNPJ${cnpjSuffix} não está enquadrado como MEI. O FocoMEI exige certificado e-CNPJ do Microempreendedor Individual — não e-CPF, LTDA ou Simples Nacional comum.`,
+    { code: MEI_CERT_CNPJ_NOT_MEI, meiEligibilitySignal: signal, cnpj: cnpjDigits || null }
   );
 };
 
@@ -144,7 +163,7 @@ export const assertMeiCertificateEligible = async (certDocument) => {
 
   if (digits.length === 11) {
     throw badRequest(
-      'Este certificado é de pessoa física (e-CPF). A área MEI exige certificado digital e-CNPJ do microempreendedor.',
+      'Este certificado é e-CPF (pessoa física). Para emitir notas e DAS do MEI, use o certificado e-CNPJ da empresa — solicite na certificadora em nome do CNPJ MEI, não do CPF.',
       { code: MEI_CERT_CPF_NOT_ALLOWED, meiEligibilitySignal: 'ecpf' }
     );
   }
@@ -169,7 +188,7 @@ export const assertMeiCertificateEligible = async (certDocument) => {
 
   const verdict = classifyCnpjMeiEligibility(lookup);
   if (!verdict.eligible) {
-    throw buildEligibilityError(verdict.signal);
+    throw buildEligibilityError(verdict.signal, digits);
   }
 
   return { enforced: true, skipped: false, signal: verdict.signal, cnpj: digits };

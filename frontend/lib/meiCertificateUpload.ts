@@ -42,8 +42,15 @@ export function isMeiCertificateCnpjNotMeiError (error: unknown): boolean {
 }
 
 export function getMeiCertificateUploadToast (error: unknown): string | null {
+  const err = error as Error & { code?: string; errors?: { code?: string }; message?: string }
+  const message = String(err?.message ?? '').trim()
+
   if (isMeiCertificateInvalidPasswordError(error)) return MEI_CERT_INVALID_PASSWORD_TOAST
-  if (isMeiCertificateCpfNotAllowedError(error)) return MEI_CERT_CPF_NOT_ALLOWED_TOAST
-  if (isMeiCertificateCnpjNotMeiError(error)) return MEI_CERT_CNPJ_NOT_MEI_TOAST
+  if (isMeiCertificateCpfNotAllowedError(error)) {
+    return message || MEI_CERT_CPF_NOT_ALLOWED_TOAST
+  }
+  if (isMeiCertificateCnpjNotMeiError(error)) {
+    return message || MEI_CERT_CNPJ_NOT_MEI_TOAST
+  }
   return null
 }

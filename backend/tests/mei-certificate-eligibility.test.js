@@ -57,6 +57,15 @@ test('classifyCnpjMeiEligibility: empresário individual com opcao_mei false blo
   assert.equal(verdict.signal, 'opcao_mei_false');
 });
 
+test('classifyCnpjMeiEligibility: razão social típica de MEI é permitida', () => {
+  const verdict = classifyCnpjMeiEligibility({
+    razaoSocial: '68.145.367 THIAGO COELHO FERNANDES DUQUE',
+    situacaoCadastral: 'ATIVA',
+  });
+  assert.equal(verdict.eligible, true);
+  assert.equal(verdict.signal, 'razao_social_mei');
+});
+
 test('classifyCnpjMeiEligibility: LTDA bloqueia', () => {
   const verdict = classifyCnpjMeiEligibility({
     codigoNaturezaJuridica: 2062,

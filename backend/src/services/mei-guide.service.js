@@ -1,5 +1,6 @@
 import { env } from '../config/env.js';
 import { badRequest, forbidden, notFound, unauthorized } from '../utils/errors.js';
+import { isValidCnpj } from '../utils/cpf-cnpj.js';
 import { requestWithMtls } from '../utils/http-mtls.js';
 import { createRequire } from 'module';
 import { consultarServico } from './gestao/consultar.service.js';
@@ -220,10 +221,12 @@ const extractDocFromOtherNameValue = (value, length) => {
   }
 };
 
-const extractDocFromSubjectAltName = (cert) => {
+const extractSanDocuments = (cert) => {
   const extension = (cert.extensions || [])
     .find((item) => item.name === 'subjectAltName' || item.id === '2.5.29.17');
-  if (!extension?.altNames?.length) return null;
+  if (!extension?.altNames?.length) {
+    return { cnpj: null, cpf: null };
+  }
 
   const extractByOid = (oid, length) => {
     for (const altName of extension.altNames) {
@@ -234,7 +237,16 @@ const extractDocFromSubjectAltName = (cert) => {
     return null;
   };
 
-  return extractByOid(SAN_OID_CNPJ, 14) || extractByOid(SAN_OID_CPF, 11);
+  return {
+    cnpj: extractByOid(SAN_OID_CNPJ, 14),
+    cpf: extractByOid(SAN_OID_CPF, 11),
+  };
+};
+
+/** @deprecated use extractSanDocuments */
+const extractDocFromSubjectAltName = (cert) => {
+  const { cnpj, cpf } = extractSanDocuments(cert);
+  return cnpj || cpf;
 };
 
 const toIsoOrNull = (value) => {
@@ -266,10 +278,15 @@ const extractCertInfo = (cert) => {
   const cnValue = subjectAttrs.find((attr) => attr.shortName === 'CN')?.value || '';
   const holderName = extractHolderNameFromCn(cnValue);
   const cnCnpj = String(cnValue).match(/:(\d{14})/)?.[1] || null;
-  const cnpjFromSan = extractDocFromSubjectAltName(cert);
-  const cnpjFromSubject = Array.from(new Set(cnpjMatches));
-  const doc = cnpjFromSan || cnCnpj || cnpjFromSubject[0] || null;
-  const docSource = cnpjFromSan ? 'san' : (cnCnpj ? 'cn' : (cnpjFromSubject[0] ? 'subject' : null));
+  const san = extractSanDocuments(cert);
+  const validSubjectCnpjs = Array.from(new Set(cnpjMatches)).filter((d) => isValidCnpj(d));
+  const doc = san.cnpj || cnCnpj || validSubjectCnpjs[0] || san.cpf || null;
+  const docKind = doc
+    ? (String(doc).replace(/\D/g, '').length === 11 ? 'cpf' : 'cnpj')
+    : null;
+  const docSource = san.cnpj
+    ? 'san_cnpj'
+    : (cnCnpj ? 'cn' : (validSubjectCnpjs[0] ? 'subject' : (san.cpf ? 'san_cpf' : null)));
 
   const validity = cert.validity;
   const validFrom = validity ? toIsoOrNull(validity.notBefore) : null;
@@ -277,9 +294,11 @@ const extractCertInfo = (cert) => {
 
   return {
     doc,
+    docKind,
     docSource,
-    cnpjFromSan,
-    cnpjFromSubject,
+    cnpjFromSan: san.cnpj,
+    cpfFromSan: san.cpf,
+    cnpjFromSubject: validSubjectCnpjs,
     cnpjFromCN: cnCnpj,
     holderName,
     subject: subjectAttrs,
