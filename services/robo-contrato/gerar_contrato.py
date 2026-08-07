@@ -343,9 +343,26 @@ class OnetyClient:
             raise RuntimeError(f"Resposta inesperada: {data}")
         return data
 
-    def listar_instancias_whatsapp(self) -> list[dict[str, Any]]:
+    def listar_instancias_whatsapp(
+        self,
+        *,
+        empresa_id: str | int | None = None,
+    ) -> list[dict[str, Any]]:
         """Instâncias Z-API cadastradas em Atendimento (para envio de link de assinatura)."""
+        empresa_suffix = (
+            f"?empresa_id={empresa_id}"
+            if empresa_id not in (None, "")
+            else ""
+        )
+        empresa_suffix_alt = (
+            f"?empresaId={empresa_id}"
+            if empresa_id not in (None, "")
+            else ""
+        )
         paths = (
+            f"/atendimento/instancias{empresa_suffix}",
+            f"/atendimento/instancias{empresa_suffix_alt}",
+            f"/atendimento/instancias/empresa/{empresa_id}" if empresa_id else None,
             "/atendimento/instancias",
             "/atendimento/instancias-whatsapp",
             "/atendimento/instancias/zapi",
@@ -361,6 +378,8 @@ class OnetyClient:
         found: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
         for path in paths:
+            if not path:
+                continue
             try:
                 data = self.request("GET", path, timeout=30)
             except Exception:
@@ -896,34 +915,67 @@ def cmd_listar_clientes(client: OnetyClient, empresa_id: str | int) -> None:
         print(f"  ... e mais {len(clientes) - 100}")
 
 
-def cmd_listar_instancias_whatsapp(client: OnetyClient) -> None:
-    instancias = client.listar_instancias_whatsapp()
+def cmd_listar_instancias_whatsapp(
+    client: OnetyClient,
+    cfg: dict[str, Any],
+    *,
+    filtro_nome: str = "",
+    somente_conectadas: bool = False,
+    dump_json: bool = False,
+) -> None:
+    instancias = client.listar_instancias_whatsapp(empresa_id=cfg.get("empresa_id"))
+    filtradas = _filtrar_instancias_whatsapp(
+        instancias,
+        empresa_id=cfg.get("empresa_id"),
+        filtro_nome=filtro_nome,
+        somente_conectadas=somente_conectadas,
+    )
     if not instancias:
         print(
             "\nNenhuma instância WhatsApp encontrada via API.\n"
             "Dicas:\n"
             "  1) No Onety, abra o modal WhatsApp e veja GET na aba Network (lista instâncias)\n"
             "  2) Inspecione o card 'Comercial Foco MEI' (data-id / value no HTML)\n"
-            "  3) Deixe ONETY_WHATSAPP_INSTANCIA_ID vazio — o robô tenta POST com body {}\n"
+            "  3) Use --testar-send-whatsapp 8980 após definir ONETY_WHATSAPP_INSTANCIA_ID\n"
         )
         return
-    print(f"\n{len(instancias)} instância(s) WhatsApp:\n")
-    for inst in instancias:
-        iid = _extrair_id_instancia(inst)
-        nome = (
-            inst.get("nome")
-            or inst.get("name")
-            or inst.get("titulo")
-            or inst.get("label")
-            or "?"
+
+    if dump_json and filtradas:
+        out = SAIDA / "debug_instancias_whatsapp.json"
+        SAIDA.mkdir(parents=True, exist_ok=True)
+        out.write_text(
+            json.dumps(filtradas[:20], ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
         )
-        status = inst.get("status") or inst.get("situacao") or inst.get("connected")
+        print(f"\nDump JSON (até 20): {out}\n")
+
+    total_label = (
+        f"{len(filtradas)} filtrada(s) de {len(instancias)} total"
+        if filtradas and len(filtradas) != len(instancias)
+        else f"{len(instancias)} instância(s)"
+    )
+    print(f"\n{total_label} WhatsApp:\n")
+    rows = filtradas if filtradas else instancias
+    for inst in rows:
+        iid = _extrair_id_instancia(inst)
+        nome = _extrair_nome_instancia(inst) or "?"
+        status = _extrair_status_instancia(inst) or "?"
+        phone = inst.get("telefone") or inst.get("phone") or inst.get("numero") or ""
         src = inst.get("_robo_source_path") or "?"
-        print(f"  id={iid}  {nome}  status={status}  (via {src})")
+        extra = f" tel={phone}" if phone else ""
+        print(f"  id={iid}  {nome}  status={status}{extra}  (via {src})")
+
+    if not filtradas and filtro_nome:
+        print(
+            f"\nNenhuma instância bate com filtro {filtro_nome!r}. "
+            "Tente: --listar-instancias-whatsapp --filtro-instancia foco --somente-conectadas"
+        )
+
     print(
         "\nUse no config.env:\n"
         "  ONETY_WHATSAPP_INSTANCIA_ID=<id acima>\n"
         "  ONETY_WHATSAPP_INSTANCIA_NOME=Comercial Foco MEI\n"
+        "\nDica: ao enviar manual no Onety, veja POST send-whatsapp → Payload → instanciaId\n"
     )
 
 
@@ -994,6 +1046,96 @@ def _normalizar_nome_instancia(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip().lower())
 
 
+def _extrair_nome_instancia(item: dict[str, Any]) -> str:
+    direct_keys = (
+        "nome",
+        "name",
+        "titulo",
+        "label",
+        "descricao",
+        "apelido",
+        "instance_name",
+        "instanceName",
+        "session_name",
+        "sessionName",
+        "alias",
+        "display_name",
+        "displayName",
+        "nome_instancia",
+        "nomeInstancia",
+        "titulo_instancia",
+        "identificador",
+        "instancia_nome",
+        "instanciaNome",
+    )
+    for key in direct_keys:
+        val = item.get(key)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    for nest_key in ("zapi", "instance", "instancia", "conexao", "whatsapp", "ZApiInstancia"):
+        nested = item.get(nest_key)
+        if isinstance(nested, dict):
+            nested_name = _extrair_nome_instancia(nested)
+            if nested_name:
+                return nested_name
+    return ""
+
+
+def _extrair_status_instancia(item: dict[str, Any]) -> str:
+    for key in ("status", "situacao", "connected", "conectado", "state", "connection_state"):
+        val = item.get(key)
+        if val is None:
+            continue
+        if isinstance(val, bool):
+            return "conectado" if val else "desconectado"
+        text = str(val).strip().lower()
+        if text:
+            return text
+    return ""
+
+
+def _instancia_esta_conectada(item: dict[str, Any]) -> bool:
+    status = _extrair_status_instancia(item)
+    return status in ("conectado", "connected", "open", "online", "true", "1")
+
+
+def _instancia_pertence_empresa(item: dict[str, Any], empresa_id: str | int | None) -> bool:
+    if empresa_id in (None, ""):
+        return True
+    alvo = str(empresa_id).strip()
+    for key in ("empresa_id", "empresaId", "empresa", "company_id", "companyId"):
+        val = item.get(key)
+        if val is None:
+            continue
+        if str(val).strip() == alvo:
+            return True
+    return False
+
+
+def _filtrar_instancias_whatsapp(
+    instancias: list[dict[str, Any]],
+    *,
+    empresa_id: str | int | None = None,
+    filtro_nome: str = "",
+    somente_conectadas: bool = False,
+) -> list[dict[str, Any]]:
+    filtro = _normalizar_nome_instancia(filtro_nome)
+    out: list[dict[str, Any]] = []
+    for inst in instancias:
+        if empresa_id not in (None, "") and not _instancia_pertence_empresa(inst, empresa_id):
+            # API /atendimento/instancias costuma ser global — não excluir se não vier empresa_id
+            pass
+        if somente_conectadas and not _instancia_esta_conectada(inst):
+            continue
+        if filtro:
+            nome = _normalizar_nome_instancia(_extrair_nome_instancia(inst))
+            blob = _normalizar_nome_instancia(json.dumps(inst, ensure_ascii=False, default=str))
+            if filtro not in nome and filtro not in blob:
+                continue
+        out.append(inst)
+    return out
+
+
 def _extrair_id_instancia(item: dict[str, Any]) -> int | None:
     for key in ("id", "instanciaId", "instancia_id", "instanceId", "conexao_id"):
         val = item.get(key)
@@ -1018,21 +1160,22 @@ def resolver_whatsapp_instancia_id(
                 f"ONETY_WHATSAPP_INSTANCIA_ID inválido: {raw_id!r}",
             )
 
-    instancias = client.listar_instancias_whatsapp()
+    instancias = client.listar_instancias_whatsapp(empresa_id=cfg.get("empresa_id"))
+    instancias = _filtrar_instancias_whatsapp(
+        instancias,
+        empresa_id=cfg.get("empresa_id"),
+        filtro_nome=str(cfg.get("whatsapp_instancia_nome") or ""),
+        somente_conectadas=True,
+    )
     if not instancias:
         return None
 
     nome_alvo = _normalizar_nome_instancia(cfg.get("whatsapp_instancia_nome"))
     if nome_alvo:
         for inst in instancias:
-            nome = _normalizar_nome_instancia(
-                inst.get("nome")
-                or inst.get("name")
-                or inst.get("titulo")
-                or inst.get("label")
-                or inst.get("descricao")
-            )
-            if nome == nome_alvo or nome_alvo in nome:
+            nome = _normalizar_nome_instancia(_extrair_nome_instancia(inst))
+            blob = _normalizar_nome_instancia(json.dumps(inst, ensure_ascii=False, default=str))
+            if nome == nome_alvo or nome_alvo in nome or nome_alvo in blob:
                 iid = _extrair_id_instancia(inst)
                 if iid is not None:
                     return iid
@@ -1300,6 +1443,21 @@ def main(argv: list[str] | None = None) -> int:
         help="Lista instâncias Z-API (Atendimento) para send-whatsapp.",
     )
     parser.add_argument(
+        "--filtro-instancia",
+        default="",
+        help="Filtra instâncias WhatsApp por texto (ex.: foco, comercial).",
+    )
+    parser.add_argument(
+        "--somente-conectadas",
+        action="store_true",
+        help="Com --listar-instancias-whatsapp, mostra só status conectado.",
+    )
+    parser.add_argument(
+        "--dump-instancias-json",
+        action="store_true",
+        help="Salva amostra das instâncias filtradas em saida/debug_instancias_whatsapp.json.",
+    )
+    parser.add_argument(
         "--testar-send-whatsapp",
         metavar="CONTRATO_ID",
         help="Testa POST /contratual/contratos/{id}/send-whatsapp (ex.: 8980).",
@@ -1359,7 +1517,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.listar_instancias_whatsapp:
         try:
-            cmd_listar_instancias_whatsapp(client)
+            cmd_listar_instancias_whatsapp(
+                client,
+                cfg,
+                filtro_nome=args.filtro_instancia,
+                somente_conectadas=args.somente_conectadas,
+                dump_json=args.dump_instancias_json,
+            )
         except Exception as exc:
             print(f"Erro ao listar instâncias WhatsApp: {exc}", file=sys.stderr)
             return 1
