@@ -1582,9 +1582,11 @@ export const runOpenclawAction = async (input) => {
           actorContext,
           ...linkDebug,
           agentInstructions:
-            'Repita APENAS a message (título, data, início e fim). NUNCA troque início por fim. '
+            'Repita APENAS a message UMA vez ao utilizador (título, data, início, fim). '
+            + 'NUNCA troque início por fim. '
+            + 'PROIBIDO mensagens extra, resolve_user, get_google_calendar_status, subagentes, emojis ou despedidas. '
             + 'Se timeAdjustedToEvening, confirme o horário da tarde/noite indicado na message. '
-            + 'Se houver meetLink/hangoutLink, envie o link.',
+            + 'Se houver meetLink/hangoutLink, envie o link na mesma mensagem.',
         },
       };
     } catch (err) {
