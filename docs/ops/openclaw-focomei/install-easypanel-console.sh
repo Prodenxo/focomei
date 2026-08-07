@@ -212,13 +212,36 @@ EOF
 
 # SOUL completo (paridade MeiInfinito) — NÃO cabe no heredoc do Console (~4 KB).
 # Defina OPENCLAW_SOUL_RAW_URL = URL Raw do GitHub de docs/ops/openclaw-focomei/SOUL.md
+fetch_soul_md() {
+  _url="$1"
+  _dest="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$_url" -o "$_dest"
+    return $?
+  fi
+  node -e "
+const fs=require('fs');
+const url=process.argv[1];
+const dest=process.argv[2];
+if(!url) { console.error('URL vazia'); process.exit(1); }
+fetch(url).then(r=>{
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r.text();
+}).then(t=>{
+  fs.mkdirSync(require('path').dirname(dest), { recursive: true });
+  fs.writeFileSync(dest, t);
+  console.log('[focomei] SOUL via node fetch:', t.length, 'bytes');
+}).catch(e=>{ console.error(e.message||e); process.exit(1); });
+" "$_url" "$_dest"
+}
+
 if [ -n "${OPENCLAW_SOUL_RAW_URL:-}" ]; then
   echo "[focomei] a baixar SOUL completo de OPENCLAW_SOUL_RAW_URL..."
-  if curl -fsSL "$OPENCLAW_SOUL_RAW_URL" -o "$WS/SOUL.md"; then
+  if fetch_soul_md "$OPENCLAW_SOUL_RAW_URL" "$WS/SOUL.md"; then
     wc -c "$WS/SOUL.md"
     echo "[focomei] SOUL.md instalado ($(wc -c < "$WS/SOUL.md") bytes)"
   else
-    echo "[focomei] ERRO: curl do SOUL falhou — mantém SOUL.md actual se existir"
+    echo "[focomei] ERRO: download do SOUL falhou — mantém SOUL.md actual se existir"
   fi
 elif [ -f "$WS/SOUL.md" ] && [ "$(wc -c < "$WS/SOUL.md")" -gt 20000 ]; then
   echo "[focomei] SOUL.md já parece completo ($(wc -c < "$WS/SOUL.md") bytes) — ok"

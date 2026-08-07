@@ -33,7 +33,24 @@ A **alma (`SOUL.md`) é a do MeiInfinito** (`openclaw-midas-SOUL.md`), portada c
 5. Restart OpenClaw  
 6. WhatsApp: `/new`
 
-Só o SOUL (se tools já existem):
+Só o SOUL (se tools já existem) — **sem curl** (usa Node):
+
+```bash
+node -e "
+const fs=require('fs');
+const url=process.env.OPENCLAW_SOUL_RAW_URL;
+const dest='/home/node/.openclaw/workspace/SOUL.md';
+if(!url){console.error('Defina OPENCLAW_SOUL_RAW_URL no EasyPanel');process.exit(1);}
+fetch(url).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(t=>{
+  fs.mkdirSync('/home/node/.openclaw/workspace',{recursive:true});
+  fs.writeFileSync(dest,t);
+  console.log('OK',t.length,'bytes ->',dest);
+}).catch(e=>{console.error(e);process.exit(1)});
+"
+wc -c /home/node/.openclaw/workspace/SOUL.md
+```
+
+Com curl (se existir):
 
 ```bash
 curl -fsSL "$OPENCLAW_SOUL_RAW_URL" -o /home/node/.openclaw/workspace/SOUL.md
