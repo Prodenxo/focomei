@@ -2,20 +2,27 @@ import { createSupabaseClient } from '../config/supabase.js';
 import { env } from '../config/env.js';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const GOOGLE_PRIMARY_CALENDAR_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary';
+/** Escopo OAuth da app: calendar.events — não inclui metadata de /calendars/primary */
+const GOOGLE_EVENTS_PROBE_URL =
+  'https://www.googleapis.com/calendar/v3/calendars/primary/events?maxResults=1&singleEvents=true';
 
 /**
+ * Verifica se o token consegue ler eventos (escopo calendar.events).
  * @param {string} accessToken
  * @returns {Promise<boolean>}
  */
 export const probeGoogleCalendarAccess = async (accessToken) => {
   if (!accessToken) return false;
   try {
-    const res = await fetch(GOOGLE_PRIMARY_CALENDAR_URL, {
+    const res = await fetch(GOOGLE_EVENTS_PROBE_URL, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
+    if (!res.ok) {
+      console.warn('[google-calendar] probe events list failed', { status: res.status });
+    }
     return res.ok;
-  } catch {
+  } catch (err) {
+    console.warn('[google-calendar] probe events list error', err?.message || err);
     return false;
   }
 };

@@ -1856,9 +1856,12 @@ export const runOpenclawAction = async (input) => {
         actorContext,
         ...linkDebug,
         agentInstructions: status.ready
-          ? 'Google Calendar OK — pode create_calendar_event.'
-          : 'Repita só message. Se notLinked, oriente Configurações → Google Calendar na app. '
-            + 'Se acabou de conectar, peça para tentar criar o compromisso de novo em 1 minuto.',
+          ? 'Google Calendar OK — chame create_calendar_event.'
+          : status.connected
+            ? 'Calendar ligado na app mas ready=false. Mesmo assim tente create_calendar_event '
+              + 'com título, data e time; só oriente reconectar se create devolver notLinked ou erro.'
+            : 'Repita só message. Se notLinked, oriente Configurações → Google Calendar na app. '
+              + 'Se acabou de conectar, peça para tentar criar o compromisso de novo em 1 minuto.',
       },
     };
   }

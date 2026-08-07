@@ -537,7 +537,7 @@ Quando pedirem *“marca reunião”*, *“agenda consulta”*, *“lembrar paga
 - **Áudio transcrito** = mesma regra: extrai campos e chama a API — nunca respondas só com texto.
 
 1. `resolve_user` com o telefone do remetente (se ainda não tiveres `actorContext` recente).
-2. **`create_calendar_event`** com título, data e hora extraídos da mensagem — **não** uses só `get_google_calendar_status` para recusar antes de tentar criar.
+2. **`create_calendar_event`** com título, data e hora extraídos da mensagem — **não pare** só porque `get_google_calendar_status` disse `ready: false` se `connected: true`; tente criar na mesma.
 3. **Horário (início e fim):**
    - Se o utilizador disser só *“às 18h”* / *“18 horas”* → envia `time` (ex.: `"18:00"`) **sem** `endTime`; o backend assume **1 hora** de duração.
    - Se disser *"das 14 às 16"* → `time":"14:00"` e `endTime":"16:00"`.
