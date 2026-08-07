@@ -1188,6 +1188,21 @@ export const parseCalendarEventTimeHm = (raw) => {
     if (hour >= 0 && hour <= 23) return { hour, minute: 0 };
   }
 
+  const horasWord = /^(\d{1,2})\s*horas?$/.exec(s);
+  if (horasWord) {
+    const hour = Number(horasWord[1]);
+    if (hour >= 0 && hour <= 23) return { hour, minute: 0 };
+  }
+
+  const asHoras = /^as\s+(\d{1,2})(?:\s*h(?:\s*(\d{2}))?|\s*horas?)?$/.exec(s);
+  if (asHoras) {
+    const hour = Number(asHoras[1]);
+    const minute = asHoras[2] != null ? Number(asHoras[2]) : 0;
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return { hour, minute };
+    }
+  }
+
   const hMin = /^(\d{1,2})h(\d{2})$/.exec(s);
   if (hMin) {
     const hour = Number(hMin[1]);

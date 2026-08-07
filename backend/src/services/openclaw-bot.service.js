@@ -21,6 +21,7 @@ import {
   normalizeOpenclawTransactionUpdate,
   resolveOpenclawTransactionId,
 } from './openclaw-transaction-payload.js';
+import { normalizeOpenclawCalendarCreatePayload } from '../utils/openclaw-action-payload.js';
 import * as categoriesService from './categories.service.js';
 import * as rbacCatalogService from './rbac-catalog.service.js';
 import {
@@ -1547,6 +1548,7 @@ export const runOpenclawAction = async (input) => {
   }
 
   if (action === 'create_calendar_event') {
+    payload = normalizeOpenclawCalendarCreatePayload(payload);
     try {
       const created = await calendarEventsService.createCalendarEventForUser(userId, payload);
       if (!created.ok) {
@@ -1566,7 +1568,8 @@ export const runOpenclawAction = async (input) => {
             ...linkDebug,
             agentInstructions:
               'Repita só esta message ao utilizador. Não digas "dificuldades técnicas". '
-              + 'Se notLinked, explique conectar Google Calendar na app Meu Financeiro.',
+              + 'Se notLinked, explique conectar Google Calendar na app Meu Financeiro. '
+              + 'PROIBIDO dizer calendário desconectado sem ter chamado create_calendar_event nesta conversa.',
           },
         };
       }
@@ -2527,6 +2530,6 @@ export const runOpenclawAction = async (input) => {
   }
 
   throw badRequest(
-    `Ação desconhecida: "${action}". Use: ping, resolve_user, list_roles, get_permissions, check_permission, list_access_requests, approve_access_request, reject_access_request, list_categories, list_contas, get_saldo, create_conta, update_conta, delete_conta, list_transactions, create_transaction, update_transaction, delete_transaction, list_calendar_events, list_agenda_checklist_today, complete_calendar_event, list_upcoming_calendar_events, get_next_calendar_event, create_calendar_event, add_calendar_event_meet, delete_calendar_event, get_nfse_setup_status, list_nfse_clientes, register_nfse_cliente, list_nfse_produtos, list_catalog_servicos, list_nfe_produtos, register_nfse_produto, register_nfe_cliente, register_nfe_produto, preview_nfse, emit_nfse, preview_nfe, emit_nfe, list_nfse_notas, consult_nfse, get_nfse_pdf, send_nfse_whatsapp, get_das_payment_status, get_das_current, send_das_whatsapp, refresh_das_pdf.`,
+    `Ação desconhecida: "${action}". Use: ping, resolve_user, list_roles, get_permissions, check_permission, list_access_requests, approve_access_request, reject_access_request, list_categories, list_contas, get_saldo, create_conta, update_conta, delete_conta, list_transactions, create_transaction, update_transaction, delete_transaction, list_calendar_events, list_agenda_checklist_today, complete_calendar_event, list_upcoming_calendar_events, get_next_calendar_event, create_calendar_event, add_calendar_event_meet, delete_calendar_event, get_google_calendar_status, get_nfse_setup_status, list_nfse_clientes, register_nfse_cliente, list_nfse_produtos, list_catalog_servicos, list_nfe_produtos, register_nfse_produto, register_nfe_cliente, register_nfe_produto, preview_nfse, emit_nfse, preview_nfe, emit_nfe, list_nfse_notas, consult_nfse, get_nfse_pdf, send_nfse_whatsapp, get_das_payment_status, get_das_current, send_das_whatsapp, refresh_das_pdf.`,
   );
 };

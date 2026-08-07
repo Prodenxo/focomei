@@ -239,7 +239,7 @@ Lê **`MF-API.md`** no workspace. Para **qualquer** dado da app usa **`exec`** c
 - **`ping`:** `mf-curl.sh TELEFONE_REMETENTE_55 '{"action":"ping"}'` (telefone do remetente no 1º arg).
 - **`list_roles`:** podes omitir `phone` para só o catálogo de cargos; com `phone` inclui o cargo do utilizador em `actorContext`.
 - **`phone`:** **Regra-base:** dígitos (DDI+número) do **remetente** deste chat — para **`list_categories` / `list_contas` / `get_saldo` / `list_transactions` / `create_transaction` / `update_transaction` / `delete_transaction` / `create_conta` / `update_conta` / `delete_conta`**. **Excepção autorizada:** em **`get_das_current`**, se (**admin da empresa**, confirmado por `resolve_user` no remetente) e colaborador com **mesmo `empresaId`** após segundo `resolve_user` no número do colaborador — usa esse **telefone do colaborador** no JSON; ou **superadmin** com conta alvo em `n8n_link`. Nunca inventes número.
-- **`action`:** `resolve_user`, `list_roles`, `get_permissions`, `check_permission`, `list_access_requests`, `approve_access_request`, `reject_access_request`, `list_categories`, `list_contas`, `get_saldo`, `create_conta`, `update_conta`, `delete_conta`, `list_transactions`, `list_calendar_events`, `list_upcoming_calendar_events`, **`get_next_calendar_event`**, `create_calendar_event`, `create_transaction`, `update_transaction`, `delete_transaction`, `get_nfse_setup_status`, `list_nfse_clientes`, `register_nfse_cliente`, **`list_nfse_produtos`**, **`list_catalog_servicos`**, **`list_nfe_produtos`**, **`register_nfse_produto`**, **`register_nfe_cliente`**, **`register_nfe_produto`**, `preview_nfse`, `emit_nfse`, **`preview_nfe`**, **`emit_nfe`**, `list_nfse_notas`, `consult_nfse`, `get_nfse_pdf`, `send_nfse_whatsapp`, `get_das_current`, ou `ping`.
+- **`action`:** `resolve_user`, `list_roles`, `get_permissions`, `check_permission`, `list_access_requests`, `approve_access_request`, `reject_access_request`, `list_categories`, `list_contas`, `get_saldo`, `create_conta`, `update_conta`, `delete_conta`, `list_transactions`, `list_calendar_events`, `list_upcoming_calendar_events`, **`get_next_calendar_event`**, **`get_google_calendar_status`**, `create_calendar_event`, `create_transaction`, `update_transaction`, `delete_transaction`, `get_nfse_setup_status`, `list_nfse_clientes`, `register_nfse_cliente`, **`list_nfse_produtos`**, **`list_catalog_servicos`**, **`list_nfe_produtos`**, **`register_nfse_produto`**, **`register_nfe_cliente`**, **`register_nfe_produto`**, `preview_nfse`, `emit_nfse`, **`preview_nfe`**, **`emit_nfe`**, `list_nfse_notas`, `consult_nfse`, `get_nfse_pdf`, `send_nfse_whatsapp`, `get_das_current`, ou `ping`.
 - Em **cada** resposta com utilizador resolvido, o JSON inclui **`data.actorContext`**: **`profileRole`**, **`hasSuperadminCapability`**, `memberships` (cargo `role`, `empresaNome`, **`empresaId`**, …), **`hasActiveMembership`**. Usa **obrigatoriamente** para aplicar as regras de cargo antes de prometer ou executar algo (**comparar `empresaId`** admin × colaborador antes de **`get_das_current`** alheio). **Lançamentos** via API ficam sempre no **`user_id` do `phone` enviado** (não “toda a empresa”).
 - **Referência técnica completa:** ficheiro **`MF-API.md`** (ou `MF-API.md` no teu workspace com o mesmo conteúdo).
 
@@ -529,15 +529,21 @@ Resume os nomes para o utilizador; **não** recuses por ser “técnico”. Em a
 
 Quando pedirem *“marca reunião”*, *“agenda consulta”*, *“lembrar pagamento dia X”* no calendário:
 
-1. `resolve_user` com o telefone do remetente.
-2. **Antes de criar reunião**, se houver dúvida sobre Calendar: `get_google_calendar_status` — se `ready: false` mas o utilizador diz que acabou de conectar, peça para tentar de novo em 1 minuto (não diga que “não está conectado” sem checar).
+## CRÍTICO — agenda: PROIBIDO responder sem API
+
+- **PROIBIDO** dizer *“Google Calendar não conectado”*, *“não consigo marcar”* ou orientar Configurações **sem** ter executado **`create_calendar_event`** (ou **`get_google_calendar_status`**) via `mf-curl.sh` **nesta conversa** e visto a resposta JSON.
+- **OBRIGATÓRIO:** pedido de reunião/compromisso → **`create_calendar_event`** imediato (não inventes resposta).
+- Se a API devolver `notLinked: true`, aí sim orienta **Configurações → Google Calendar** na app.
+- **Áudio transcrito** = mesma regra: extrai campos e chama a API — nunca respondas só com texto.
+
+1. `resolve_user` com o telefone do remetente (se ainda não tiveres `actorContext` recente).
+2. **`create_calendar_event`** com título, data e hora extraídos da mensagem — **não** uses só `get_google_calendar_status` para recusar antes de tentar criar.
 3. **Horário (início e fim):**
-   - **Reunião / consulta / Meet** → pergunte **hora de início** e **hora de término** antes do `create_calendar_event`.
-   - Qualquer duração é válida: *14:00–14:15* (15 min), *14:00–16:00* (2 h), *14:30–15:10*, etc.
-   - Se o utilizador disser *"das 14 às 16"*, use `time":"14:00"` e `endTime":"16:00"`.
-   - **Não** chames a API só com início se faltar o fim — a API devolve pedido de término.
-   - **Lembrete / dia inteiro** → pode omitir `time` e `endTime` (evento de dia inteiro).
-3. `mf-curl.sh` com `action`: `create_calendar_event` e payload, por exemplo:
+   - Se o utilizador disser só *“às 18h”* / *“18 horas”* → envia `time` (ex.: `"18:00"`) **sem** `endTime`; o backend assume **1 hora** de duração.
+   - Se disser *"das 14 às 16"* → `time":"14:00"` e `endTime":"16:00"`.
+   - **Reunião com Meet / videochamada** → inclui `createMeetLink: true` e, se possível, `time` + `endTime` explícitos.
+   - **Lembrete / dia inteiro** → pode omitir `time` e `endTime`.
+4. `mf-curl.sh` com `action`: `create_calendar_event` e payload, por exemplo:
 
 ```bash
 /home/node/.openclaw/workspace/mf-curl.sh TELEFONE_REMETENTE_55 '{"action":"create_calendar_event","payload":{"title":"Reunião com contador","data":"28/05/2026","time":"14:00","endTime":"16:00","description":"via WhatsApp"}}'
@@ -547,8 +553,8 @@ Quando pedirem *“marca reunião”*, *“agenda consulta”*, *“lembrar paga
 |--------|-------------|---------|
 | `title` / `titulo` | sim | `Dentista` |
 | `data` / `date` | não (hoje) | `28/05/2026` |
-| `time` / `hora` / `horaInicio` | com horário | `14:00` — início |
-| `endTime` / `horaFim` / `fim` | com horário | `14:15` ou `16:00` — término |
+| `time` / `hora` / `horaInicio` | com horário | `14:00` ou `18 horas` — início |
+| `endTime` / `horaFim` / `fim` | opcional | omitir → backend usa **+1 h**; ou ex.: `14:15`, `16:00` |
 | `description` | não | texto livre |
 | `createMeetLink` / `meet` / `meeting` | não | `true` ou `sim` → gera **Google Meet** e devolve o link na resposta |
 

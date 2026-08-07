@@ -98,3 +98,64 @@ const firstString = (...values) => {
   }
   return '';
 };
+
+/** Duração padrão de reunião via WhatsApp quando o utilizador só informa hora de início. */
+export const OPENCLAW_DEFAULT_MEETING_DURATION_MINUTES = 60;
+
+const CALENDAR_START_TIME_KEYS = [
+  'time',
+  'hora',
+  'horario',
+  'startTime',
+  'inicio',
+  'horaInicio',
+];
+
+const CALENDAR_END_TIME_KEYS = [
+  'endTime',
+  'horaFim',
+  'fim',
+  'end',
+  'endHour',
+  'endMinute',
+  'durationMinutes',
+  'duracaoMinutos',
+  'duracao',
+];
+
+const hasCalendarStartTime = (payload = {}) =>
+  CALENDAR_START_TIME_KEYS.some(
+    (key) => payload[key] != null && String(payload[key]).trim() !== '',
+  );
+
+const hasCalendarEndOrDuration = (payload = {}) =>
+  CALENDAR_END_TIME_KEYS.some((key) => {
+    if (payload[key] == null) return false;
+    if (typeof payload[key] === 'number') return Number.isFinite(payload[key]);
+    return String(payload[key]).trim() !== '';
+  });
+
+/**
+ * WhatsApp/OpenClaw: "reunião às 18h" costuma vir só com início.
+ * Aplica duração padrão (1 h) para não falhar na API nem pedir fim de imediato.
+ * @param {Record<string, unknown>} payload
+ * @returns {Record<string, unknown>}
+ */
+export const normalizeOpenclawCalendarCreatePayload = (payload = {}) => {
+  const out = { ...payload };
+  const allDay = out.allDay === true
+    || out.diaInteiro === true
+    || String(out.allDay || out.diaInteiro || '').toLowerCase() === 'true';
+
+  if (
+    hasCalendarStartTime(out)
+    && !hasCalendarEndOrDuration(out)
+    && !allDay
+    && out.allDay !== false
+    && out.diaInteiro !== false
+  ) {
+    out.durationMinutes = OPENCLAW_DEFAULT_MEETING_DURATION_MINUTES;
+  }
+
+  return out;
+};
