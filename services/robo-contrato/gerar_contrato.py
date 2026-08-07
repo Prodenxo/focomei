@@ -83,6 +83,7 @@ def resolver_config() -> dict[str, Any]:
         return (os.environ.get(key) or file_env.get(key) or default).strip()
 
     api = get("API_URL", "http://localhost:5000").rstrip("/")
+    auto_raw = get("ONETY_AUTO_ENVIAR_WHATSAPP", "true").lower()
     return {
         "api_url": api,
         "email": get("EMAIL"),
@@ -90,6 +91,12 @@ def resolver_config() -> dict[str, Any]:
         "empresa_id": get("EMPRESA_ID"),
         "token": get("TOKEN"),
         "config_path": str(arquivo) if arquivo.exists() else None,
+        "auto_enviar_whatsapp": auto_raw not in ("0", "false", "off", "no"),
+        "whatsapp_instancia_id": get("ONETY_WHATSAPP_INSTANCIA_ID"),
+        "whatsapp_instancia_nome": get(
+            "ONETY_WHATSAPP_INSTANCIA_NOME",
+            "Comercial Foco MEI",
+        ),
     }
 
 
@@ -335,6 +342,86 @@ class OnetyClient:
         if not isinstance(data, dict):
             raise RuntimeError(f"Resposta inesperada: {data}")
         return data
+
+    def listar_instancias_whatsapp(self) -> list[dict[str, Any]]:
+        """Instâncias Z-API cadastradas em Atendimento (para envio de link de assinatura)."""
+        paths = (
+            "/atendimento/instancias",
+            "/atendimento/instancias-whatsapp",
+            "/atendimento/instancias/zapi",
+            "/atendimento/whatsapp/instancias",
+            "/atendimento/zapi/instancias",
+            "/atendimento/conexoes",
+            "/atendimento/conexoes-whatsapp",
+            "/zapi/instancias",
+            "/integracao/zapi/instancias",
+            "/contratual/whatsapp/instancias",
+            "/contratual/instancias-whatsapp",
+        )
+        found: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for path in paths:
+            try:
+                data = self.request("GET", path, timeout=30)
+            except Exception:
+                continue
+            items: list[dict[str, Any]] = []
+            if isinstance(data, list):
+                items = [x for x in data if isinstance(x, dict)]
+            elif isinstance(data, dict):
+                for key in ("data", "instancias", "items", "rows", "conexoes"):
+                    raw = data.get(key)
+                    if isinstance(raw, list):
+                        items = [x for x in raw if isinstance(x, dict)]
+                        break
+            for item in items:
+                iid = item.get("id") or item.get("instanciaId") or item.get("instancia_id")
+                key = str(iid) if iid is not None else json.dumps(item, sort_keys=True, default=str)
+                if key in seen_ids:
+                    continue
+                seen_ids.add(key)
+                item = dict(item)
+                item["_robo_source_path"] = path
+                found.append(item)
+        return found
+
+    def enviar_contrato_whatsapp(
+        self,
+        contract_id: int | str,
+        *,
+        instancia_id: int | str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Espelha o botão Onety: Enviar documento → WhatsApp.
+        POST /contratual/contratos/{id}/send-whatsapp
+        """
+        bodies: list[dict[str, Any]] = []
+        if instancia_id is not None:
+            iid = int(instancia_id)
+            bodies.append({"instanciaId": iid})
+            bodies.append({"instancia_id": iid})
+        bodies.append({})
+
+        last_exc: Exception | None = None
+        for body in bodies:
+            try:
+                data = self.request(
+                    "POST",
+                    f"/contratual/contratos/{contract_id}/send-whatsapp",
+                    json_body=body,
+                    timeout=120,
+                )
+            except Exception as exc:
+                last_exc = exc
+                continue
+            if isinstance(data, dict):
+                data["_robo_send_body"] = body
+                return data
+            return {"ok": True, "raw": data, "_robo_send_body": body}
+
+        if last_exc:
+            raise last_exc
+        raise RuntimeError("Falha ao enviar contrato por WhatsApp")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -809,6 +896,37 @@ def cmd_listar_clientes(client: OnetyClient, empresa_id: str | int) -> None:
         print(f"  ... e mais {len(clientes) - 100}")
 
 
+def cmd_listar_instancias_whatsapp(client: OnetyClient) -> None:
+    instancias = client.listar_instancias_whatsapp()
+    if not instancias:
+        print(
+            "\nNenhuma instância WhatsApp encontrada via API.\n"
+            "Dicas:\n"
+            "  1) No Onety, abra o modal WhatsApp e veja GET na aba Network (lista instâncias)\n"
+            "  2) Inspecione o card 'Comercial Foco MEI' (data-id / value no HTML)\n"
+            "  3) Deixe ONETY_WHATSAPP_INSTANCIA_ID vazio — o robô tenta POST com body {}\n"
+        )
+        return
+    print(f"\n{len(instancias)} instância(s) WhatsApp:\n")
+    for inst in instancias:
+        iid = _extrair_id_instancia(inst)
+        nome = (
+            inst.get("nome")
+            or inst.get("name")
+            or inst.get("titulo")
+            or inst.get("label")
+            or "?"
+        )
+        status = inst.get("status") or inst.get("situacao") or inst.get("connected")
+        src = inst.get("_robo_source_path") or "?"
+        print(f"  id={iid}  {nome}  status={status}  (via {src})")
+    print(
+        "\nUse no config.env:\n"
+        "  ONETY_WHATSAPP_INSTANCIA_ID=<id acima>\n"
+        "  ONETY_WHATSAPP_INSTANCIA_NOME=Comercial Foco MEI\n"
+    )
+
+
 def salvar_saida(resultado: dict[str, Any], origem: Path | str) -> Path:
     SAIDA.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -850,6 +968,114 @@ def listar_arquivos_entrada() -> list[Path]:
         ],
         key=lambda p: p.name.lower(),
     )
+
+
+def extrair_contrato_id(resultado: dict[str, Any] | None) -> int | None:
+    """ID usado em POST /contratual/contratos/{id}/send-whatsapp."""
+    if not isinstance(resultado, dict):
+        return None
+    for key in ("id", "contract_id", "contrato_id", "contratoId"):
+        val = resultado.get(key)
+        if val is not None and str(val).strip() != "":
+            try:
+                return int(val)
+            except (TypeError, ValueError):
+                continue
+    for nest in ("contract", "contrato", "data"):
+        nested = resultado.get(nest)
+        if isinstance(nested, dict):
+            cid = extrair_contrato_id(nested)
+            if cid is not None:
+                return cid
+    return None
+
+
+def _normalizar_nome_instancia(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+
+def _extrair_id_instancia(item: dict[str, Any]) -> int | None:
+    for key in ("id", "instanciaId", "instancia_id", "instanceId", "conexao_id"):
+        val = item.get(key)
+        if val is not None and str(val).strip() != "":
+            try:
+                return int(val)
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def resolver_whatsapp_instancia_id(
+    client: OnetyClient,
+    cfg: dict[str, Any],
+) -> int | None:
+    raw_id = cfg.get("whatsapp_instancia_id")
+    if raw_id not in (None, ""):
+        try:
+            return int(raw_id)
+        except (TypeError, ValueError):
+            raise RuntimeError(
+                f"ONETY_WHATSAPP_INSTANCIA_ID inválido: {raw_id!r}",
+            )
+
+    instancias = client.listar_instancias_whatsapp()
+    if not instancias:
+        return None
+
+    nome_alvo = _normalizar_nome_instancia(cfg.get("whatsapp_instancia_nome"))
+    if nome_alvo:
+        for inst in instancias:
+            nome = _normalizar_nome_instancia(
+                inst.get("nome")
+                or inst.get("name")
+                or inst.get("titulo")
+                or inst.get("label")
+                or inst.get("descricao")
+            )
+            if nome == nome_alvo or nome_alvo in nome:
+                iid = _extrair_id_instancia(inst)
+                if iid is not None:
+                    return iid
+
+    if len(instancias) == 1:
+        return _extrair_id_instancia(instancias[0])
+
+    return None
+
+
+def tentar_enviar_contrato_whatsapp(
+    client: OnetyClient,
+    cfg: dict[str, Any],
+    contract_id: int,
+) -> tuple[bool, str]:
+    if not cfg.get("auto_enviar_whatsapp"):
+        return False, "desabilitado"
+
+    instancia_id: int | None
+    try:
+        instancia_id = resolver_whatsapp_instancia_id(client, cfg)
+    except RuntimeError as exc:
+        return False, str(exc)
+
+    try:
+        resp = client.enviar_contrato_whatsapp(
+            contract_id,
+            instancia_id=instancia_id,
+        )
+    except Exception as exc:
+        return False, str(exc)
+
+    if isinstance(resp, dict):
+        if resp.get("ok") is False or resp.get("error"):
+            return False, str(resp.get("error") or resp.get("message") or resp)
+        body_used = resp.get("_robo_send_body") or {}
+        if instancia_id is not None:
+            return True, f"instancia={instancia_id} body={body_used}"
+        if body_used:
+            return True, f"body={body_used}"
+        return True, "enviado"
+
+    return True, "enviado"
 
 
 def processar_spec(
@@ -995,17 +1221,30 @@ def processar_spec(
         "cliente_criado_id": cliente_criado_id,
         "faltando": faltando,
     }
+    contract_id = extrair_contrato_id(resultado)
+    whatsapp_ok = False
+    whatsapp_msg = ""
+    if contract_id is not None:
+        whatsapp_ok, whatsapp_msg = tentar_enviar_contrato_whatsapp(
+            client,
+            cfg,
+            contract_id,
+        )
+        resultado["_meta"]["whatsapp_enviado"] = whatsapp_ok
+        resultado["_meta"]["whatsapp_detalhe"] = whatsapp_msg
+        resultado["_meta"]["contrato_id"] = contract_id
+
     out = salvar_saida(resultado, rotulo)
-    contract_id = (
-        resultado.get("contract_id")
-        or resultado.get("id")
-        or (resultado.get("contract") or {}).get("id")
-    )
     parts = []
     if cliente_criado_id:
         parts.append(f"cliente={cliente_criado_id}")
     if contract_id:
         parts.append(f"contrato={contract_id}")
+    if cfg.get("auto_enviar_whatsapp"):
+        if whatsapp_ok:
+            parts.append("whatsapp=OK")
+        else:
+            parts.append(f"whatsapp=FALHA({whatsapp_msg})")
     if faltando:
         parts.append(f"faltando={len(faltando)}")
     extra = (" " + " ".join(parts)) if parts else ""
@@ -1054,6 +1293,16 @@ def main(argv: list[str] | None = None) -> int:
         "--listar-clientes",
         action="store_true",
         help="Lista pré-clientes (client_id) da empresa.",
+    )
+    parser.add_argument(
+        "--listar-instancias-whatsapp",
+        action="store_true",
+        help="Lista instâncias Z-API (Atendimento) para send-whatsapp.",
+    )
+    parser.add_argument(
+        "--testar-send-whatsapp",
+        metavar="CONTRATO_ID",
+        help="Testa POST /contratual/contratos/{id}/send-whatsapp (ex.: 8980).",
     )
     parser.add_argument(
         "--force",
@@ -1105,6 +1354,26 @@ def main(argv: list[str] | None = None) -> int:
             cmd_listar_clientes(client, cfg["empresa_id"])
         except Exception as exc:
             print(f"Erro ao listar clientes: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    if args.listar_instancias_whatsapp:
+        try:
+            cmd_listar_instancias_whatsapp(client)
+        except Exception as exc:
+            print(f"Erro ao listar instâncias WhatsApp: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    if args.testar_send_whatsapp:
+        try:
+            cid = int(args.testar_send_whatsapp)
+            instancia_id = resolver_whatsapp_instancia_id(client, cfg)
+            print(f"Contrato {cid} | instancia resolvida: {instancia_id}")
+            resp = client.enviar_contrato_whatsapp(cid, instancia_id=instancia_id)
+            print(json.dumps(resp, ensure_ascii=False, indent=2))
+        except Exception as exc:
+            print(f"Falha no send-whatsapp: {exc}", file=sys.stderr)
             return 1
         return 0
 

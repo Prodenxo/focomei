@@ -24,6 +24,9 @@ Recebe POST do backend FocoMEI após pagamento Stripe e gera contrato no Onety/A
 | `WEBHOOK_SECRET` | token forte (anote) |
 | `WEBHOOK_HOST` | `0.0.0.0` |
 | `WEBHOOK_PORT` | `8787` |
+| `ONETY_AUTO_ENVIAR_WHATSAPP` | `true` — envia link após criar contrato |
+| `ONETY_WHATSAPP_INSTANCIA_ID` | ID da instância Z-API (Atendimento → Comercial Foco MEI) |
+| `ONETY_WHATSAPP_INSTANCIA_NOME` | Fallback por nome se ID vazio |
 
 Copie de `.env.example` — **não commite senhas**.
 
