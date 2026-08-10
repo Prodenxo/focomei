@@ -1,17 +1,16 @@
 import React from 'react'
 import { View, Text, StyleSheet } from 'react-native'
 import {
-  formatDateTime,
   formatNfseStatus,
   getNfseStatusBadgeBackground,
   getNfseStatusBadgeColor,
-  getNfseStatusKey,
   meiFiscalDocumentTypeShortLabel,
   resolveNfseDisplayStatus,
 } from '../lib/meiFormatters'
 import {
   extrairNomeClienteDaNota,
   extrairValorDaNota,
+  formatNotaFiscalEmissaoMeta,
   type ClienteCatalogByDoc,
 } from '../lib/notaFiscalDisplay'
 import { formatCurrencyBR } from '../lib/numberFormat'
@@ -72,8 +71,9 @@ export function NotaFiscalListRowHeader ({
     ? 'Enviando nota…'
     : cliente || 'Cliente não informado'
   const valorLabel = valor != null ? formatCurrencyBR(valor) : null
+  const emissaoMeta = isPending ? null : formatNotaFiscalEmissaoMeta(nota)
   const metaParts = [
-    `Emitida em ${formatDateTime(nota.created_at)}`,
+    emissaoMeta,
     nota.protocol ? `Protocolo ${nota.protocol}` : null,
   ].filter(Boolean)
 

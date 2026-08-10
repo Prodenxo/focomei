@@ -1,8 +1,10 @@
 import type { NfseRecord } from '../services/meiNotasService'
+import { formatDateTime, getNfseStatusKey } from './meiFormatters'
 import {
   extrairValorLimiteMeiDaNota,
   isNfseDocumento,
   parseValorMonetarioBr,
+  resolverDataAutorizacaoFiscalDaNota,
   resolverPayloadJsonDaNota,
   resolverResponseJsonDaNota,
 } from './meiLimiteFaturamento'
@@ -172,4 +174,32 @@ export function resolverTituloNotaFiscal(record: NfseRecord): string {
   const cliente = extrairNomeClienteDaNota(record)
   if (cliente) return cliente
   return record.id_integracao || record.plugnotas_id || record.protocol || record.id
+}
+
+/** Linha de meta na lista — usa data fiscal (retorno PlugNotas), não created_at enganoso. */
+export function formatNotaFiscalEmissaoMeta(
+  record: Pick<NfseRecord, 'status' | 'response_json' | 'created_at' | 'updated_at'>,
+): string | null {
+  const statusKey = getNfseStatusKey(record.status)
+  const fiscalDate = resolverDataAutorizacaoFiscalDaNota(record as NfseRecord)
+
+  if (statusKey === 'concluido') {
+    if (fiscalDate) return `Autorizada em ${formatDateTime(fiscalDate)}`
+    if (record.updated_at) return `Autorizada em ${formatDateTime(record.updated_at)}`
+    return null
+  }
+
+  if (statusKey === 'processando' || statusKey === 'aguardando') {
+    if (record.created_at) return `Enviada em ${formatDateTime(record.created_at)}`
+    return null
+  }
+
+  if (statusKey === 'rejeitado' || statusKey === 'interrompido') {
+    if (record.created_at) return `Tentativa em ${formatDateTime(record.created_at)}`
+    return null
+  }
+
+  if (fiscalDate) return `Autorizada em ${formatDateTime(fiscalDate)}`
+  if (record.created_at) return `Registrada em ${formatDateTime(record.created_at)}`
+  return null
 }

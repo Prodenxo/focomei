@@ -112,6 +112,64 @@ export function resolverResponseJsonDaNota(record: NfseRecord): Record<string, u
   return normalizarPayloadJsonNfse(raw)
 }
 
+const FISCAL_DATE_FIELD_KEYS = [
+  'dataAutorizacao',
+  'dataAutorizacaoNfse',
+  'dataEmissao',
+  'data_emissao',
+  'emissao',
+] as const
+
+function parseDateIso(value: unknown): string | null {
+  if (value == null || value === '') return null
+  const parsed = new Date(String(value))
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.toISOString()
+}
+
+function pickFirstFiscalDateFromObject(obj: Record<string, unknown>): string | null {
+  for (const key of FISCAL_DATE_FIELD_KEYS) {
+    const iso = parseDateIso(obj[key])
+    if (iso) return iso
+  }
+  return null
+}
+
+/** Mesma heurística do backend (`collectResponseCandidates` em mei-notas.service). */
+export function collectResponseCandidates(response: unknown): unknown[] {
+  if (Array.isArray(response)) return response
+  if (!response || typeof response !== 'object') return [response]
+  const r = response as Record<string, unknown>
+  const list: unknown[] = [r]
+  if (Array.isArray(r.documents)) list.push(...r.documents)
+  if (Array.isArray(r.documentos)) list.push(...r.documentos)
+  if (r.data !== undefined && r.data !== null) {
+    if (Array.isArray(r.data)) list.push(...r.data)
+    else if (typeof r.data === 'object') list.push(r.data)
+  }
+  if (r.nfse && typeof r.nfse === 'object') list.push(r.nfse)
+  if (r.documento && typeof r.documento === 'object') list.push(r.documento)
+  if (r.retorno && typeof r.retorno === 'object') list.push(r.retorno)
+  if (r.xml && typeof r.xml === 'object') {
+    list.push(r.xml)
+    const xml = r.xml as Record<string, unknown>
+    if (xml.retorno && typeof xml.retorno === 'object') list.push(xml.retorno)
+  }
+  return list
+}
+
+/** Data de autorização/emissão fiscal (PlugNotas) — sem fallback em created_at. */
+export function resolverDataAutorizacaoFiscalDaNota(record: NfseRecord): string | null {
+  const resp = resolverResponseJsonDaNota(record)
+  if (!resp) return null
+  for (const candidate of collectResponseCandidates(resp)) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue
+    const iso = pickFirstFiscalDateFromObject(candidate as Record<string, unknown>)
+    if (iso) return iso
+  }
+  return null
+}
+
 function hasServicoArrayInObj(obj: Record<string, unknown>): boolean {
   const s = obj.servico ?? obj.servicos
   return s != null
@@ -200,23 +258,10 @@ export function anoCivilFromIsoCreatedAt(createdAt: string | undefined | null): 
 }
 
 export function resolverDataEmissaoDaNota(record: NfseRecord): string | null {
-  const resp = resolverResponseJsonDaNota(record)
+  const fiscal = resolverDataAutorizacaoFiscalDaNota(record)
+  if (fiscal) return fiscal
   const r = record as Record<string, unknown>
-  const candidates = [
-    resp?.dataAutorizacao,
-    resp?.dataAutorizacaoNfse,
-    resp?.dataEmissao,
-    resp?.data_emissao,
-    resp?.emissao,
-    record.created_at,
-    r.createdAt,
-  ]
-  for (const value of candidates) {
-    if (value == null || value === '') continue
-    const parsed = new Date(String(value))
-    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString()
-  }
-  return null
+  return parseDateIso(record.created_at) ?? parseDateIso(r.createdAt)
 }
 
 export function somarNfseAutorizadasNoAnoCivil(

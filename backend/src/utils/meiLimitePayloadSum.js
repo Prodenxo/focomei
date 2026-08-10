@@ -186,20 +186,64 @@ export function anoCivilFromIsoCreatedAt(createdAt) {
 
 /** Data de emissão/autorização (PlugNotas) com fallback em created_at. */
 export function resolverDataEmissaoDaNota(record) {
+  const fiscal = resolverDataAutorizacaoFiscalDaNota(record);
+  if (fiscal) return fiscal;
+  return parseDateIso(record?.created_at ?? record?.createdAt);
+}
+
+const FISCAL_DATE_FIELD_KEYS = [
+  'dataAutorizacao',
+  'dataAutorizacaoNfse',
+  'dataEmissao',
+  'data_emissao',
+  'emissao',
+];
+
+function parseDateIso(value) {
+  if (value == null || value === '') return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
+function pickFirstFiscalDateFromObject(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+  for (const key of FISCAL_DATE_FIELD_KEYS) {
+    const iso = parseDateIso(obj[key]);
+    if (iso) return iso;
+  }
+  return null;
+}
+
+function collectResponseCandidates(response) {
+  if (Array.isArray(response)) return response;
+  if (!response || typeof response !== 'object') return [response];
+  const list = [response];
+  if (Array.isArray(response.documents)) list.push(...response.documents);
+  if (Array.isArray(response.documentos)) list.push(...response.documentos);
+  if (response.data !== undefined && response.data !== null) {
+    if (Array.isArray(response.data)) list.push(...response.data);
+    else if (typeof response.data === 'object') list.push(response.data);
+  }
+  if (response.nfse && typeof response.nfse === 'object') list.push(response.nfse);
+  if (response.documento && typeof response.documento === 'object') list.push(response.documento);
+  if (response.retorno && typeof response.retorno === 'object') list.push(response.retorno);
+  if (response.xml && typeof response.xml === 'object') {
+    list.push(response.xml);
+    if (response.xml.retorno && typeof response.xml.retorno === 'object') {
+      list.push(response.xml.retorno);
+    }
+  }
+  return list;
+}
+
+export function resolverDataAutorizacaoFiscalDaNota(record) {
   const resp = resolverResponseJsonDaNota(record);
-  const candidates = [
-    resp?.dataAutorizacao,
-    resp?.dataAutorizacaoNfse,
-    resp?.dataEmissao,
-    resp?.data_emissao,
-    resp?.emissao,
-    record?.created_at,
-    record?.createdAt,
-  ];
-  for (const value of candidates) {
-    if (value == null || value === '') continue;
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  if (!resp) return null;
+  for (const candidate of collectResponseCandidates(resp)) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+    const iso = pickFirstFiscalDateFromObject(candidate);
+    if (iso) return iso;
   }
   return null;
 }

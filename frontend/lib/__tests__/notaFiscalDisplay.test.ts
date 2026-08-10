@@ -3,6 +3,7 @@ import {
   extrairValorDaNota,
   buildClienteCatalogByDocumento,
   resolverTituloNotaFiscal,
+  formatNotaFiscalEmissaoMeta,
 } from '../notaFiscalDisplay'
 import type { NfseRecord } from '../../services/meiNotasService'
 
@@ -98,5 +99,41 @@ describe('notaFiscalDisplay', () => {
     } as NfseRecord
 
     expect(extrairNomeClienteDaNota(nota, catalog)).toBe('Empresa Exemplo LTDA')
+  })
+
+  it('formatNotaFiscalEmissaoMeta usa dataAutorizacao em retorno, não created_at', () => {
+    const nota = {
+      id: 'abc',
+      user_id: 'u1',
+      status: 'concluido',
+      created_at: '2026-06-07T00:00:00.000Z',
+      response_json: {
+        status: 'PROCESSANDO',
+        retorno: {
+          situacao: 'AUTORIZADA',
+          dataAutorizacao: '2026-08-07T21:00:00.000Z',
+        },
+      },
+    } as NfseRecord
+
+    const meta = formatNotaFiscalEmissaoMeta(nota)
+    expect(meta).toMatch(/^Autorizada em /)
+    expect(meta).toContain('07/08/2026')
+    expect(meta).not.toContain('07/06/2026')
+  })
+
+  it('formatNotaFiscalEmissaoMeta não mostra Emitida em created_at para concluída sem retorno', () => {
+    const nota = {
+      id: 'abc',
+      user_id: 'u1',
+      status: 'concluido',
+      created_at: '2026-06-07T00:00:00.000Z',
+      updated_at: '2026-08-07T21:00:00.000Z',
+      response_json: { status: 'CONCLUIDO' },
+    } as NfseRecord
+
+    const meta = formatNotaFiscalEmissaoMeta(nota)
+    expect(meta).toContain('07/08/2026')
+    expect(meta).not.toContain('07/06/2026')
   })
 })
