@@ -112,12 +112,20 @@ export function resolverResponseJsonDaNota(record: NfseRecord): Record<string, u
   return normalizarPayloadJsonNfse(raw)
 }
 
-const FISCAL_DATE_FIELD_KEYS = [
+const FISCAL_AUTH_DATE_FIELD_KEYS = [
   'dataAutorizacao',
   'dataAutorizacaoNfse',
+] as const
+
+const FISCAL_EMISSION_DATE_FIELD_KEYS = [
   'dataEmissao',
   'data_emissao',
   'emissao',
+] as const
+
+const FISCAL_DATE_FIELD_KEYS = [
+  ...FISCAL_AUTH_DATE_FIELD_KEYS,
+  ...FISCAL_EMISSION_DATE_FIELD_KEYS,
 ] as const
 
 function parseDateIso(value: unknown): string | null {
@@ -127,9 +135,51 @@ function parseDateIso(value: unknown): string | null {
   return parsed.toISOString()
 }
 
-function pickFirstFiscalDateFromObject(obj: Record<string, unknown>): string | null {
-  for (const key of FISCAL_DATE_FIELD_KEYS) {
+function pickFirstDateFromObject(
+  obj: Record<string, unknown>,
+  keys: readonly string[],
+): string | null {
+  for (const key of keys) {
     const iso = parseDateIso(obj[key])
+    if (iso) return iso
+  }
+  return null
+}
+
+function pickFirstAuthDateFromObject(obj: Record<string, unknown>): string | null {
+  return pickFirstDateFromObject(obj, FISCAL_AUTH_DATE_FIELD_KEYS)
+}
+
+function pickFirstEmissionDateFromObject(obj: Record<string, unknown>): string | null {
+  return pickFirstDateFromObject(obj, FISCAL_EMISSION_DATE_FIELD_KEYS)
+}
+
+/** Timestamp embutido em id_integracao FocoMEI (`mei-{userId}-{Date.now()}-…`). */
+export function parseCreatedAtIsoFromIdIntegracao(
+  idIntegracao: string | null | undefined,
+): string | null {
+  const raw = String(idIntegracao ?? '').trim()
+  if (!raw.startsWith('mei-')) return null
+  const match = raw.match(/-(\d{13})(?:-|$)/)
+  if (!match) return null
+  const ms = Number(match[1])
+  if (!Number.isFinite(ms) || ms < 1e12 || ms > 9.9e12) return null
+  return new Date(ms).toISOString()
+}
+
+function pickFirstAuthDateFromResponse(response: Record<string, unknown>): string | null {
+  for (const candidate of collectResponseCandidates(response)) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue
+    const iso = pickFirstAuthDateFromObject(candidate as Record<string, unknown>)
+    if (iso) return iso
+  }
+  return null
+}
+
+function pickFirstEmissionDateFromResponse(response: Record<string, unknown>): string | null {
+  for (const candidate of collectResponseCandidates(response)) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue
+    const iso = pickFirstEmissionDateFromObject(candidate as Record<string, unknown>)
     if (iso) return iso
   }
   return null
@@ -158,16 +208,20 @@ export function collectResponseCandidates(response: unknown): unknown[] {
   return list
 }
 
-/** Data de autorização/emissão fiscal (PlugNotas) — sem fallback em created_at. */
+/** Data de autorização fiscal (PlugNotas) — sem fallback em created_at ou competência. */
 export function resolverDataAutorizacaoFiscalDaNota(record: NfseRecord): string | null {
   const resp = resolverResponseJsonDaNota(record)
   if (!resp) return null
-  for (const candidate of collectResponseCandidates(resp)) {
-    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue
-    const iso = pickFirstFiscalDateFromObject(candidate as Record<string, unknown>)
-    if (iso) return iso
-  }
-  return null
+  return pickFirstAuthDateFromResponse(resp)
+}
+
+/** Data para exibição "Emitida em": autorização → criação FocoMEI → created_at. */
+export function resolverDataExibicaoEmissaoDaNota(record: NfseRecord): string | null {
+  const auth = resolverDataAutorizacaoFiscalDaNota(record)
+  if (auth) return auth
+  const fromIntegracao = parseCreatedAtIsoFromIdIntegracao(record.id_integracao)
+  if (fromIntegracao) return fromIntegracao
+  return parseDateIso(record.created_at)
 }
 
 function hasServicoArrayInObj(obj: Record<string, unknown>): boolean {
@@ -260,6 +314,13 @@ export function anoCivilFromIsoCreatedAt(createdAt: string | undefined | null): 
 export function resolverDataEmissaoDaNota(record: NfseRecord): string | null {
   const fiscal = resolverDataAutorizacaoFiscalDaNota(record)
   if (fiscal) return fiscal
+  const resp = resolverResponseJsonDaNota(record)
+  if (resp) {
+    const competencia = pickFirstEmissionDateFromResponse(resp)
+    if (competencia) return competencia
+  }
+  const fromIntegracao = parseCreatedAtIsoFromIdIntegracao(record.id_integracao)
+  if (fromIntegracao) return fromIntegracao
   const r = record as Record<string, unknown>
   return parseDateIso(record.created_at) ?? parseDateIso(r.createdAt)
 }

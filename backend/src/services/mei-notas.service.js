@@ -83,7 +83,7 @@ import {
   emitirNfce
 } from './plugnotas/nfce.service.js';
 import { isPlugnotasDebugExplicitlyEnabled } from './plugnotas/plugnotas-debug-env.js';
-import { agregarLimiteMeiDasLinhas } from '../utils/meiLimitePayloadSum.js';
+import { agregarLimiteMeiDasLinhas, resolverDataAutorizacaoFiscalDaNota, parseCreatedAtIsoFromIdIntegracao } from '../utils/meiLimitePayloadSum.js';
 import {
   maybeSyncLancamentoFromNota,
   syncLancamentosForNotasInBackground,
@@ -1877,6 +1877,108 @@ export const resolvePlugnotasProviderIdForRecord = async (record, adapter) => {
   return null;
 };
 
+const CREATED_AT_FISCAL_TOLERANCE_MS = 60_000;
+const CREATED_AT_HISTORICO_SYNC_MAX = 15;
+
+/** Data fiscal PlugNotas (retorno.dataAutorizacao, etc.) a partir de resposta ou linha mei_nfse. */
+const resolveFiscalEmissaoIsoFromRecordOrResponse = (record, response) => {
+  if (response) {
+    const fromFresh = resolverDataAutorizacaoFiscalDaNota({ response_json: response });
+    if (fromFresh) return fromFresh;
+  }
+  if (record) {
+    const fromRecord = resolverDataAutorizacaoFiscalDaNota(record);
+    if (fromRecord) return fromRecord;
+  }
+  return parseCreatedAtIsoFromIdIntegracao(record?.id_integracao);
+};
+
+/**
+ * Alinha created_at com a data real de autorização (histórico PlugNotas).
+ * @returns {string | null} ISO para gravar em created_at
+ */
+export const resolveCreatedAtPatchFromFiscalEmissao = (record, response) => {
+  const fiscalIso = resolveFiscalEmissaoIsoFromRecordOrResponse(record, response);
+  if (!fiscalIso) return null;
+
+  const status = normalizeStatus(
+    record?.status ?? extractPlugNotasStatus(response),
+  );
+  if (status !== 'concluido') return null;
+
+  const fiscalMs = new Date(fiscalIso).getTime();
+  if (!Number.isFinite(fiscalMs)) return null;
+
+  const currentMs = record?.created_at ? new Date(record.created_at).getTime() : NaN;
+  if (
+    Number.isFinite(currentMs)
+    && Math.abs(currentMs - fiscalMs) < CREATED_AT_FISCAL_TOLERANCE_MS
+  ) {
+    return null;
+  }
+
+  return fiscalIso;
+};
+
+const noteNeedsCreatedAtHistoricoSync = (row) => {
+  if (normalizeStatus(row?.status) !== 'concluido') return false;
+  const patchFromStored = resolveCreatedAtPatchFromFiscalEmissao(row, row.response_json);
+  if (patchFromStored) return true;
+  if (!resolverDataAutorizacaoFiscalDaNota(row) && row?.id_integracao && row?.cnpj_prestador) {
+    return true;
+  }
+  return false;
+};
+
+/** Corrige created_at: response_json local, consulta PlugNotas (histórico) ou timestamp id_integracao. */
+const reconcileNotasCreatedAtFromStoredResponse = async (userId, rows) => {
+  if (!rows?.length) return rows;
+
+  const candidates = rows.filter(noteNeedsCreatedAtHistoricoSync).slice(0, CREATED_AT_HISTORICO_SYNC_MAX);
+
+  await Promise.all(candidates.map(async (row) => {
+    let response = row.response_json;
+    let patchIso = resolveCreatedAtPatchFromFiscalEmissao(row, response);
+
+    if (!patchIso && !resolverDataAutorizacaoFiscalDaNota(row) && row.id_integracao && row.cnpj_prestador) {
+      try {
+        const fresh = await refreshWithPlugNotas(row);
+        if (fresh) {
+          response = fresh;
+          patchIso = resolveCreatedAtPatchFromFiscalEmissao(row, fresh);
+        }
+      } catch (err) {
+        console.warn('[mei-notas] consulta PlugNotas p/ created_at falhou', {
+          notaId: row.id,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    if (!patchIso) {
+      patchIso = resolveCreatedAtPatchFromFiscalEmissao(row, response);
+    }
+    if (!patchIso) return;
+
+    try {
+      const updates = { created_at: patchIso };
+      if (response && response !== row.response_json) {
+        updates.response_json = response;
+      }
+      const updated = await updateRecord(userId, row.id, updates);
+      row.created_at = updated.created_at;
+      if (updates.response_json) row.response_json = updated.response_json;
+    } catch (err) {
+      console.warn('[mei-notas] reconcile created_at falhou', {
+        notaId: row.id,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }));
+
+  return rows;
+};
+
 const refreshWithPlugNotas = async (record) => {
   const documentType = normalizeDocumentType(record?.document_type || DOCUMENT_TYPE_NFSE);
   const adapter = getAdapterByDocumentType(documentType);
@@ -2067,6 +2169,10 @@ export const emitirNota = async (userId, input) => {
       if (!isNfseE0014FromPlugnotasResponse(response)) return null;
       return { nfseRejectionCode: 'E0014' };
     })();
+    const createdAtPatch = resolveCreatedAtPatchFromFiscalEmissao(
+      { status, created_at: null },
+      response,
+    );
     const created = await insertRecord(userId, {
       plugnotas_id: plugnotasId,
       protocol,
@@ -2083,7 +2189,8 @@ export const emitirNota = async (userId, input) => {
       metadata_json: prune({
         ...(Object.keys(metadata).length ? metadata : {}),
         ...(rejectionMeta ?? {}),
-      }) || null
+      }) || null,
+      ...(createdAtPatch ? { created_at: createdAtPatch } : {}),
     });
 
     try {
@@ -2165,6 +2272,7 @@ export const listarNotas = async (
   if (error) throw badRequest(error.message);
   const rows = data || [];
   await archiveE0014RejectedRowsOnList(userId, rows);
+  await reconcileNotasCreatedAtFromStoredResponse(userId, rows);
   syncLancamentosForNotasInBackground(userId, rows);
   if (includeArchived) return rows;
   return rows.filter((row) => !row.archived_at);
@@ -3053,12 +3161,15 @@ export const obterNota = async (userId, id, { sync = false, skipWhatsappDelivery
   const status = resolveStatusAfterPlugnotasSync(record, providerStatus);
   const protocol = extractProtocol(response) || record.protocol;
 
+  const createdAtPatch = resolveCreatedAtPatchFromFiscalEmissao(record, response);
+
   const updated = await updateRecord(userId, record.id, {
     plugnotas_id: plugnotasId,
     id_integracao: idIntegracao,
     protocol,
     status,
-    response_json: response
+    response_json: response,
+    ...(createdAtPatch ? { created_at: createdAtPatch } : {}),
   });
 
   const archivedOrUpdated = await healNfseRpsAfterE0014RecordIfNeeded(

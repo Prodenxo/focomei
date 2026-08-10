@@ -188,15 +188,32 @@ export function anoCivilFromIsoCreatedAt(createdAt) {
 export function resolverDataEmissaoDaNota(record) {
   const fiscal = resolverDataAutorizacaoFiscalDaNota(record);
   if (fiscal) return fiscal;
+  const resp = resolverResponseJsonDaNota(record);
+  if (resp) {
+    const competencia = pickFirstEmissionDateFromResponse(resp);
+    if (competencia) return competencia;
+  }
+  const fromIntegracao = parseCreatedAtIsoFromIdIntegracao(record?.id_integracao);
+  if (fromIntegracao) return fromIntegracao;
   return parseDateIso(record?.created_at ?? record?.createdAt);
 }
 
-const FISCAL_DATE_FIELD_KEYS = [
+/** Autorização fiscal (data real da emissão na prefeitura). */
+const FISCAL_AUTH_DATE_FIELD_KEYS = [
   'dataAutorizacao',
   'dataAutorizacaoNfse',
+];
+
+/** Competência / emissão no payload — não usar como "Emitida em" na UI. */
+const FISCAL_EMISSION_DATE_FIELD_KEYS = [
   'dataEmissao',
   'data_emissao',
   'emissao',
+];
+
+const FISCAL_DATE_FIELD_KEYS = [
+  ...FISCAL_AUTH_DATE_FIELD_KEYS,
+  ...FISCAL_EMISSION_DATE_FIELD_KEYS,
 ];
 
 function parseDateIso(value) {
@@ -206,10 +223,51 @@ function parseDateIso(value) {
   return parsed.toISOString();
 }
 
-function pickFirstFiscalDateFromObject(obj) {
+function pickFirstDateFromObject(obj, keys) {
   if (!obj || typeof obj !== 'object') return null;
-  for (const key of FISCAL_DATE_FIELD_KEYS) {
+  for (const key of keys) {
     const iso = parseDateIso(obj[key]);
+    if (iso) return iso;
+  }
+  return null;
+}
+
+function pickFirstFiscalDateFromObject(obj) {
+  return pickFirstDateFromObject(obj, FISCAL_DATE_FIELD_KEYS);
+}
+
+function pickFirstAuthDateFromObject(obj) {
+  return pickFirstDateFromObject(obj, FISCAL_AUTH_DATE_FIELD_KEYS);
+}
+
+function pickFirstEmissionDateFromObject(obj) {
+  return pickFirstDateFromObject(obj, FISCAL_EMISSION_DATE_FIELD_KEYS);
+}
+
+/** Timestamp embutido em id_integracao FocoMEI (`mei-{userId}-{Date.now()}-…`). */
+export function parseCreatedAtIsoFromIdIntegracao(idIntegracao) {
+  const raw = String(idIntegracao ?? '').trim();
+  if (!raw.startsWith('mei-')) return null;
+  const match = raw.match(/-(\d{13})(?:-|$)/);
+  if (!match) return null;
+  const ms = Number(match[1]);
+  if (!Number.isFinite(ms) || ms < 1e12 || ms > 9.9e12) return null;
+  return new Date(ms).toISOString();
+}
+
+function pickFirstAuthDateFromResponse(response) {
+  for (const candidate of collectResponseCandidates(response)) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+    const iso = pickFirstAuthDateFromObject(candidate);
+    if (iso) return iso;
+  }
+  return null;
+}
+
+function pickFirstEmissionDateFromResponse(response) {
+  for (const candidate of collectResponseCandidates(response)) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+    const iso = pickFirstEmissionDateFromObject(candidate);
     if (iso) return iso;
   }
   return null;
@@ -240,12 +298,16 @@ function collectResponseCandidates(response) {
 export function resolverDataAutorizacaoFiscalDaNota(record) {
   const resp = resolverResponseJsonDaNota(record);
   if (!resp) return null;
-  for (const candidate of collectResponseCandidates(resp)) {
-    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
-    const iso = pickFirstFiscalDateFromObject(candidate);
-    if (iso) return iso;
-  }
-  return null;
+  return pickFirstAuthDateFromResponse(resp);
+}
+
+/** Data para exibição "Emitida em": autorização → criação FocoMEI → created_at. */
+export function resolverDataExibicaoEmissaoDaNota(record) {
+  const auth = resolverDataAutorizacaoFiscalDaNota(record);
+  if (auth) return auth;
+  const fromIntegracao = parseCreatedAtIsoFromIdIntegracao(record?.id_integracao);
+  if (fromIntegracao) return fromIntegracao;
+  return parseDateIso(record?.created_at ?? record?.createdAt);
 }
 
 /**

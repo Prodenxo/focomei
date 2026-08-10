@@ -205,3 +205,28 @@ test('agregarLimiteMeiDasLinhas: ano civil por created_at em SP', () => {
   assert.equal(em2026.total, 0);
   assert.equal(em2026.notasConsideradas, 0);
 });
+
+test('resolverDataAutorizacaoFiscalDaNota lê dataAutorizacao em retorno aninhado', async () => {
+  const { resolverDataAutorizacaoFiscalDaNota } = await import('../src/utils/meiLimitePayloadSum.js');
+  const iso = resolverDataAutorizacaoFiscalDaNota({
+    response_json: {
+      status: 'PROCESSANDO',
+      retorno: { situacao: 'AUTORIZADA', dataAutorizacao: '2026-08-07T21:00:00.000Z' },
+    },
+  });
+  assert.equal(iso, '2026-08-07T21:00:00.000Z');
+});
+
+test('resolverDataAutorizacaoFiscalDaNota ignora dataEmissao (competência)', async () => {
+  const { resolverDataAutorizacaoFiscalDaNota, parseCreatedAtIsoFromIdIntegracao } = await import('../src/utils/meiLimitePayloadSum.js');
+  const iso = resolverDataAutorizacaoFiscalDaNota({
+    response_json: {
+      dataEmissao: '2026-06-07T21:00:00.000Z',
+    },
+  });
+  assert.equal(iso, null);
+  const fromIntegracao = parseCreatedAtIsoFromIdIntegracao(
+    'mei-4fbe702b-6c3c-4e07-a901-2a2aba3aa32f-1786038687223-1335a434',
+  );
+  assert.equal(fromIntegracao, '2026-08-06T17:51:27.223Z');
+});

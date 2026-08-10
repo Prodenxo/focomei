@@ -117,23 +117,41 @@ describe('notaFiscalDisplay', () => {
     } as NfseRecord
 
     const meta = formatNotaFiscalEmissaoMeta(nota)
-    expect(meta).toMatch(/^Autorizada em /)
+    expect(meta).toMatch(/^Emitida em /)
     expect(meta).toContain('07/08/2026')
     expect(meta).not.toContain('07/06/2026')
   })
 
-  it('formatNotaFiscalEmissaoMeta não mostra Emitida em created_at para concluída sem retorno', () => {
+  it('formatNotaFiscalEmissaoMeta ignora dataEmissao (competência) sem dataAutorizacao', () => {
     const nota = {
       id: 'abc',
       user_id: 'u1',
       status: 'concluido',
       created_at: '2026-06-07T00:00:00.000Z',
-      updated_at: '2026-08-07T21:00:00.000Z',
+      id_integracao: 'mei-4fbe702b-6c3c-4e07-a901-2a2aba3aa32f-1786038687223-1335a434',
+      response_json: {
+        status: 'CONCLUIDO',
+        dataEmissao: '2026-06-07T21:00:00.000Z',
+      },
+    } as NfseRecord
+
+    const meta = formatNotaFiscalEmissaoMeta(nota)
+    expect(meta).toMatch(/^Emitida em /)
+    expect(meta).toContain('06/08/2026')
+    expect(meta).not.toContain('07/06/2026')
+  })
+
+  it('formatNotaFiscalEmissaoMeta usa created_at quando backend já alinhou', () => {
+    const nota = {
+      id: 'abc',
+      user_id: 'u1',
+      status: 'concluido',
+      created_at: '2026-08-07T21:00:00.000Z',
       response_json: { status: 'CONCLUIDO' },
     } as NfseRecord
 
     const meta = formatNotaFiscalEmissaoMeta(nota)
+    expect(meta).toContain('Emitida em')
     expect(meta).toContain('07/08/2026')
-    expect(meta).not.toContain('07/06/2026')
   })
 })

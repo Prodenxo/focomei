@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   extractPlugNotasStatus,
   resolveStatusAfterPlugnotasSync,
+  resolveCreatedAtPatchFromFiscalEmissao,
 } from '../src/services/mei-notas.service.js';
 
 test('extractPlugNotasStatus — retorno AUTORIZADA vence status PROCESSANDO no topo', () => {
@@ -84,4 +85,39 @@ test('resolvePlugnotasProviderIdForRecord — ignora protocolo igual ao id inter
   );
   assert.equal(consultouIntegracao, true);
   assert.equal(resolved, 'plugnotas-remoto-123');
+});
+
+test('resolveCreatedAtPatchFromFiscalEmissao corrige created_at com dataAutorizacao do histórico', () => {
+  const patch = resolveCreatedAtPatchFromFiscalEmissao({
+    status: 'Concluída',
+    created_at: '2026-06-07T21:00:00.000Z',
+    response_json: {
+      retorno: { dataAutorizacao: '2026-08-07T21:00:00.000Z' },
+    },
+  });
+  assert.equal(patch, '2026-08-07T21:00:00.000Z');
+});
+
+test('resolveCreatedAtPatchFromFiscalEmissao usa timestamp id_integracao sem dataAutorizacao', () => {
+  const patch = resolveCreatedAtPatchFromFiscalEmissao({
+    status: 'Concluída',
+    created_at: '2026-06-07T21:00:00.000Z',
+    id_integracao: 'mei-4fbe702b-6c3c-4e07-a901-2a2aba3aa32f-1786038687223-1335a434',
+    response_json: {
+      status: 'CONCLUIDO',
+      dataEmissao: '2026-06-07T21:00:00.000Z',
+    },
+  });
+  assert.equal(patch, '2026-08-06T17:51:27.223Z');
+});
+
+test('resolveCreatedAtPatchFromFiscalEmissao ignora nota ainda processando', () => {
+  const patch = resolveCreatedAtPatchFromFiscalEmissao({
+    status: 'Processando',
+    created_at: '2026-06-07T21:00:00.000Z',
+    response_json: {
+      retorno: { dataAutorizacao: '2026-08-07T21:00:00.000Z' },
+    },
+  });
+  assert.equal(patch, null);
 });
