@@ -1,4 +1,6 @@
 import { createSupabaseClient } from '../config/supabase.js';
+import { env } from '../config/env.js';
+import { query } from '../config/pg.js';
 import { nfseStatusKeyParaLimite } from '../utils/meiLimitePayloadSum.js';
 import {
   documentoFiscalLabel,
@@ -8,13 +10,16 @@ import {
 import { createTransaction } from './transactions.service.js';
 
 const TABLE = 'mei_nfse';
+const inflightSyncByNota = new Map();
+
+const isLocalAuthMode = () => env.AUTH_MODE === 'local';
 
 const toObject = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return value;
 };
 
-const resolveLancamentoIdFromMetadata = (metadata) => {
+export const resolveLancamentoIdFromMetadata = (metadata) => {
   const meta = toObject(metadata);
   const raw = meta.lancamento_id ?? meta.lancamentoId;
   if (raw == null) return null;
@@ -37,29 +42,226 @@ const resolveDataLancamento = (record) => {
 };
 
 /**
- * Cria lançamento de entrada quando a nota fiscal conclui, com dedupe via metadata_json.lancamento_id.
- * @param {string} userId
+ * Monta obs/referência do lançamento vinculado à nota (usado na deduplicação).
  * @param {Record<string, unknown>} record
- * @returns {Promise<Record<string, unknown>>}
  */
-export const maybeSyncLancamentoFromNota = async (userId, record) => {
-  if (!userId || !record?.id) return record;
-
-  const statusKey = nfseStatusKeyParaLimite(record.status);
-  if (statusKey !== 'concluido') return record;
-
-  const existingLancamentoId = resolveLancamentoIdFromMetadata(record.metadata_json);
-  if (existingLancamentoId) return record;
-
-  const valor = extrairValorDaNota(record);
-  if (valor === null || valor <= 0) return record;
-
+export const buildLancamentoObsFromNota = (record) => {
   const cliente = extrairNomeClienteDaNota(record) || 'Cliente';
   const docLabel = documentoFiscalLabel(record.document_type);
   const referencia = record.protocol || record.id_integracao || record.plugnotas_id || record.id;
-  const classificacao = resolveClassificacaoEntrada(record.document_type);
-  const data = resolveDataLancamento(record);
   const obs = `${docLabel} ${referencia} — ${cliente}`;
+  return { obs, referencia: String(referencia ?? '').trim() };
+};
+
+const fetchNotaRow = async (userId, notaId) => {
+  if (isLocalAuthMode()) {
+    const { rows } = await query(
+      `SELECT *
+       FROM public.mei_nfse
+       WHERE id = $1 AND user_id = $2
+       LIMIT 1`,
+      [notaId, userId],
+    );
+    return rows[0] || null;
+  }
+
+  const dbClient = createSupabaseClient({ useServiceRole: true });
+  const { data, error } = await dbClient
+    .from(TABLE)
+    .select('*')
+    .eq('id', notaId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('[nota-lancamento-sync] falha ao recarregar nota', {
+      notaId,
+      message: error.message,
+    });
+    return null;
+  }
+
+  return data || null;
+};
+
+const findExistingLancamentoId = async (userId, { obs, referencia }) => {
+  if (!userId || !obs) return null;
+
+  if (isLocalAuthMode()) {
+    const { rows } = await query(
+      `SELECT id
+       FROM public.lancamentos_id
+       WHERE user_id = $1
+         AND (
+           obs = $2
+           OR ($3 <> '' AND obs ILIKE ('%' || $3 || '%'))
+         )
+       ORDER BY criado_em ASC NULLS LAST
+       LIMIT 1`,
+      [userId, obs, referencia || ''],
+    );
+    return rows[0]?.id ? String(rows[0].id) : null;
+  }
+
+  const dbClient = createSupabaseClient({ useServiceRole: true });
+  let queryBuilder = dbClient
+    .from('lancamentos_id')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('obs', obs)
+    .order('criado_em', { ascending: true })
+    .limit(1);
+
+  const { data: exactMatch, error: exactError } = await queryBuilder.maybeSingle();
+  if (exactError) {
+    console.warn('[nota-lancamento-sync] falha ao buscar lançamento por obs', {
+      message: exactError.message,
+    });
+    return null;
+  }
+  if (exactMatch?.id) return String(exactMatch.id);
+
+  if (!referencia) return null;
+
+  const { data: fuzzyMatch, error: fuzzyError } = await dbClient
+    .from('lancamentos_id')
+    .select('id')
+    .eq('user_id', userId)
+    .ilike('obs', `%${referencia}%`)
+    .order('criado_em', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (fuzzyError) {
+    console.warn('[nota-lancamento-sync] falha ao buscar lançamento por referência', {
+      message: fuzzyError.message,
+    });
+    return null;
+  }
+
+  return fuzzyMatch?.id ? String(fuzzyMatch.id) : null;
+};
+
+const acquireNotaSyncLock = async (notaId) => {
+  const key = String(notaId);
+
+  if (inflightSyncByNota.has(key)) {
+    return {
+      release: async () => {},
+      waitFor: inflightSyncByNota.get(key),
+    };
+  }
+
+  let releasePgLock = async () => {};
+  try {
+    if (env.DATABASE_URL || env.SUPABASE_DB_URL) {
+      await query('SELECT pg_advisory_lock(hashtext($1))', [`nota-lancamento-sync:${key}`]);
+      releasePgLock = async () => {
+        await query('SELECT pg_advisory_unlock(hashtext($1))', [`nota-lancamento-sync:${key}`]);
+      };
+    }
+  } catch (err) {
+    console.warn('[nota-lancamento-sync] advisory lock indisponível', {
+      notaId: key,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  let resolveDone;
+  const donePromise = new Promise((resolve) => {
+    resolveDone = resolve;
+  });
+  inflightSyncByNota.set(key, donePromise);
+
+  return {
+    release: async () => {
+      try {
+        await releasePgLock();
+      } finally {
+        inflightSyncByNota.delete(key);
+        resolveDone?.();
+      }
+    },
+    waitFor: null,
+  };
+};
+
+const persistLancamentoLinkOnNota = async (userId, notaId, record, lancamentoId) => {
+  const meta = toObject(record.metadata_json);
+  const nextMeta = {
+    ...meta,
+    lancamento_id: lancamentoId,
+    lancamentoSyncedAt: new Date().toISOString(),
+  };
+
+  if (isLocalAuthMode()) {
+    const { rows } = await query(
+      `UPDATE public.mei_nfse
+       SET metadata_json = $1::jsonb,
+           updated_at = now()
+       WHERE id = $2
+         AND user_id = $3
+         AND COALESCE(metadata_json->>'lancamento_id', '') = ''
+       RETURNING *`,
+      [JSON.stringify(nextMeta), notaId, userId],
+    );
+
+    if (rows[0]) return rows[0];
+
+    const refreshed = await fetchNotaRow(userId, notaId);
+    return refreshed || { ...record, metadata_json: nextMeta };
+  }
+
+  const dbClient = createSupabaseClient({ useServiceRole: true });
+  const { data: updatedRow, error } = await dbClient
+    .from(TABLE)
+    .update({
+      metadata_json: nextMeta,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', notaId)
+    .eq('user_id', userId)
+    .is('metadata_json->>lancamento_id', null)
+    .select()
+    .maybeSingle();
+
+  if (error) {
+    console.warn('[nota-lancamento-sync] lançamento encontrado mas metadata não atualizada', {
+      notaId,
+      lancamentoId,
+      message: error.message,
+    });
+    return { ...record, metadata_json: nextMeta };
+  }
+
+  if (updatedRow) return updatedRow;
+
+  const refreshed = await fetchNotaRow(userId, notaId);
+  return refreshed || { ...record, metadata_json: nextMeta };
+};
+
+const syncLancamentoFromNotaCore = async (userId, record) => {
+  if (!userId || !record?.id) return record;
+
+  const freshRecord = (await fetchNotaRow(userId, record.id)) || record;
+
+  const statusKey = nfseStatusKeyParaLimite(freshRecord.status);
+  if (statusKey !== 'concluido') return freshRecord;
+
+  const existingLancamentoId = resolveLancamentoIdFromMetadata(freshRecord.metadata_json);
+  if (existingLancamentoId) return freshRecord;
+
+  const valor = extrairValorDaNota(freshRecord);
+  if (valor === null || valor <= 0) return freshRecord;
+
+  const { obs, referencia } = buildLancamentoObsFromNota(freshRecord);
+  const classificacao = resolveClassificacaoEntrada(freshRecord.document_type);
+  const data = resolveDataLancamento(freshRecord);
+
+  const linkedLancamentoId = await findExistingLancamentoId(userId, { obs, referencia });
+  if (linkedLancamentoId) {
+    return persistLancamentoLinkOnNota(userId, freshRecord.id, freshRecord, linkedLancamentoId);
+  }
 
   let lancamento;
   try {
@@ -73,44 +275,54 @@ export const maybeSyncLancamentoFromNota = async (userId, record) => {
     });
   } catch (err) {
     console.warn('[nota-lancamento-sync] falha ao criar lançamento', {
-      notaId: record.id,
+      notaId: freshRecord.id,
       message: err instanceof Error ? err.message : String(err),
     });
-    return record;
+    return freshRecord;
   }
 
-  const lancamentoId = lancamento?.id;
-  if (!lancamentoId) return record;
+  const lancamentoId = lancamento?.id ? String(lancamento.id) : null;
+  if (!lancamentoId) return freshRecord;
 
-  const meta = toObject(record.metadata_json);
-  const nextMeta = {
-    ...meta,
-    lancamento_id: lancamentoId,
-    lancamentoSyncedAt: new Date().toISOString(),
-  };
+  const updated = await persistLancamentoLinkOnNota(
+    userId,
+    freshRecord.id,
+    freshRecord,
+    lancamentoId,
+  );
 
-  const dbClient = createSupabaseClient({ useServiceRole: true });
-  const { data: updatedRow, error } = await dbClient
-    .from(TABLE)
-    .update({
-      metadata_json: nextMeta,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', record.id)
-    .eq('user_id', userId)
-    .select()
-    .single();
-
-  if (error) {
-    console.warn('[nota-lancamento-sync] lançamento criado mas metadata não atualizada', {
-      notaId: record.id,
-      lancamentoId,
-      message: error.message,
+  const winnerId = resolveLancamentoIdFromMetadata(updated.metadata_json);
+  if (winnerId && winnerId !== lancamentoId) {
+    console.info('[nota-lancamento-sync] dedupe: outro processo vinculou lançamento primeiro', {
+      notaId: freshRecord.id,
+      orphanLancamentoId: lancamentoId,
+      winnerLancamentoId: winnerId,
     });
-    return { ...record, metadata_json: nextMeta };
   }
 
-  return updatedRow || { ...record, metadata_json: nextMeta };
+  return updated;
+};
+
+/**
+ * Cria lançamento de entrada quando a nota fiscal conclui, com dedupe via metadata + obs/referência.
+ * @param {string} userId
+ * @param {Record<string, unknown>} record
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export const maybeSyncLancamentoFromNota = async (userId, record) => {
+  if (!userId || !record?.id) return record;
+
+  const lock = await acquireNotaSyncLock(record.id);
+  if (lock.waitFor) {
+    await lock.waitFor;
+    return (await fetchNotaRow(userId, record.id)) || record;
+  }
+
+  try {
+    return await syncLancamentoFromNotaCore(userId, record);
+  } finally {
+    await lock.release();
+  }
 };
 
 /**
@@ -127,11 +339,13 @@ export const syncLancamentosForNotasInBackground = (userId, rows = []) => {
 
   if (!pending.length) return;
 
-  void Promise.all(
+  void Promise.allSettled(
     pending.map((row) => maybeSyncLancamentoFromNota(userId, row)),
-  ).catch((err) => {
-    console.warn('[nota-lancamento-sync] sync em lote falhou', {
-      message: err instanceof Error ? err.message : String(err),
+  ).then((results) => {
+    const failed = results.filter((result) => result.status === 'rejected');
+    if (!failed.length) return;
+    console.warn('[nota-lancamento-sync] sync em lote falhou parcialmente', {
+      failed: failed.length,
     });
   });
 };

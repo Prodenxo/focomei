@@ -191,11 +191,16 @@ const loadClienteCatalogByDocument = async (userId) => {
   return map;
 };
 
+const toObject = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return value;
+};
+
 const loadExistingImportIndex = async (userId) => {
   const db = getDb();
   const { data, error } = await db
     .from(TABLE)
-    .select('id, id_integracao, plugnotas_id, protocol')
+    .select('id, id_integracao, plugnotas_id, protocol, metadata_json')
     .eq('user_id', userId)
     .limit(5000);
   if (error) throw badRequest(error.message || 'Falha ao consultar notas existentes');
@@ -203,15 +208,19 @@ const loadExistingImportIndex = async (userId) => {
   const byIntegracao = new Map();
   const byPlugId = new Map();
   const byProtocol = new Map();
+  const storeRow = (map, key, row) => {
+    if (!key) return;
+    map.set(String(key), { id: row.id, metadata_json: row.metadata_json });
+  };
   for (const row of data || []) {
-    if (row.id_integracao) byIntegracao.set(String(row.id_integracao), row.id);
-    if (row.plugnotas_id) byPlugId.set(String(row.plugnotas_id), row.id);
-    if (row.protocol) byProtocol.set(String(row.protocol), row.id);
+    storeRow(byIntegracao, row.id_integracao, row);
+    storeRow(byPlugId, row.plugnotas_id, row);
+    storeRow(byProtocol, row.protocol, row);
   }
   return { byIntegracao, byPlugId, byProtocol };
 };
 
-const findExistingRecordId = (dedupe, index) => {
+const findExistingRecord = (dedupe, index) => {
   if (dedupe.kind === 'id_integracao' && index.byIntegracao.has(dedupe.value)) {
     return index.byIntegracao.get(dedupe.value);
   }
@@ -225,6 +234,8 @@ const findExistingRecordId = (dedupe, index) => {
   if (plugId && index.byPlugId.has(plugId)) return index.byPlugId.get(plugId);
   return null;
 };
+
+const findExistingRecordId = (dedupe, index) => findExistingRecord(dedupe, index)?.id ?? null;
 
 /** Só persiste histórico terminal: concluída na lista; cancelada/rejeitada arquivada. */
 const shouldPersistImportedNota = (normalizedStatus) => (
@@ -255,6 +266,23 @@ const buildImportMetadata = (normalizedStatus, nowIso) => {
     };
   }
   return base;
+};
+
+/** Preserva vínculo nota → lançamento ao reimportar histórico PlugNotas. */
+export const mergeImportMetadata = (existingMetadata, normalizedStatus, nowIso) => {
+  const existing = toObject(existingMetadata);
+  const imported = buildImportMetadata(normalizedStatus, nowIso);
+  const next = { ...existing, ...imported };
+
+  const lancamentoId = existing.lancamento_id ?? existing.lancamentoId;
+  if (lancamentoId) {
+    next.lancamento_id = lancamentoId;
+    if (existing.lancamentoSyncedAt) {
+      next.lancamentoSyncedAt = existing.lancamentoSyncedAt;
+    }
+  }
+
+  return next;
 };
 
 const extractEmissaoIsoFromPeriodoNota = (nota) => {
@@ -391,9 +419,14 @@ export const importarHistoricoPlugnotas = async (
         const nowIso = new Date().toISOString();
         const archivedAt = resolveArchivedAtForImport(normalizedStatus, nowIso);
         const mapped = mapPeriodoNotaToRow(nota, { userId, cnpjPrestador, archivedAt, catalogByDoc });
-        const existingId = findExistingRecordId(mapped.dedupe, index);
+        const existingRecord = findExistingRecord(mapped.dedupe, index);
 
-        if (existingId) {
+        if (existingRecord?.id) {
+          const metadataJson = mergeImportMetadata(
+            existingRecord.metadata_json,
+            normalizedStatus,
+            nowIso,
+          );
           const { error } = await db
             .from(TABLE)
             .update({
@@ -405,12 +438,12 @@ export const importarHistoricoPlugnotas = async (
               cnpj_tomador: mapped.row.cnpj_tomador,
               payload_json: mapped.row.payload_json,
               response_json: mapped.row.response_json,
-              metadata_json: mapped.row.metadata_json,
+              metadata_json: metadataJson,
               created_at: mapped.row.created_at,
               archived_at: archivedAt,
               updated_at: mapped.row.updated_at,
             })
-            .eq('id', existingId)
+            .eq('id', existingRecord.id)
             .eq('user_id', userId);
           if (error) {
             skipped += 1;

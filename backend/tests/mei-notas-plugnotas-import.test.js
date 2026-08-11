@@ -7,6 +7,28 @@ process.env.PLUGNOTAS_API_BASE_URL = process.env.PLUGNOTAS_API_BASE_URL || 'http
 process.env.PLUGNOTAS_API_KEY = process.env.PLUGNOTAS_API_KEY || 'plugnotas-key';
 process.env.AUTH_MODE = process.env.AUTH_MODE || 'local';
 
+test('mergeImportMetadata preserva lancamento_id ao reimportar', async () => {
+  const { mergeImportMetadata } = await import(
+    '../src/services/mei-notas-plugnotas-import.service.js'
+  );
+  const now = '2026-08-11T17:41:04.779Z';
+  const merged = mergeImportMetadata(
+    {
+      lancamento_id: 'abc-lancamento',
+      lancamentoSyncedAt: '2026-08-11T17:34:50.179Z',
+      customField: 'keep-me',
+    },
+    'concluido',
+    now,
+  );
+
+  assert.equal(merged.lancamento_id, 'abc-lancamento');
+  assert.equal(merged.lancamentoSyncedAt, '2026-08-11T17:34:50.179Z');
+  assert.equal(merged.customField, 'keep-me');
+  assert.equal(merged.importedFromPlugnotas, true);
+  assert.equal(merged.importedAt, now);
+});
+
 test('shouldPersistImportedNota aceita só concluido, cancelado e rejeitado', async () => {
   const { shouldPersistImportedNota } = await import(
     '../src/services/mei-notas-plugnotas-import.service.js'

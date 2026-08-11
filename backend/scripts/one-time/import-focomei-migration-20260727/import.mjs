@@ -8,6 +8,9 @@
  * Apply (precisa DATABASE_URL):
  *   node scripts/one-time/import-focomei-migration-20260727/import.mjs --apply
  *
+ * Re-sync (atualiza linhas existentes — transações, contas, NFS-e, etc.):
+ *   node scripts/one-time/import-focomei-migration-20260727/import.mjs --apply --sync
+ *
  * Opções:
  *   --package=<path>   (default: path fixo do export MeiInfinito)
  *   --dry-run          (explícito; padrão)
@@ -27,6 +30,7 @@ const DEFAULT_PACKAGE =
 
 const args = parseArgs(process.argv.slice(2))
 const APPLY = Boolean(args.apply)
+const SYNC = Boolean(args.sync)
 const PACKAGE_DIR = path.resolve(
   String(args.package || process.env.FOCOMEI_MIGRATION_PACKAGE || DEFAULT_PACKAGE),
 )
@@ -65,7 +69,10 @@ main().catch((err) => {
 })
 
 async function main () {
-  console.log(APPLY ? '=== APPLY (grava no Postgres) ===' : '=== DRY-RUN (não grava) ===')
+  console.log(APPLY ? (SYNC ? '=== APPLY + SYNC (upsert) ===' : '=== APPLY (grava no Postgres) ===') : '=== DRY-RUN (não grava) ===')
+  if (SYNC && !APPLY) {
+    console.warn('⚠ --sync só faz efeito junto com --apply')
+  }
   console.log(`Package: ${PACKAGE_DIR}`)
 
   const report = validatePackage(PACKAGE_DIR)
@@ -97,7 +104,7 @@ async function main () {
   })
   await client.connect()
   try {
-    const applyReport = await applyImport(client, PACKAGE_DIR, report)
+    const applyReport = await applyImport(client, PACKAGE_DIR, report, { sync: SYNC })
     printApplyReport(applyReport)
     writeReportFile(PACKAGE_DIR, { ...report, apply: applyReport }, { applied: true })
   } finally {
@@ -277,7 +284,7 @@ function validatePackage (root) {
   }
 }
 
-async function applyImport (client, root, dryReport) {
+async function applyImport (client, root, dryReport, { sync = false } = {}) {
   const manifest = readJson(path.join(root, '00_manifest.json'))
   const usersFile = readJson(path.join(root, '02_users_and_memberships.json'))
   const failures = []
@@ -302,7 +309,7 @@ async function applyImport (client, root, dryReport) {
   const tableColumns = await loadPublicTableColumns(client)
 
   // ---- Fase A: identidade (commit único) ----
-  console.log('[import] fase A: roles / users / profiles / empresas / vínculos…')
+  console.log(`[import] fase A: roles / users / profiles / empresas / vínculos…${sync ? ' (sync)' : ''}`)
   await client.query('BEGIN')
   try {
     for (const role of usersFile.roles || []) {
@@ -333,12 +340,18 @@ async function applyImport (client, root, dryReport) {
       if (userIdx === 1 || userIdx % 50 === 0 || userIdx === totalUsers) {
         console.log(`[import] users ${userIdx}/${totalUsers}`)
       }
-      const meta = {
-        ...(u.raw_user_meta_data || {}),
-        password_reset_required: true,
-        migrated_from: 'meiinfinito',
-        migrated_at: new Date().toISOString(),
-      }
+      const meta = sync
+        ? {
+          ...(u.raw_user_meta_data || {}),
+          migrated_from: 'meiinfinito',
+          last_synced_from_meiinfinito_at: new Date().toISOString(),
+        }
+        : {
+          ...(u.raw_user_meta_data || {}),
+          password_reset_required: true,
+          migrated_from: 'meiinfinito',
+          migrated_at: new Date().toISOString(),
+        }
       const ok = await runSafe('users', u.id, async () => {
         await asideIdentityConflicts(client, {
           keepId: u.id,
@@ -532,7 +545,7 @@ async function applyImport (client, root, dryReport) {
     }
     await client.query('BEGIN')
     try {
-      await importUserTables(client, root, uid, { bump, failures, tableColumns, runSafe })
+      await importUserTables(client, root, uid, { bump, failures, tableColumns, runSafe, sync })
       await importCertificate(client, root, uid, { bump, failures, runSafe })
       await client.query('COMMIT')
     } catch (err) {
@@ -634,7 +647,7 @@ async function asideEmpresaNameConflict (client, keepId, nome) {
   }
 }
 
-async function importUserTables (client, root, uid, { bump, failures, tableColumns, runSafe }) {
+async function importUserTables (client, root, uid, { bump, failures, tableColumns, runSafe, sync = false }) {
   await importJsonRows(client, path.join(root, 'users', uid, 'n8n_link.json'), {
     table: 'n8n_link',
     mode: 'n8n',
@@ -642,6 +655,7 @@ async function importUserTables (client, root, uid, { bump, failures, tableColum
     failures,
     tableColumns,
     runSafe,
+    sync,
   })
 
   await importJsonRows(client, path.join(root, 'users', uid, 'categorias_id.json'), {
@@ -651,6 +665,7 @@ async function importUserTables (client, root, uid, { bump, failures, tableColum
     failures,
     tableColumns,
     runSafe,
+    sync,
   })
 
   for (const table of [
@@ -676,11 +691,12 @@ async function importUserTables (client, root, uid, { bump, failures, tableColum
       failures,
       tableColumns,
       runSafe,
+      sync,
     })
   }
 }
 
-async function importJsonRows (client, filePath, { table, mode, bump, failures, tableColumns, runSafe }) {
+async function importJsonRows (client, filePath, { table, mode, bump, failures, tableColumns, runSafe, sync = false }) {
   if (!fs.existsSync(filePath)) return
   const rows = readJson(filePath)
   if (!Array.isArray(rows) || !rows.length) return
@@ -720,14 +736,14 @@ async function importJsonRows (client, filePath, { table, mode, bump, failures, 
         const patched = table === 'lancamentos_id'
           ? { ...row, tipo: normalizeTipo(row.tipo) }
           : row
-        await upsertGenericUuidRow(client, table, patched, tableColumns)
+        await upsertGenericUuidRow(client, table, patched, tableColumns, { sync })
       }
     })
     if (ok) bump(table)
   }
 }
 
-async function upsertGenericUuidRow (client, table, row, tableColumns) {
+async function upsertGenericUuidRow (client, table, row, tableColumns, { sync = false } = {}) {
   const allowed = tableColumns.get(table)
   if (!allowed?.size) throw new Error(`tabela desconhecida no destino: ${table}`)
   const cols = Object.keys(row).filter((k) => allowed.has(k) && row[k] !== undefined)
@@ -748,9 +764,20 @@ async function upsertGenericUuidRow (client, table, row, tableColumns) {
     return v
   })
 
+  if (!sync) {
+    await client.query(
+      `INSERT INTO public."${table}" (${colList}) VALUES (${castParams})
+       ON CONFLICT (id) DO NOTHING`,
+      values,
+    )
+    return
+  }
+
+  const updateCols = cols.filter((c) => c !== 'id')
+  const updateSet = updateCols.map((c) => `"${c}" = EXCLUDED."${c}"`).join(', ')
   await client.query(
     `INSERT INTO public."${table}" (${colList}) VALUES (${castParams})
-     ON CONFLICT (id) DO NOTHING`,
+     ON CONFLICT (id) DO UPDATE SET ${updateSet}`,
     values,
   )
 }
