@@ -92,7 +92,18 @@ export const BOT_NF_EMIT_FAILED_INSTRUCTION =
   'Emissão falhou. Repita APENAS message ao utilizador (motivo em português curto). '
   + 'Se pedir para tentar de novo: o MESMO emit_* (nfe ou nfse) com confirm:true e os MESMOS dados — '
   + 'PROIBIDO chamar emit_* sem confirm:true após falha ou confirmação. '
-  + 'AGUARDE o exec terminar antes de responder.';
+  + 'AGUARDE o exec terminar antes de responder. '
+  + 'Máximo 1 nova tentativa por pedido explícito do utilizador — PROIBIDO loop automático.';
+
+/** Após emit_* com ok:true — evita múltiplas emissões/PDFs duplicados. */
+export const BOT_NF_EMIT_SUCCESS_GUARD =
+  'EMISSÃO CONCLUÍDA nesta chamada (ok:true + nota.id) — PROIBIDO chamar emit_nfse, emit_nfe, '
+  + 'preview_nfse ou preview_nfe de novo para os mesmos dados. Repita APENAS message. '
+  + 'PROIBIDO dizer "problemas técnicos" ou "vou tentar de novo" sem novo pedido do utilizador.';
+
+/** Resposta idempotente — mesma nota já emitida nos últimos minutos. */
+export const BOT_NF_EMIT_IDEMPOTENT_GUARD =
+  'NOTA JÁ EXISTE (emissão recente duplicada bloqueada) — PROIBIDO emitir de novo. Repita APENAS message.';
 
 /**
  * Mensagem amigável para erros técnicos de emissão NFS-e (WhatsApp).

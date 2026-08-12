@@ -27,6 +27,12 @@ import {
   NFSE_SERVICO_CODIGO_MIN_LENGTH,
 } from './mei-notas.service.js';
 import {
+  buildOpenclawNfseEmitFingerprint,
+  findRecentOpenclawEmitNota,
+  stampOpenclawEmitMetadata,
+  withOpenclawEmitIdempotency,
+} from './openclaw-nf-emit-idempotency.js';
+import {
   buildTomadorEnderecoMissingBotHint,
   buildTomadorEnderecoMissingUserMessage,
   hasCompleteTomadorEndereco,
@@ -1405,8 +1411,8 @@ export const emitOpenclawNfse = async (userId, payload = {}) => {
     };
   }
 
-  const created = await emitirNota(userId, input);
-  const preview = {
+  const fingerprint = buildOpenclawNfseEmitFingerprint(normalizedPayload, input);
+  const previewBase = {
     documentType: 'NFSE',
     tomadorRazaoSocial: input.tomadorRazaoSocial,
     tomadorCpfCnpj: input.tomadorCpfCnpj,
@@ -1414,7 +1420,54 @@ export const emitOpenclawNfse = async (userId, payload = {}) => {
     discriminacao: input.servico.discriminacao,
     codigoServico: input.servico.codigo,
   };
-  return { nota: created, preview, requiresConfirm: false, notEmitted: false };
+
+  const emitTask = async () => {
+    const existing = await findRecentOpenclawEmitNota(userId, fingerprint, 'NFSE', {
+      forceRetry: normalizedPayload.forceRetry === true,
+      tomadorDoc: input.tomadorCpfCnpj,
+      valor: input.servico.valorServico,
+    });
+    if (existing?.id) {
+      return {
+        nota: existing,
+        preview: previewBase,
+        requiresConfirm: false,
+        notEmitted: false,
+        idempotentReplay: true,
+      };
+    }
+
+    const created = await emitirNota(userId, {
+      ...input,
+      metadata: stampOpenclawEmitMetadata(input.metadata, fingerprint),
+    });
+    return {
+      nota: created,
+      preview: previewBase,
+      requiresConfirm: false,
+      notEmitted: false,
+      idempotentReplay: false,
+    };
+  };
+
+  const locked = await withOpenclawEmitIdempotency(userId, fingerprint, emitTask);
+  if (locked) return locked;
+
+  const existingAfterWait = await findRecentOpenclawEmitNota(userId, fingerprint, 'NFSE', {
+    tomadorDoc: input.tomadorCpfCnpj,
+    valor: input.servico.valorServico,
+  });
+  if (existingAfterWait?.id) {
+    return {
+      nota: existingAfterWait,
+      preview: previewBase,
+      requiresConfirm: false,
+      notEmitted: false,
+      idempotentReplay: true,
+    };
+  }
+
+  return emitTask();
 };
 
 export const listOpenclawNfseNotas = async (userId, { limit = 10 } = {}) => {

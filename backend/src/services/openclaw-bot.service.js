@@ -68,6 +68,8 @@ import {
 } from './openclaw-nfe.service.js';
 import {
   BOT_NF_CONFIRM_INSTRUCTION,
+  BOT_NF_EMIT_IDEMPOTENT_GUARD,
+  BOT_NF_EMIT_SUCCESS_GUARD,
   BOT_NF_PREVIEW_LOOP_GUARD,
   buildNfConfirmRequestUserMessage,
   buildNfEmittedUserMessage,
@@ -2120,6 +2122,11 @@ export const runOpenclawAction = async (input) => {
 
       let agentInstructions =
         'Repita APENAS o campo message ao utilizador. PROIBIDO mencionar payload, confirm:true ou ações técnicas.';
+      if (result.idempotentReplay) {
+        agentInstructions += ` ${BOT_NF_EMIT_IDEMPOTENT_GUARD}`;
+      } else {
+        agentInstructions += ` ${BOT_NF_EMIT_SUCCESS_GUARD}`;
+      }
       if (autoSent) {
         agentInstructions += ' PDF NF-e já enviado no WhatsApp — não peça confirmação.';
       } else if (autoEnabled) {
@@ -2139,6 +2146,9 @@ export const runOpenclawAction = async (input) => {
             document_type: nota?.document_type || 'NFE',
             pdfReady,
           },
+          idempotentReplay: Boolean(result.idempotentReplay),
+          doNotRetryEmit: true,
+          emitCompleted: true,
           autoWhatsappEnabled: autoEnabled,
           autoWhatsapp: autoWhatsapp
             ? {
@@ -2285,6 +2295,11 @@ export const runOpenclawAction = async (input) => {
 
       let agentInstructions =
         'Repita APENAS o campo message ao utilizador. PROIBIDO mencionar payload, confirm:true ou ações técnicas.';
+      if (result.idempotentReplay) {
+        agentInstructions += ` ${BOT_NF_EMIT_IDEMPOTENT_GUARD}`;
+      } else {
+        agentInstructions += ` ${BOT_NF_EMIT_SUCCESS_GUARD}`;
+      }
       if (autoSent) {
         agentInstructions += ' PDF já enviado no WhatsApp — não peça confirmação nem script.';
       } else if (autoEnabled) {
@@ -2305,6 +2320,9 @@ export const runOpenclawAction = async (input) => {
             pdf_url: nota?.pdf_url,
             pdfReady,
           },
+          idempotentReplay: Boolean(result.idempotentReplay),
+          doNotRetryEmit: true,
+          emitCompleted: true,
           execCommand,
           autoWhatsappEnabled: autoEnabled,
           autoWhatsapp: autoWhatsapp

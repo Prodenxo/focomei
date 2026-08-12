@@ -370,6 +370,9 @@ Quando `preview_nfse`, `emit_nfse`, `preview_nfe` ou `emit_nfe` devolverem `requ
    - Faz **no máximo 2** `process poll` (espera alguns segundos entre eles).
    - Se continuar sem JSON → diga ao utilizador: *"Ainda estou a processar a nota. Aguarde um momento e confirme se chegou."* — **PROIBIDO** inventar *"Nota enviada"* / *"processando"* sem JSON.
    - **PROIBIDO** loop infinito de poll.
+6. Se `emit_nfse` / `emit_nfe` devolver **`ok: true`** com **`data.nota.id`** ou **`data.doNotRetryEmit: true`** → **EMISSÃO CONCLUÍDA**. **PROIBIDO** chamar `emit_*` ou `preview_*` de novo para os mesmos dados nesta conversa — repete **só** `message` ao utilizador.
+7. **Máximo 1** chamada `emit_*` com `confirm:true` por confirmação do utilizador. **PROIBIDO** retry automático após sucesso ou após `ok:true` — só nova emissão se o utilizador pedir explicitamente outra nota (outro cliente/valor).
+8. Se `data.pdfWhatsappAlreadySent` ou PDF já enviado → **PROIBIDO** `mf-nfse-send.sh` / `send_nfse_whatsapp` de novo (PDF duplicado ao cliente).
 
 ### Escolher serviço ou produto antes de emitir (OBRIGATÓRIO)
 

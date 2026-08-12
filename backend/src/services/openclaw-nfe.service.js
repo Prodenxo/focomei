@@ -9,6 +9,12 @@ import {
   listarCatalogoProdutos,
 } from './mei-notas.service.js';
 import {
+  buildOpenclawNfeEmitFingerprint,
+  findRecentOpenclawEmitNota,
+  stampOpenclawEmitMetadata,
+  withOpenclawEmitIdempotency,
+} from './openclaw-nf-emit-idempotency.js';
+import {
   parseValorReais,
   pickProdutoCatalogoByNomeResult,
   resolveOpenclawTomador,
@@ -646,15 +652,9 @@ export const emitOpenclawNfe = async (userId, payload = {}) => {
     };
   }
 
-  const { documentType, metadata, ...nfePayload } = input;
-  // Mesmo shape do app: { documentType, payload, metadata } — garante pagamentos/consumidorFinal.
-  const created = await emitirNota(userId, {
-    documentType: documentType || 'NFE',
-    payload: nfePayload,
-    metadata,
-  });
+  const fingerprint = buildOpenclawNfeEmitFingerprint(payload, input);
   const item = input.itens[0];
-  const preview = {
+  const previewBase = {
     documentType: 'NFE',
     destinatarioCpfCnpj: input.destinatario.cpfCnpj,
     destinatarioRazaoSocial: input.destinatario.razaoSocial,
@@ -662,7 +662,56 @@ export const emitOpenclawNfe = async (userId, payload = {}) => {
     produtoCodigo: item.codigo,
     valorTotal: item.valor,
   };
-  return { nota: created, preview, requiresConfirm: false, notEmitted: false };
+
+  const emitTask = async () => {
+    const existing = await findRecentOpenclawEmitNota(userId, fingerprint, 'NFE', {
+      forceRetry: payload.forceRetry === true,
+      tomadorDoc: input.destinatario.cpfCnpj,
+      valor: item.valor,
+    });
+    if (existing?.id) {
+      return {
+        nota: existing,
+        preview: previewBase,
+        requiresConfirm: false,
+        notEmitted: false,
+        idempotentReplay: true,
+      };
+    }
+
+    const { documentType, metadata, ...nfePayload } = input;
+    const created = await emitirNota(userId, {
+      documentType: documentType || 'NFE',
+      payload: nfePayload,
+      metadata: stampOpenclawEmitMetadata(metadata, fingerprint),
+    });
+    return {
+      nota: created,
+      preview: previewBase,
+      requiresConfirm: false,
+      notEmitted: false,
+      idempotentReplay: false,
+    };
+  };
+
+  const locked = await withOpenclawEmitIdempotency(userId, fingerprint, emitTask);
+  if (locked) return locked;
+
+  const existingAfterWait = await findRecentOpenclawEmitNota(userId, fingerprint, 'NFE', {
+    tomadorDoc: input.destinatario.cpfCnpj,
+    valor: item.valor,
+  });
+  if (existingAfterWait?.id) {
+    return {
+      nota: existingAfterWait,
+      preview: previewBase,
+      requiresConfirm: false,
+      notEmitted: false,
+      idempotentReplay: true,
+    };
+  }
+
+  return emitTask();
 };
 
 export const rethrowNfeErrorForBot = (err) => {
