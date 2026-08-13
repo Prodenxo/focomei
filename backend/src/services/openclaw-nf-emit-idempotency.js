@@ -97,16 +97,18 @@ const isReplayableEmitStatus = (status) => {
     .toLowerCase()
     .normalize('NFD')
     .replace(/\p{M}/gu, '');
+  if (s.includes('rejeit')) return false;
   return (
     s === 'concluido'
     || s === 'concluida'
     || s === 'processando'
-    || s === 'rejeitado'
-    || s === 'rejeitada'
     || s.includes('autoriz')
     || s.includes('process')
   );
 };
+
+/** @param {string} status */
+export const shouldReplayOpenclawEmitNota = (status) => isReplayableEmitStatus(status);
 
 const pickBestExistingNota = (rows = []) => {
   const list = Array.isArray(rows) ? rows.filter(Boolean) : [];

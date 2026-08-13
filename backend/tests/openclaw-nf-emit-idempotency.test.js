@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildOpenclawNfeEmitFingerprint,
   buildOpenclawNfseEmitFingerprint,
+  shouldReplayOpenclawEmitNota,
   stampOpenclawEmitMetadata,
 } from '../src/services/openclaw-nf-emit-idempotency.js';
 
@@ -31,4 +32,10 @@ test('stampOpenclawEmitMetadata preserva source e grava fingerprint', () => {
   assert.equal(meta.foo, 1);
   assert.equal(meta.openclawEmitFingerprint, 'NFSE|x|1.00|y');
   assert.ok(meta.openclawEmitAt);
+});
+
+test('shouldReplayOpenclawEmitNota — rejeitado não bloqueia nova emissão', () => {
+  assert.equal(shouldReplayOpenclawEmitNota('rejeitado'), false);
+  assert.equal(shouldReplayOpenclawEmitNota('processando'), true);
+  assert.equal(shouldReplayOpenclawEmitNota('concluida'), true);
 });

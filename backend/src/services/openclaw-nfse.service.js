@@ -1421,20 +1421,35 @@ export const emitOpenclawNfse = async (userId, payload = {}) => {
     codigoServico: input.servico.codigo,
   };
 
+  const forceRetry = normalizedPayload.forceRetry === true
+    || normalizedPayload.retry === true;
+  const findRecentOpts = {
+    forceRetry,
+    tomadorDoc: input.tomadorCpfCnpj,
+    valor: input.servico.valorServico,
+  };
+
+  const refreshReplayNota = async (nota) => {
+    if (!nota?.id) return nota;
+    try {
+      return await obterNota(userId, nota.id, { sync: true });
+    } catch {
+      return nota;
+    }
+  };
+
+  const buildIdempotentReplayResult = async (existing) => ({
+    nota: await refreshReplayNota(existing),
+    preview: previewBase,
+    requiresConfirm: false,
+    notEmitted: false,
+    idempotentReplay: true,
+  });
+
   const emitTask = async () => {
-    const existing = await findRecentOpenclawEmitNota(userId, fingerprint, 'NFSE', {
-      forceRetry: normalizedPayload.forceRetry === true,
-      tomadorDoc: input.tomadorCpfCnpj,
-      valor: input.servico.valorServico,
-    });
+    const existing = await findRecentOpenclawEmitNota(userId, fingerprint, 'NFSE', findRecentOpts);
     if (existing?.id) {
-      return {
-        nota: existing,
-        preview: previewBase,
-        requiresConfirm: false,
-        notEmitted: false,
-        idempotentReplay: true,
-      };
+      return buildIdempotentReplayResult(existing);
     }
 
     const created = await emitirNota(userId, {
@@ -1453,18 +1468,9 @@ export const emitOpenclawNfse = async (userId, payload = {}) => {
   const locked = await withOpenclawEmitIdempotency(userId, fingerprint, emitTask);
   if (locked) return locked;
 
-  const existingAfterWait = await findRecentOpenclawEmitNota(userId, fingerprint, 'NFSE', {
-    tomadorDoc: input.tomadorCpfCnpj,
-    valor: input.servico.valorServico,
-  });
+  const existingAfterWait = await findRecentOpenclawEmitNota(userId, fingerprint, 'NFSE', findRecentOpts);
   if (existingAfterWait?.id) {
-    return {
-      nota: existingAfterWait,
-      preview: previewBase,
-      requiresConfirm: false,
-      notEmitted: false,
-      idempotentReplay: true,
-    };
+    return buildIdempotentReplayResult(existingAfterWait);
   }
 
   return emitTask();

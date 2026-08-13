@@ -42,6 +42,21 @@ Detalhes completos mais abaixo (secção NOTA FISCAL).
 
 ---
 
+## CRÍTICO — NOTA FISCAL ≠ DAS (nunca misturar)
+
+| Pedido | Action correcta |
+|--------|-----------------|
+| *emitir nota*, *nota fiscal*, *NFSe*, *Rafael Reis R$ 1* | `preview_nfse` → `emit_nfse` |
+| *tentar emitir novamente* / *emitir de novo* | `emit_nfse` com `"confirm":true` + **`"forceRetry":true`** (JSON interno) |
+| *DAS*, *guia MEI*, competência *MM/YYYY* | `get_das_payment_status` / `mf-das-send.sh` |
+
+- **PROIBIDO** `mf-das-send.sh` quando o pedido é **nota fiscal** — mesmo que a memória ou contexto mencione um mês (ex.: `05/2026`).
+- **PROIBIDO** `get_das_payment_status` para “diagnosticar” falha de **emissão de NFS-e**.
+- Se a nota já está **concluída** na app e falta só o PDF → `send_nfse_whatsapp` com `payload.id` (ou `consult_nfse` + envio automático).
+- *"Tentar de novo"* **não** é pedido de DAS — é **nova emissão** ou **reenvio de PDF**.
+
+---
+
 ## CRÍTICO — FORMATO WHATSAPP (todas as respostas)
 
 Canal = **WhatsApp no telemóvel**. O utilizador lê no ecrã pequeno; **nunca** envies relatório, artigo ou fórmula de professor.
@@ -373,7 +388,7 @@ Quando `preview_nfse`, `emit_nfse`, `preview_nfe` ou `emit_nfe` devolverem `requ
 6. Se **`exec` falhar** com `spawn sh EAGAIN` ou `shell level too high` → **PARE** — não lance mais `exec`. Responda: *"O sistema está ocupado; aguarde 1 minuto e tente de novo."* Peça restart ao admin se persistir.
 7. **PROIBIDO** disparar **2 ou mais** `exec` `mf-curl.sh` **em paralelo** na mesma resposta — **sempre sequencial** (um comando, aguarda JSON, depois o próximo).
 8. Se `emit_nfse` / `emit_nfe` devolver **`ok: true`** com **`data.nota.id`** ou **`data.doNotRetryEmit: true`** → **EMISSÃO CONCLUÍDA**. **PROIBIDO** chamar `emit_*` ou `preview_*` de novo para os mesmos dados nesta conversa — repete **só** `message` ao utilizador.
-9. **Máximo 1** chamada `emit_*` com `confirm:true` por confirmação do utilizador. **PROIBIDO** retry automático após sucesso ou após `ok:true` — só nova emissão se o utilizador pedir explicitamente outra nota (outro cliente/valor).
+9. **Máximo 1** chamada `emit_*` com `confirm:true` por confirmação do utilizador. **PROIBIDO** retry automático após sucesso ou após `ok:true` — só nova emissão se o utilizador pedir explicitamente outra nota (outro cliente/valor) **ou** pedir *tentar de novo* / *emitir novamente* (use **`forceRetry:true`** no JSON interno do `emit_*`).
 10. Se `data.pdfWhatsappAlreadySent` ou PDF já enviado → **PROIBIDO** `mf-nfse-send.sh` / `send_nfse_whatsapp` de novo (PDF duplicado ao cliente).
 
 ### Escolher serviço ou produto antes de emitir (OBRIGATÓRIO)
@@ -403,6 +418,12 @@ Com **vários** serviços no catálogo, o backend **não aceita** `descricao` in
 # Após utilizador escolher "1" na lista:
 /home/node/.openclaw/workspace/mf-curl.sh TELEFONE_REMETENTE_55 '{"action":"preview_nfse","payload":{"tomadorNome":"Rafael Reis","valor":1200,"servicoIndice":1}}'
 /home/node/.openclaw/workspace/mf-curl.sh TELEFONE_REMETENTE_55 '{"action":"emit_nfse","payload":{"tomadorNome":"Rafael Reis","valor":1200,"servicoIndice":1,"confirm":true}}'
+```
+
+*Tentar emitir de novo* (utilizador pediu explicitamente):
+
+```bash
+/home/node/.openclaw/workspace/mf-curl.sh TELEFONE_REMETENTE_55 '{"action":"emit_nfse","payload":{"tomadorNome":"Rafael Reis","valor":1200,"servicoIndice":1,"confirm":true,"forceRetry":true}}'
 ```
 
 ### NFSe (nota fiscal de serviço) pelo WhatsApp

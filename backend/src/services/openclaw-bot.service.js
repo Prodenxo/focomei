@@ -2290,13 +2290,16 @@ export const runOpenclawAction = async (input) => {
       const userMessage = buildNfEmittedUserMessage(result.preview, {
         status,
         pdfSent: autoSent,
-        pdfPending: autoEnabled && !pdfReady,
+        pdfPending: autoEnabled && !pdfReady && !autoSent,
       });
 
       let agentInstructions =
         'Repita APENAS o campo message ao utilizador. PROIBIDO mencionar payload, confirm:true ou ações técnicas.';
       if (result.idempotentReplay) {
         agentInstructions += ` ${BOT_NF_EMIT_IDEMPOTENT_GUARD}`;
+        if (pdfReady && !autoSent) {
+          agentInstructions += ' Nota já concluída — PDF será reenviado automaticamente se ainda não foi enviado.';
+        }
       } else {
         agentInstructions += ` ${BOT_NF_EMIT_SUCCESS_GUARD}`;
       }
