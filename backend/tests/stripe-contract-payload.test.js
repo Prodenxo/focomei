@@ -2,6 +2,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildStripeContratoPayload,
+  mergeSignatarioProfiles,
   validateContratoPayload,
 } from '../src/services/stripe-contract-payload.service.js'
 
@@ -76,5 +77,27 @@ describe('stripe-contract-payload', () => {
 
     const errors = validateContratoPayload(payload)
     assert.ok(errors.some((e) => e.includes('CPF do signatário')))
+  })
+
+  it('mergeSignatarioProfiles herda CPF do admin quando owner não tem', () => {
+    const merged = mergeSignatarioProfiles(
+      {
+        email: 'owner@empresa.com',
+        raw_user_meta_data: { full_name: 'Sócio sem CPF' },
+      },
+      {
+        email: 'contato@cfalianca.com.br',
+        raw_user_meta_data: { full_name: 'Danilo Miguel', cpf: '96232137515' },
+      },
+    )
+
+    const payload = buildStripeContratoPayload({
+      empresa: { razao_social: 'CF ALIANCA LTDA', cnpj: '48221799000172' },
+      signatario: merged,
+      meiSlots: 5,
+    })
+
+    assert.equal(payload.contratos[0].signatario_cpf, '96232137515')
+    assert.equal(payload.contratos[0].signatario_email, 'owner@empresa.com')
   })
 })

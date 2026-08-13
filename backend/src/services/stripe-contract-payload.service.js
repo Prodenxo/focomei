@@ -99,6 +99,40 @@ const readMeta = (raw) => {
   return raw
 }
 
+/** Une requested_by + admin da empresa (CPF/nome do contato primário quando o owner não tem). */
+export const mergeSignatarioProfiles = (owner, contact) => {
+  if (!owner && !contact) return null
+  if (!owner) return contact
+  if (!contact) return owner
+
+  const ownerMeta = readMeta(owner.raw_user_meta_data)
+  const contactMeta = readMeta(contact.raw_user_meta_data)
+  const mergedMeta = {
+    ...contactMeta,
+    ...ownerMeta,
+    cpf: ONLY_DIGITS(ownerMeta.cpf || contactMeta.cpf),
+    full_name:
+      str(ownerMeta.full_name)
+      || str(contactMeta.full_name)
+      || str(ownerMeta.display_name)
+      || str(contactMeta.display_name),
+    display_name:
+      str(ownerMeta.display_name)
+      || str(contactMeta.display_name)
+      || str(ownerMeta.full_name)
+      || str(contactMeta.full_name),
+    phone: str(ownerMeta.phone) || str(contactMeta.phone) || null,
+  }
+
+  return {
+    ...contact,
+    ...owner,
+    email: str(owner.email) || str(contact.email),
+    phone: str(owner.phone) || str(contact.phone) || null,
+    raw_user_meta_data: mergedMeta,
+  }
+}
+
 /**
  * Monta o JSON de contrato (Onety) a partir de empresa + signatário + linha Stripe.
  * @param {{ empresa: object, signatario?: object|null, meiSlots: number, valorMensal?: number|null }} input
@@ -313,21 +347,9 @@ export const buildStripeContratoPayloadForEmpresa = async (
   if (!line) return null
 
   const ownerId = str(empresa.requested_by)
-  let signatario = ownerId ? await loadSignatarioRow(adminClient, ownerId) : null
-
-  if (!str(signatario?.email)) {
-    const fallbackContact = await loadEmpresaPrimaryContact(adminClient, id)
-    if (fallbackContact) {
-      signatario = signatario
-        ? {
-            ...signatario,
-            email: signatario.email || fallbackContact.email,
-            phone: signatario.phone || fallbackContact.phone,
-            raw_user_meta_data: signatario.raw_user_meta_data || fallbackContact.raw_user_meta_data,
-          }
-        : fallbackContact
-    }
-  }
+  const owner = ownerId ? await loadSignatarioRow(adminClient, ownerId) : null
+  const primaryContact = await loadEmpresaPrimaryContact(adminClient, id)
+  const signatario = mergeSignatarioProfiles(owner, primaryContact)
 
   return buildStripeContratoPayload({
     empresa,
