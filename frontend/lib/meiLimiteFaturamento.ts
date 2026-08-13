@@ -224,6 +224,30 @@ export function resolverDataExibicaoEmissaoDaNota(record: NfseRecord): string | 
   return parseDateIso(record.created_at)
 }
 
+function notaListaOrdenacaoMs(record: Pick<NfseRecord, 'response_json' | 'id_integracao' | 'created_at' | 'updated_at'>): number {
+  const iso = resolverDataExibicaoEmissaoDaNota(record as NfseRecord)
+    || parseDateIso(record.updated_at)
+    || parseDateIso(record.created_at)
+  if (!iso) return 0
+  const ms = new Date(iso).getTime()
+  return Number.isFinite(ms) ? ms : 0
+}
+
+/** Ordena notas pela mesma data exibida na lista (mais recente primeiro). */
+export function sortNotasPorListaRecencia<T extends Pick<NfseRecord, 'id' | 'response_json' | 'id_integracao' | 'created_at' | 'updated_at'>>(
+  rows: T[],
+): T[] {
+  if (rows.length < 2) return rows
+  return [...rows].sort((a, b) => {
+    const diff = notaListaOrdenacaoMs(b) - notaListaOrdenacaoMs(a)
+    if (diff !== 0) return diff
+    const updatedDiff = notaListaOrdenacaoMs({ ...b, created_at: b.updated_at })
+      - notaListaOrdenacaoMs({ ...a, created_at: a.updated_at })
+    if (updatedDiff !== 0) return updatedDiff
+    return String(b.id ?? '').localeCompare(String(a.id ?? ''))
+  })
+}
+
 function hasServicoArrayInObj(obj: Record<string, unknown>): boolean {
   const s = obj.servico ?? obj.servicos
   return s != null

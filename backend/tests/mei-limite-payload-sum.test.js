@@ -8,7 +8,8 @@ import {
   extrairValorServicoTotalDoPayload,
   extrairValorTotalServicosDeObjeto,
   isDocumentTypeMeiLimiteRelevante,
-  nfseDeveEntrarNoSomatorioLimite
+  nfseDeveEntrarNoSomatorioLimite,
+  sortNotasPorListaRecencia,
 } from '../src/utils/meiLimitePayloadSum.js';
 
 test('extrairValorTotalServicosDeObjeto lê valorServico no root (PlugNotas periodo)', () => {
@@ -229,4 +230,26 @@ test('resolverDataAutorizacaoFiscalDaNota ignora dataEmissao (competência)', as
     'mei-4fbe702b-6c3c-4e07-a901-2a2aba3aa32f-1786038687223-1335a434',
   );
   assert.equal(fromIntegracao, '2026-08-06T17:51:27.223Z');
+});
+
+test('sortNotasPorListaRecencia ordena pela data fiscal exibida na UI', () => {
+  const rows = [
+    {
+      id: 'a',
+      created_at: '2026-08-13T18:00:00.000Z',
+      response_json: { dataAutorizacao: '2026-08-11T13:10:07.000Z' },
+    },
+    {
+      id: 'b',
+      created_at: '2026-08-12T17:08:51.000Z',
+      response_json: { dataAutorizacao: '2026-08-12T17:08:51.000Z' },
+    },
+    {
+      id: 'c',
+      created_at: '2026-08-10T10:00:00.000Z',
+      response_json: { dataAutorizacao: '2026-08-13T14:00:00.000Z' },
+    },
+  ];
+  const sorted = sortNotasPorListaRecencia(rows);
+  assert.deepEqual(sorted.map((r) => r.id), ['c', 'b', 'a']);
 });

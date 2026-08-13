@@ -310,6 +310,28 @@ export function resolverDataExibicaoEmissaoDaNota(record) {
   return parseDateIso(record?.created_at ?? record?.createdAt);
 }
 
+function notaListaOrdenacaoMs(record) {
+  const iso = resolverDataExibicaoEmissaoDaNota(record)
+    || parseDateIso(record?.updated_at)
+    || parseDateIso(record?.created_at ?? record?.createdAt);
+  if (!iso) return 0;
+  const ms = new Date(iso).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+/** Ordena notas pela mesma data exibida na lista (mais recente primeiro). */
+export function sortNotasPorListaRecencia(rows) {
+  if (!Array.isArray(rows) || rows.length < 2) return rows ?? [];
+  return [...rows].sort((a, b) => {
+    const diff = notaListaOrdenacaoMs(b) - notaListaOrdenacaoMs(a);
+    if (diff !== 0) return diff;
+    const updatedDiff = notaListaOrdenacaoMs({ created_at: b.updated_at })
+      - notaListaOrdenacaoMs({ created_at: a.updated_at });
+    if (updatedDiff !== 0) return updatedDiff;
+    return String(b?.id ?? '').localeCompare(String(a?.id ?? ''));
+  });
+}
+
 /**
  * @param {Array<Record<string, unknown>>} rows - linhas com payload_json, response_json, status, created_at, document_type
  * @param {number} anoCivil

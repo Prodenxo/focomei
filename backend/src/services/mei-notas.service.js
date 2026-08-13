@@ -83,7 +83,12 @@ import {
   emitirNfce
 } from './plugnotas/nfce.service.js';
 import { isPlugnotasDebugExplicitlyEnabled } from './plugnotas/plugnotas-debug-env.js';
-import { agregarLimiteMeiDasLinhas, resolverDataAutorizacaoFiscalDaNota, parseCreatedAtIsoFromIdIntegracao } from '../utils/meiLimitePayloadSum.js';
+import {
+  agregarLimiteMeiDasLinhas,
+  resolverDataAutorizacaoFiscalDaNota,
+  parseCreatedAtIsoFromIdIntegracao,
+  sortNotasPorListaRecencia,
+} from '../utils/meiLimitePayloadSum.js';
 import {
   maybeSyncLancamentoFromNota,
   syncLancamentosForNotasInBackground,
@@ -2274,8 +2279,9 @@ export const listarNotas = async (
   await archiveE0014RejectedRowsOnList(userId, rows);
   await reconcileNotasCreatedAtFromStoredResponse(userId, rows);
   syncLancamentosForNotasInBackground(userId, rows);
-  if (includeArchived) return rows;
-  return rows.filter((row) => !row.archived_at);
+  const ordered = sortNotasPorListaRecencia(rows);
+  if (includeArchived) return ordered;
+  return ordered.filter((row) => !row.archived_at);
 };
 
 const clampAnoCivilLimite = (value) => {

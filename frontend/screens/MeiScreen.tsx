@@ -187,7 +187,7 @@ import {
 import { MeiTabBar, type MeiTabKey } from '../components/mei/MeiTabBar';
 import { MeiMobileOverview } from '../components/mei/MeiMobileOverview';
 import { MeiLimiteFaturamentoCard } from '../components/mei/MeiLimiteFaturamentoCard';
-import { computeMeiLimiteProgresso } from '../lib/meiLimiteFaturamento';
+import { computeMeiLimiteProgresso, sortNotasPorListaRecencia } from '../lib/meiLimiteFaturamento';
 import { getVigenciaLabelParaAno } from '../lib/meiLimiteFaturamentoConfig';
 import {
   MeiMobileDasPanel,
@@ -541,7 +541,8 @@ function MeiScreenContent() {
   const [emitirNotaType, setEmitirNotaType] = useState<NotaDocumentType>('NFSE');
 
   const notasParaExibir = useMemo(() => {
-    if (!emitirNotaPending) return notas;
+    const ordenadas = sortNotasPorListaRecencia(notas);
+    if (!emitirNotaPending) return ordenadas;
     const pendente: NfseRecord = {
       id: '__emit_pending__',
       user_id: userId ?? '',
@@ -549,7 +550,7 @@ function MeiScreenContent() {
       document_type: emitirNotaType,
       created_at: new Date().toISOString(),
     };
-    return [pendente, ...notas];
+    return [pendente, ...ordenadas];
   }, [emitirNotaPending, emitirNotaType, notas, userId]);
   const [documentosAtivosMirror, setDocumentosAtivosMirror] = useState<MeiDocumentosAtivosState | null>(null);
   const documentosPermitidos = useMemo(
