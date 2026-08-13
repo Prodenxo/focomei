@@ -300,6 +300,45 @@ const buildNfseSendExecCommand = (destinationPhone, notaId) => {
   return `/home/node/.openclaw/workspace/mf-nfse-send.sh ${destinationPhone} ${notaId}`;
 };
 
+const isWhatsappPdfSentStatus = (status) =>
+  status === 'sent' || status === 'already_sent';
+
+/** Envio automático pós-emit; reenvia com force se idempotência marcou already_sent. */
+const deliverEmitNfWhatsappPdf = async ({
+  userId,
+  notaId,
+  destinationPhone,
+  pdfReady,
+  autoEnabled,
+  idempotentReplay,
+}) => {
+  if (!autoEnabled || !destinationPhone || !notaId) {
+    return { autoWhatsapp: null, autoSent: false, autoAlreadySent: false };
+  }
+  await registerOpenclawNfseWhatsappDelivery(userId, notaId, destinationPhone);
+  if (!pdfReady) {
+    return { autoWhatsapp: null, autoSent: false, autoAlreadySent: false };
+  }
+  let autoWhatsapp = await deliverOpenclawNfseWhatsappPdf(
+    userId,
+    notaId,
+    destinationPhone,
+  );
+  if (autoWhatsapp?.whatsappStatus === 'already_sent' && idempotentReplay) {
+    autoWhatsapp = await deliverOpenclawNfseWhatsappPdf(
+      userId,
+      notaId,
+      destinationPhone,
+      { forceResend: true },
+    );
+  }
+  return {
+    autoWhatsapp,
+    autoSent: autoWhatsapp?.whatsappStatus === 'sent',
+    autoAlreadySent: autoWhatsapp?.whatsappStatus === 'already_sent',
+  };
+};
+
 /**
  * Resolve telefone → user_id e devolve metadados para diagnóstico (OpenClaw / n8n).
  * @returns {{ userId: string | null, phoneDigits: string, matchedUserNumber: string | null, lookupCandidates: string[] }}
@@ -1765,6 +1804,9 @@ export const runOpenclawAction = async (input) => {
       display,
       hasPdf: statusInfo.hasPdf,
     })} Conta: ${owner}.`;
+    const dasSendHint = statusInfo.hasPdf
+      ? 'Se o utilizador pediu enviar/reenviar a guia: chame send_das_whatsapp ou mf-das-send.sh com o mês.'
+      : 'Sem PDF guardado. Se pediu enviar/reenviar guia: chame refresh_das_pdf com payload.mes, depois send_das_whatsapp ou mf-das-send.sh. PROIBIDO parar só em get_das_payment_status.';
     return {
       ok: true,
       message: replyMessage,
@@ -1782,8 +1824,8 @@ export const runOpenclawAction = async (input) => {
         vencimentoDisplay: dasComp.vencimentoDisplay ?? null,
         agentInstructions:
           dasComp.resolvedBy === 'vencimento_dia_20'
-            ? `DAS competência ${display} (vence ${dasComp.vencimentoDisplay}). Não confundir com mês calendário.`
-            : null,
+            ? `DAS competência ${display} (vence ${dasComp.vencimentoDisplay}). Não confundir com mês calendário. ${dasSendHint}`
+            : dasSendHint,
         dasAccount: dasSubject?.account ?? null,
         accessedAsSelf: dasSubject?.accessedAsSelf ?? true,
         actorContext,
@@ -2093,31 +2135,27 @@ export const runOpenclawAction = async (input) => {
       const destinationPhone = resolveOpenclawWhatsappPhone(phoneDigits, matchedUserNumber);
       const pdfReady = isNfsePdfReadyStatus(status);
       const autoEnabled = isOpenclawNfseAutoWhatsappEnabled();
-      let autoWhatsapp = null;
+      const { autoWhatsapp, autoSent, autoAlreadySent } = await deliverEmitNfWhatsappPdf({
+        userId,
+        notaId: nota?.id,
+        destinationPhone,
+        pdfReady,
+        autoEnabled,
+        idempotentReplay: Boolean(result.idempotentReplay),
+      });
 
-      if (autoEnabled && destinationPhone && nota?.id) {
-        await registerOpenclawNfseWhatsappDelivery(userId, nota.id, destinationPhone);
-        if (pdfReady) {
-          autoWhatsapp = await deliverOpenclawNfseWhatsappPdf(
-            userId,
-            nota.id,
-            destinationPhone,
-          );
-        }
-      }
-
-      const autoSent = autoWhatsapp?.whatsappStatus === 'sent';
       const autoFailed = ['failed', 'skipped_no_whatsapp'].includes(
         autoWhatsapp?.whatsappStatus || '',
       );
-      if (autoEnabled && nota?.id && !autoSent) {
+      if (autoEnabled && nota?.id && !autoSent && !autoAlreadySent) {
         scheduleOpenclawNfseWhatsappDeliveryRetries(userId, nota.id);
       }
 
       const userMessage = buildNfEmittedUserMessage(result.preview, {
         status,
         pdfSent: autoSent,
-        pdfPending: autoEnabled && !pdfReady,
+        pdfAlreadySent: autoAlreadySent,
+        pdfPending: autoEnabled && !pdfReady && !autoSent && !autoAlreadySent,
       });
 
       let agentInstructions =
@@ -2127,7 +2165,7 @@ export const runOpenclawAction = async (input) => {
       } else {
         agentInstructions += ` ${BOT_NF_EMIT_SUCCESS_GUARD}`;
       }
-      if (autoSent) {
+      if (autoSent || autoAlreadySent) {
         agentInstructions += ' PDF NF-e já enviado no WhatsApp — não peça confirmação.';
       } else if (autoEnabled) {
         agentInstructions += ' O PDF da NF-e será enviado automaticamente via Z-API — não invente link.';
@@ -2156,7 +2194,7 @@ export const runOpenclawAction = async (input) => {
               error: autoWhatsapp.whatsappError ?? null,
             }
             : null,
-          pdfWhatsappAlreadySent: autoSent,
+          pdfWhatsappAlreadySent: autoSent || autoAlreadySent,
           userId,
           actorContext,
           ...linkDebug,
@@ -2261,27 +2299,22 @@ export const runOpenclawAction = async (input) => {
       const destinationPhone = resolveOpenclawWhatsappPhone(phoneDigits, matchedUserNumber);
       const pdfReady = isNfsePdfReadyStatus(status);
       const autoEnabled = isOpenclawNfseAutoWhatsappEnabled();
-      let autoWhatsapp = null;
+      const { autoWhatsapp, autoSent, autoAlreadySent } = await deliverEmitNfWhatsappPdf({
+        userId,
+        notaId: nota?.id,
+        destinationPhone,
+        pdfReady,
+        autoEnabled,
+        idempotentReplay: Boolean(result.idempotentReplay),
+      });
 
-      if (autoEnabled && destinationPhone && nota?.id) {
-        await registerOpenclawNfseWhatsappDelivery(userId, nota.id, destinationPhone);
-        if (pdfReady) {
-          autoWhatsapp = await deliverOpenclawNfseWhatsappPdf(
-            userId,
-            nota.id,
-            destinationPhone,
-          );
-        }
-      }
-
-      const autoSent = autoWhatsapp?.whatsappStatus === 'sent';
       const autoFailed = ['failed', 'skipped_no_whatsapp'].includes(
         autoWhatsapp?.whatsappStatus || '',
       );
-      if (autoEnabled && nota?.id && !autoSent) {
+      if (autoEnabled && nota?.id && !autoSent && !autoAlreadySent) {
         scheduleOpenclawNfseWhatsappDeliveryRetries(userId, nota.id);
       }
-      const useOpenclawScriptFallback = !autoSent && (!autoEnabled || autoFailed);
+      const useOpenclawScriptFallback = !autoSent && !autoAlreadySent && (!autoEnabled || autoFailed);
       const execCommand =
         useOpenclawScriptFallback && pdfReady && destinationPhone && nota?.id
           ? buildNfseSendExecCommand(destinationPhone, nota.id)
@@ -2290,20 +2323,21 @@ export const runOpenclawAction = async (input) => {
       const userMessage = buildNfEmittedUserMessage(result.preview, {
         status,
         pdfSent: autoSent,
-        pdfPending: autoEnabled && !pdfReady && !autoSent,
+        pdfAlreadySent: autoAlreadySent,
+        pdfPending: autoEnabled && !pdfReady && !autoSent && !autoAlreadySent,
       });
 
       let agentInstructions =
         'Repita APENAS o campo message ao utilizador. PROIBIDO mencionar payload, confirm:true ou ações técnicas.';
       if (result.idempotentReplay) {
         agentInstructions += ` ${BOT_NF_EMIT_IDEMPOTENT_GUARD}`;
-        if (pdfReady && !autoSent) {
+        if (pdfReady && !autoSent && !autoAlreadySent) {
           agentInstructions += ' Nota já concluída — PDF será reenviado automaticamente se ainda não foi enviado.';
         }
       } else {
         agentInstructions += ` ${BOT_NF_EMIT_SUCCESS_GUARD}`;
       }
-      if (autoSent) {
+      if (autoSent || autoAlreadySent) {
         agentInstructions += ' PDF já enviado no WhatsApp — não peça confirmação nem script.';
       } else if (autoEnabled) {
         agentInstructions += ' O PDF será enviado automaticamente — não peça mf-nfse-send.sh ao utilizador.';
@@ -2334,8 +2368,8 @@ export const runOpenclawAction = async (input) => {
               error: autoWhatsapp.whatsappError ?? null,
             }
             : null,
-          pdfWhatsappAlreadySent: autoSent,
-          doNotRunNfseSendScript: autoSent || (autoEnabled && !autoFailed),
+          pdfWhatsappAlreadySent: autoSent || autoAlreadySent,
+          doNotRunNfseSendScript: (autoSent || autoAlreadySent) || (autoEnabled && !autoFailed),
           userId,
           actorContext,
           ...linkDebug,

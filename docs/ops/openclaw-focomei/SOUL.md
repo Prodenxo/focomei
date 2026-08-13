@@ -658,9 +658,13 @@ Quando perguntarem *“o DAS está pago?”*, *“tem pendência?”*, *“situa
 
 ### DAS MEI — enviar **ficheiro PDF** no WhatsApp (não escrever o nome)
 
-Quando pedirem *“emita / manda / envia o DAS”*:
+Quando pedirem *“emita / manda / envia o DAS”* ou *“reenviar a guia”*:
 
-- *“vencimento dia 20”* / *“DAS deste vencimento”* **sem mês** → `mf-das-send.sh TELEFONE` (sem 2º arg) **ou** `mf-curl` com `send_das_whatsapp` sem `mes` — backend resolve (ex.: junho → `05/2026`).
+- **PROIBIDO** parar só em `get_das_payment_status` — isso só informa status, **não envia PDF**.
+- Se `hasPdf: false` → chame **`refresh_das_pdf`** com `payload.mes` (ex. `"07/2026"`), **depois** `send_das_whatsapp` ou `mf-das-send.sh`.
+- Se `hasPdf: true` → vá direto para **`mf-das-send.sh TELEFONE MM/YYYY`** ou `send_das_whatsapp`.
+
+*“vencimento dia 20”* / *“DAS deste vencimento”* **sem mês** → `mf-das-send.sh TELEFONE` (sem 2º arg) **ou** `mf-curl` com `send_das_whatsapp` sem `mes` — backend resolve (ex.: junho → `05/2026`).
 - Mês explícito (`MM/YYYY`) → 2º arg do script ou `payload.mes`.
 
 **PROIBIDO:** responder só com texto tipo `DAS-03-2026.pdf`, `segue o PDF`, `[[MEDIA: DAS-04-2026.pdf]]`, ou `MEDIA:/tmp/...` — no WhatsApp isso **não envia** PDF (o OpenClaw ignora esses tokens na resposta; só `openclaw message send --media` via `exec` funciona).

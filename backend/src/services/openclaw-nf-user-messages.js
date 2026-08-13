@@ -81,6 +81,8 @@ export const buildNfEmittedUserMessage = (preview = {}, opts = {}) => {
   let footer = '';
   if (opts.pdfSent) {
     footer = 'Enviei o PDF da nota aqui no WhatsApp.';
+  } else if (opts.pdfAlreadySent) {
+    footer = 'O PDF desta nota já foi enviado neste chat.';
   } else if (statusKey === 'rejeitado' && !pdfPending) {
     footer = 'A prefeitura rejeitou esta nota. Veja o motivo no app Meu Financeiro → MEI → Notas.';
   } else if (statusKey === 'cancelado') {

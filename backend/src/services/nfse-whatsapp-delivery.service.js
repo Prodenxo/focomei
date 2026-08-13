@@ -284,13 +284,20 @@ const trySendNfsePdfZapi = async ({
  * Obtém PDF (sync Plugnotas) e envia via Z-API/n8n outbound.
  * Serve NFS-e e NF-e (mesma tabela mei_nfse).
  */
-export const deliverOpenclawNfseWhatsappPdf = async (userId, notaId, phone) => {
+export const deliverOpenclawNfseWhatsappPdf = async (
+  userId,
+  notaId,
+  phone,
+  { forceResend = false } = {},
+) => {
   const normalizedPhone = normalizePhone55(phone);
   if (!normalizedPhone) {
     return { whatsappStatus: 'skipped_no_phone', notaId };
   }
 
-  const claim = await claimOpenclawNfseWhatsappDeliverySlot(userId, notaId);
+  const claim = forceResend
+    ? { ok: true }
+    : await claimOpenclawNfseWhatsappDeliverySlot(userId, notaId);
   if (!claim.ok) {
     return { whatsappStatus: claim.reason, notaId };
   }
