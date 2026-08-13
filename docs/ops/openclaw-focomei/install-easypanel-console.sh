@@ -65,7 +65,15 @@ let j=JSON.parse(raw);
 j.phone=String(sender).replace(/\\D/g,'');
 console.log(JSON.stringify(j));
 " "\$SENDER" "\$JSON")"
-exec curl -sS --max-time 120 -X POST "\$MF_URL" \\
+CURL_BIN="/usr/bin/curl"
+if [ ! -x "\$CURL_BIN" ]; then
+  CURL_BIN="\$(command -v curl 2>/dev/null || true)"
+fi
+if [ -z "\$CURL_BIN" ] || [ "\$CURL_BIN" = "\$0" ] || [ "\$CURL_BIN" = "\$WS_DIR/mf-curl.sh" ]; then
+  echo "mf-curl: curl do sistema inválido ou aponta para mf-curl.sh (loop)" >&2
+  exit 1
+fi
+exec "\$CURL_BIN" -sS --max-time 120 -X POST "\$MF_URL" \\
   -H 'Content-Type: application/json; charset=utf-8' \\
   -H "Authorization: Bearer \$MF_SEC" \\
   -H "X-WhatsApp-Sender: \$SENDER" \\

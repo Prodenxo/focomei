@@ -57,6 +57,25 @@ curl -fsSL "$OPENCLAW_SOUL_RAW_URL" -o /home/node/.openclaw/workspace/SOUL.md
 wc -c /home/node/.openclaw/workspace/SOUL.md
 ```
 
+## Reparar mf-curl (loop `shell level 1000`)
+
+Se `mf-curl.sh` imprimir repetidamente `/bin/bash: warning: shell level (1000) too high`, o `curl` do PATH provavelmente aponta para o próprio script.
+
+**Console openclawfocomei** (requer `MF_API_URL` e `OPENCLAW_WEBHOOK_SECRET` no env):
+
+```bash
+# Diagnóstico rápido
+type curl; which curl; ls -la /usr/bin/curl 2>/dev/null; head -5 /home/node/.openclaw/workspace/mf-curl.sh
+
+# Reparar (cola repair-mf-curl-console.sh no workspace ou re-run install-easypanel-console.sh)
+sh /home/node/.openclaw/workspace/repair-mf-curl-console.sh
+
+# Teste
+/home/node/.openclaw/workspace/mf-curl.sh 5521983992146 '{"action":"ping"}'
+```
+
+O script reinstalado usa **`/usr/bin/curl`** explicitamente (evita loop).
+
 `bootstrapMaxChars=65000` (SOUL ~54 KB — senão o OpenClaw corta o fim: regras NF-e/produto e o bot cai em NFS-e).
 
 ## Smoke
