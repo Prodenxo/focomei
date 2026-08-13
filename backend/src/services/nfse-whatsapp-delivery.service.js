@@ -31,7 +31,13 @@ export const OPENCLAW_NFSE_META = {
 
 const SENDING_CLAIM_MAX_MS = 3 * 60 * 1000;
 
-const TERMINAL_FAILURE_STATUSES = new Set(['rejeitado', 'cancelado', 'erro']);
+const TERMINAL_FAILURE_STATUSES = new Set(['cancelado', 'erro']);
+
+const isWhatsappDeliveryTerminalNoteStatus = (statusKey, attempts) => {
+  if (statusKey === 'cancelado' || statusKey === 'erro') return true;
+  if (statusKey === 'rejeitado' && attempts >= MAX_DELIVERY_ATTEMPTS) return true;
+  return false;
+};
 
 /** Evita reentrância obterNota(sync) → entrega → consult → obterNota. */
 const deliveryInFlight = new Set();
@@ -480,7 +486,7 @@ const processPendingRow = async (row) => {
     noteStatus = synced.status;
     if (!isNfsePdfReadyStatus(noteStatus)) {
       const statusKey = normalizeStatusKey(noteStatus);
-      if (TERMINAL_FAILURE_STATUSES.has(statusKey)) {
+      if (isWhatsappDeliveryTerminalNoteStatus(statusKey, attempts)) {
         await markOpenclawNfseWhatsappFailed(userId, notaId, `nota_${statusKey}`, { clearPending: true });
         return { notaId, userId, status: statusKey };
       }
@@ -497,7 +503,7 @@ const processPendingRow = async (row) => {
   }
 
   const statusKey = normalizeStatusKey(noteStatus);
-  if (TERMINAL_FAILURE_STATUSES.has(statusKey)) {
+  if (isWhatsappDeliveryTerminalNoteStatus(statusKey, attempts)) {
     await markOpenclawNfseWhatsappFailed(userId, notaId, `nota_${statusKey}`, { clearPending: true });
     return { notaId, userId, status: statusKey };
   }

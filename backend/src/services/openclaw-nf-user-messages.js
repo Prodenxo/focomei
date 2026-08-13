@@ -42,6 +42,29 @@ export const buildNfConfirmRequestUserMessage = (preview = {}) => {
  * @param {object} preview
  * @param {{ status?: string, pdfSent?: boolean, pdfPending?: boolean }} opts
  */
+export const normalizeNfStatusKey = (status) => {
+  const ascii = String(status || '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase();
+  if (ascii.includes('concluid') || ascii.includes('autoriz')) return 'concluido';
+  if (ascii.includes('rejeit')) return 'rejeitado';
+  if (ascii.includes('cancel')) return 'cancelado';
+  if (ascii.includes('process')) return 'processando';
+  return ascii || 'processando';
+};
+
+export const formatNfStatusLabelForUser = (status, { pdfPending = false } = {}) => {
+  const key = normalizeNfStatusKey(status);
+  if (key === 'concluido') return 'Concluída';
+  if (key === 'cancelado') return 'Cancelada';
+  if (key === 'rejeitado' && pdfPending) {
+    return 'Em processamento na prefeitura';
+  }
+  if (key === 'rejeitado') return 'Rejeitada pela prefeitura';
+  return 'Em processamento na prefeitura';
+};
+
 export const buildNfEmittedUserMessage = (preview = {}, opts = {}) => {
   const cliente = String(
     preview.tomadorRazaoSocial || preview.destinatarioRazaoSocial || 'Cliente',
@@ -51,12 +74,18 @@ export const buildNfEmittedUserMessage = (preview = {}, opts = {}) => {
   ).trim();
   const valor = formatValorBr(preview.valorServico ?? preview.valorTotal);
   const tipo = tipoNotaLabel(preview.documentType);
-  const status = String(opts.status || 'processando').trim();
+  const statusKey = normalizeNfStatusKey(opts.status);
+  const pdfPending = opts.pdfPending !== false && statusKey !== 'concluido';
+  const statusLabel = formatNfStatusLabelForUser(opts.status, { pdfPending });
 
   let footer = '';
   if (opts.pdfSent) {
     footer = 'Enviei o PDF da nota aqui no WhatsApp.';
-  } else if (opts.pdfPending !== false) {
+  } else if (statusKey === 'rejeitado' && !pdfPending) {
+    footer = 'A prefeitura rejeitou esta nota. Veja o motivo no app Meu Financeiro → MEI → Notas.';
+  } else if (statusKey === 'cancelado') {
+    footer = 'Esta nota foi cancelada.';
+  } else if (pdfPending) {
     footer = 'Assim que a nota for autorizada, envio o PDF neste chat.';
   }
 
@@ -66,7 +95,7 @@ export const buildNfEmittedUserMessage = (preview = {}, opts = {}) => {
     `• Cliente: ${cliente}`,
     `• ${preview.documentType === 'NFE' || preview.documentType === 'NFCE' ? 'Produto' : 'Serviço'}: ${item}`,
     `• Valor: ${valor}`,
-    `• Situação: ${status}`,
+    `• Situação: ${statusLabel}`,
   ];
   if (footer) lines.push('', footer);
   return lines.join('\n');

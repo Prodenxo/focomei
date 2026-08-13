@@ -57,6 +57,21 @@ test('buildNfEmittedUserMessage — PDF enviado', () => {
   assert.doesNotMatch(msg, /Tomador:/i);
 });
 
+test('buildNfEmittedUserMessage — rejeitado transitório mostra processamento', () => {
+  const msg = buildNfEmittedUserMessage(
+    {
+      documentType: 'NFSE',
+      tomadorRazaoSocial: 'Rafael Reis',
+      discriminacao: 'Apoio administrativo',
+      valorServico: 1,
+    },
+    { status: 'rejeitado', pdfPending: true },
+  );
+  assert.match(msg, /Em processamento na prefeitura/i);
+  assert.doesNotMatch(msg, /Situação: rejeitado/i);
+  assert.match(msg, /Assim que a nota for autorizada/i);
+});
+
 test('isNfEmitConfirmed aceita linguagem natural', () => {
   assert.equal(isNfEmitConfirmed({ confirm: true }), true);
   assert.equal(isNfEmitConfirmed({ confirm: 'confirmo' }), true);

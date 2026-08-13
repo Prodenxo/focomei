@@ -1275,7 +1275,7 @@ const scheduleNfseProcessandoSyncFollowUp = (userId, notaId) => {
   void (async () => {
     await sleep(NFSE_PROCESSING_FOLLOWUP_MS);
     try {
-      await obterNota(userId, notaId, { sync: true, skipWhatsappDelivery: true });
+      await obterNota(userId, notaId, { sync: true });
     } catch (error) {
       console.warn('[plugnotas-rps] follow-up sync processando falhou', {
         notaId,
@@ -2211,7 +2211,7 @@ export const emitirNota = async (userId, input) => {
       } else {
         maybeAdvanceNfseRpsAfterPlugnotas(cnpjPrestadorNfse, emitPayload, response);
       }
-      if (normalizeStatus(status) === 'processando') {
+      if (normalizeStatus(status) === 'processando' || normalizeStatus(status) === 'rejeitado') {
         scheduleNfseProcessandoSyncFollowUp(userId, created.id);
       }
     }
