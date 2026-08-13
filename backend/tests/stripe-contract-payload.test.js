@@ -1,6 +1,9 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildStripeContratoPayload } from '../src/services/stripe-contract-payload.service.js'
+import {
+  buildStripeContratoPayload,
+  validateContratoPayload,
+} from '../src/services/stripe-contract-payload.service.js'
 
 describe('stripe-contract-payload', () => {
   it('monta JSON no formato Onety', () => {
@@ -54,5 +57,24 @@ describe('stripe-contract-payload', () => {
         },
       ],
     })
+  })
+
+  it('rejeita contrato sem CPF do signatário', () => {
+    const payload = buildStripeContratoPayload({
+      empresa: {
+        razao_social: 'CF ALIANCA LTDA',
+        cnpj: '48221799000172',
+        email: 'contato@cfalianca.com.br',
+      },
+      signatario: {
+        email: 'contato@cfalianca.com.br',
+        raw_user_meta_data: { full_name: 'Danilo Miguel' },
+      },
+      meiSlots: 5,
+      valorMensal: 100,
+    })
+
+    const errors = validateContratoPayload(payload)
+    assert.ok(errors.some((e) => e.includes('CPF do signatário')))
   })
 })

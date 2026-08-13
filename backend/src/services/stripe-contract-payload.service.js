@@ -1,6 +1,7 @@
 import { env } from '../config/env.js'
 import { query } from '../config/pg.js'
 import { badRequest } from '../utils/errors.js'
+import { isValidCpf } from '../utils/cpf-cnpj.js'
 import { isLocalAuthMode } from './local-auth.service.js'
 import { resolveMeiPricing } from './mei-billing-pricing.js'
 import { updateMeiSubscriptionLine } from './mei-line-approval-columns.service.js'
@@ -39,7 +40,7 @@ const extractEmpresaCnpjDigits = (empresa) => {
   return direct
 }
 
-const validateContratoPayload = (payload) => {
+export const validateContratoPayload = (payload) => {
   const contrato = payload?.contratos?.[0]
   if (!contrato) return ['Payload do contrato vazio']
 
@@ -62,6 +63,13 @@ const validateContratoPayload = (payload) => {
   const nome = str(contrato.signatario_nome) || str(contrato.razao_social)
   if (!nome) {
     errors.push('Nome do signatário ou razão social da empresa é obrigatório.')
+  }
+
+  const signatarioCpf = ONLY_DIGITS(contrato.signatario_cpf)
+  if (!signatarioCpf || !isValidCpf(signatarioCpf)) {
+    errors.push(
+      'CPF do signatário inválido ou ausente. O admin da empresa precisa ter CPF cadastrado no perfil (cadastro ou ajuste manual).',
+    )
   }
 
   return errors
