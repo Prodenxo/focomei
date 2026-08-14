@@ -69,6 +69,22 @@ export interface ListMeiPaymentApprovalsQuery {
   search?: string;
 }
 
+export interface ContratoSignatarioInfo {
+  userId: string;
+  displayName: string;
+  email: string;
+  cpfCadastrado: boolean;
+}
+
+export async function getContratoSignatario(
+  empresaId: string,
+): Promise<{ signatario: ContratoSignatarioInfo }> {
+  const q = new URLSearchParams({ empresaId });
+  return apiClient.get<{ signatario: ContratoSignatarioInfo }>(
+    `/admin/billing/contrato-signatario?${q.toString()}`,
+  );
+}
+
 export async function listMeiPaymentApprovals(
   query: ListMeiPaymentApprovalsQuery = {},
 ): Promise<{ items: MeiPaymentApprovalItem[]; summary: MeiPaymentApprovalsSummary }> {

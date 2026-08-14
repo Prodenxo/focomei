@@ -13,6 +13,7 @@ import {
   emitOnetyContratoAfterStripePayment,
   emitContratoForEmpresaOrThrow,
   buildStripeContratoPayloadForEmpresa,
+  resolveContratoSignatarioForEmpresa,
 } from "./stripe-contract-payload.service.js";
 import {
   buildMeiLineInsertPayload,
@@ -582,6 +583,24 @@ export const getMeiContratoWebhookStatusForAdmin = async (accessToken) => {
     webhookPath: url ? new URL(url).pathname : null,
     secretConfigured: Boolean(String(env.ONETY_CONTRATO_WEBHOOK_SECRET || "").trim()),
   };
+};
+
+/** Superadmin: signatário do contrato Onety (owner + admin da empresa). */
+export const getContratoSignatarioForEmpresaAdmin = async (accessToken, empresaIdInput) => {
+  const requester = await getRequesterContext(accessToken);
+  if (requester.role !== "superadmin") throw forbidden();
+
+  const empresaId = String(empresaIdInput || "").trim();
+  if (!empresaId) throw badRequest("empresaId é obrigatório");
+
+  const adminClient = createSupabaseClient({ useServiceRole: true });
+  const signatario = await resolveContratoSignatarioForEmpresa(adminClient, empresaId);
+  if (!signatario) {
+    throw badRequest(
+      "Signatário não encontrado. Vincule um admin com e-mail ativo à empresa.",
+    );
+  }
+  return { signatario };
 };
 
 /** Superadmin: gera e envia contrato Onety para empresa com assinatura ativa. */

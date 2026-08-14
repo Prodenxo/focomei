@@ -14,9 +14,11 @@ import { mfRadius, mfSpacing, mfTypography, type Theme } from '../../lib/theme'
 import { maskCpfInput } from '../../lib/contratoSignatarioCpf'
 import { isValidCpfDigits } from '../../lib/validateCnpj'
 import { updateUser } from '../../lib/user-management'
+import { resolveSignatarioForEmpresa } from '../../lib/emitContratoWithCpfRecovery'
 
 export interface SignatarioCpfModalProps {
   visible: boolean
+  empresaId?: string | null
   userId: string | null
   signatarioName?: string | null
   signatarioEmail?: string | null
@@ -27,9 +29,10 @@ export interface SignatarioCpfModalProps {
 
 export function SignatarioCpfModal({
   visible,
-  userId,
-  signatarioName,
-  signatarioEmail,
+  empresaId,
+  userId: userIdProp,
+  signatarioName: signatarioNameProp,
+  signatarioEmail: signatarioEmailProp,
   empresaName,
   onClose,
   onSaved,
@@ -39,18 +42,55 @@ export function SignatarioCpfModal({
   const [cpf, setCpf] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [resolving, setResolving] = useState(false)
+  const [userId, setUserId] = useState<string | null>(userIdProp)
+  const [signatarioName, setSignatarioName] = useState<string | null>(signatarioNameProp ?? null)
+  const [signatarioEmail, setSignatarioEmail] = useState<string | null>(signatarioEmailProp ?? null)
 
   useEffect(() => {
     if (!visible) {
       setCpf('')
       setError('')
       setLoading(false)
+      setResolving(false)
+      return
     }
-  }, [visible])
+
+    setUserId(userIdProp)
+    setSignatarioName(signatarioNameProp ?? null)
+    setSignatarioEmail(signatarioEmailProp ?? null)
+
+    if (userIdProp || !empresaId) return
+
+    let cancelled = false
+    setResolving(true)
+    void resolveSignatarioForEmpresa(empresaId)
+      .then((resolved) => {
+        if (cancelled) return
+        if (resolved.userId) setUserId(resolved.userId)
+        if (resolved.signatarioName) setSignatarioName(resolved.signatarioName)
+        if (resolved.signatarioEmail) setSignatarioEmail(resolved.signatarioEmail)
+        if (!resolved.userId) {
+          setError('Nenhum admin com e-mail encontrado nesta empresa.')
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError('Não foi possível identificar o signatário desta empresa.')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setResolving(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [visible, empresaId, userIdProp, signatarioNameProp, signatarioEmailProp])
 
   const handleSubmit = async () => {
     if (!userId) {
-      setError('Não foi possível identificar o signatário. Abra Cobrança e tente de novo.')
+      setError('Nenhum admin com e-mail encontrado nesta empresa.')
       return
     }
     const digits = cpf.replace(/\D/g, '')
@@ -108,9 +148,16 @@ export function SignatarioCpfModal({
             placeholderTextColor={theme.textSecondary}
             keyboardType="number-pad"
             autoComplete="off"
-            editable={!loading}
+            editable={!loading && !resolving}
             accessibilityLabel="CPF do signatário"
           />
+
+          {resolving ? (
+            <View style={styles.resolvingRow}>
+              <ActivityIndicator size="small" color={theme.primary} />
+              <Text style={styles.resolvingText}>Identificando signatário…</Text>
+            </View>
+          ) : null}
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -126,7 +173,7 @@ export function SignatarioCpfModal({
             <Pressable
               style={[styles.btn, styles.btnPrimary, { backgroundColor: theme.primary }]}
               onPress={() => void handleSubmit()}
-              disabled={loading}
+              disabled={loading || resolving}
               accessibilityRole="button"
             >
               {loading ? (
@@ -219,6 +266,16 @@ function createStyles(theme: Theme) {
       ...mfTypography.bodySm,
       color: theme.error,
       marginBottom: mfSpacing.sm,
+    },
+    resolvingRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: mfSpacing.sm,
+      marginBottom: mfSpacing.sm,
+    },
+    resolvingText: {
+      ...mfTypography.bodySm,
+      color: theme.textSecondary,
     },
     actions: {
       flexDirection: 'row',

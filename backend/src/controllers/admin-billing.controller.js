@@ -115,3 +115,16 @@ export const listMeiPaymentApprovals = async (req, res, next) => {
     return next(error);
   }
 };
+
+export const getContratoSignatario = async (req, res, next) => {
+  try {
+    const empresaId = String(req.query?.empresaId || '').trim();
+    const data = await stripeBillingService.getContratoSignatarioForEmpresaAdmin(
+      req.accessToken,
+      empresaId,
+    );
+    return sendSuccess(res, data);
+  } catch (error) {
+    return next(error);
+  }
+};

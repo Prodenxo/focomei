@@ -1,4 +1,4 @@
-import { emitStripeMeiContrato, listMeiPaymentApprovals } from '../services/adminBillingService'
+import { emitStripeMeiContrato, getContratoSignatario } from '../services/adminBillingService'
 import { isSignatarioCpfMissingError } from './contratoSignatarioCpf'
 
 export interface SignatarioCpfPromptState {
@@ -12,12 +12,19 @@ export interface SignatarioCpfPromptState {
 export async function resolveSignatarioForEmpresa(
   empresaId: string,
 ): Promise<Pick<SignatarioCpfPromptState, 'userId' | 'signatarioName' | 'signatarioEmail'>> {
-  const { items } = await listMeiPaymentApprovals({})
-  const item = items.find((row) => row.empresaId === empresaId)
-  return {
-    userId: item?.ownerId ?? null,
-    signatarioName: item?.ownerDisplayName ?? null,
-    signatarioEmail: item?.ownerEmail ?? null,
+  try {
+    const { signatario } = await getContratoSignatario(empresaId)
+    return {
+      userId: signatario.userId,
+      signatarioName: signatario.displayName || null,
+      signatarioEmail: signatario.email || null,
+    }
+  } catch {
+    return {
+      userId: null,
+      signatarioName: null,
+      signatarioEmail: null,
+    }
   }
 }
 
@@ -36,20 +43,15 @@ export async function emitContratoOrPromptCpf(input: {
     const message = err instanceof Error ? err.message : String(err ?? '')
     if (!isSignatarioCpfMissingError(message)) throw err
 
-    const resolved = input.ownerId
-      ? {
-          userId: input.ownerId,
-          signatarioName: input.ownerDisplayName ?? null,
-          signatarioEmail: input.ownerEmail ?? null,
-        }
-      : await resolveSignatarioForEmpresa(input.empresaId)
+    const resolved = await resolveSignatarioForEmpresa(input.empresaId)
+    const userId = input.ownerId || resolved.userId
 
     input.onCpfRequired({
       empresaId: input.empresaId,
       empresaName: input.empresaName,
-      userId: resolved.userId,
-      signatarioName: resolved.signatarioName,
-      signatarioEmail: resolved.signatarioEmail,
+      userId,
+      signatarioName: input.ownerDisplayName || resolved.signatarioName,
+      signatarioEmail: input.ownerEmail || resolved.signatarioEmail,
     })
     return 'cpf_prompt'
   }

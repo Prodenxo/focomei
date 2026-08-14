@@ -890,6 +890,7 @@ export function EmpresaStripeMeiBillingModal({
     ) : null}
     <SignatarioCpfModal
       visible={Boolean(cpfPrompt)}
+      empresaId={cpfPrompt?.empresaId ?? empresa?.id}
       userId={cpfPrompt?.userId ?? null}
       signatarioName={cpfPrompt?.signatarioName}
       signatarioEmail={cpfPrompt?.signatarioEmail}

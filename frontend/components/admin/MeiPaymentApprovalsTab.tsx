@@ -431,6 +431,7 @@ export function MeiPaymentApprovalsTab({
     </MfScrollView>
     <SignatarioCpfModal
       visible={Boolean(cpfPrompt)}
+      empresaId={cpfPrompt?.empresaId}
       userId={cpfPrompt?.userId ?? null}
       signatarioName={cpfPrompt?.signatarioName}
       signatarioEmail={cpfPrompt?.signatarioEmail}

@@ -288,6 +288,39 @@ const loadEmpresaPrimaryContact = async (adminClient, empresaId) => {
   return null
 }
 
+/**
+ * Resolve o signatário do contrato (mesma lógica do payload Onety).
+ * @returns {Promise<{ userId: string, displayName: string, email: string, cpfCadastrado: boolean } | null>}
+ */
+export const resolveContratoSignatarioForEmpresa = async (adminClient, empresaId) => {
+  const id = str(empresaId)
+  if (!id) return null
+
+  const empresa = await loadEmpresaRow(adminClient, id)
+  if (!empresa) return null
+
+  const ownerId = str(empresa.requested_by)
+  const owner = ownerId ? await loadSignatarioRow(adminClient, ownerId) : null
+  const primaryContact = await loadEmpresaPrimaryContact(adminClient, id)
+  const signatario = mergeSignatarioProfiles(owner, primaryContact)
+  if (!signatario?.id) return null
+
+  const meta = readMeta(signatario.raw_user_meta_data)
+  const cpfDigits = ONLY_DIGITS(meta.cpf)
+  const userId = str(owner?.id) || str(primaryContact?.id) || str(signatario.id)
+
+  return {
+    userId,
+    displayName:
+      str(meta.full_name)
+      || str(meta.display_name)
+      || str(signatario.display_name)
+      || '',
+    email: str(signatario.email) || str(empresa.email) || '',
+    cpfCadastrado: Boolean(cpfDigits && isValidCpf(cpfDigits)),
+  }
+}
+
 const loadSubscriptionLine = async (adminClient, { empresaId, checkoutSessionId, lineId }) => {
   if (lineId) {
     const { data, error } = await adminClient

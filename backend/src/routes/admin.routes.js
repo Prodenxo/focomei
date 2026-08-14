@@ -118,6 +118,13 @@ router.post(
 );
 
 router.get(
+  '/billing/contrato-signatario',
+  requireAuth,
+  requireSuperAdmin,
+  adminBillingController.getContratoSignatario
+);
+
+router.get(
   '/billing/payment-approvals',
   requireAuth,
   requireSuperAdmin,
