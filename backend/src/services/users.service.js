@@ -1439,6 +1439,161 @@ export const createUser = async (accessToken, input, deps = {}) => {
   };
 };
 
+const isUserProfileOnlyUpdateInput = ({
+  requestedRole,
+  requestedEmpresaId,
+  requestedMei,
+  requestedExpiresAt,
+  requestedDisplayName,
+  requestedPhone,
+  requestedEmail,
+  requestedCpf,
+}) => {
+  if (requestedRole || requestedEmpresaId || requestedMei !== undefined || requestedExpiresAt !== undefined) {
+    return false;
+  }
+  return (
+    requestedCpf !== undefined
+    || Boolean(requestedDisplayName)
+    || Boolean(requestedPhone)
+    || requestedEmail !== undefined
+  );
+};
+
+const resolveUserRoleEmpresaSnapshot = async (adminClient, userId) => {
+  const { data: linkData, error: linkError } = await adminClient
+    .from('role_x_user_x_empresa')
+    .select('empresas_id, roles_id')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (linkError) throw badRequest(linkError.message);
+
+  let role = 'usuario';
+  if (linkData?.roles_id) {
+    const { data: roleData, error: roleError } = await adminClient
+      .from('roles')
+      .select('roles')
+      .eq('id', linkData.roles_id)
+      .maybeSingle();
+    if (roleError) throw badRequest(roleError.message);
+    role = normalizeRoleValue(roleData?.roles) || 'usuario';
+  }
+
+  return {
+    role,
+    empresaId: linkData?.empresas_id || null,
+  };
+};
+
+const applyUserProfileMetadataPatch = async (
+  adminClient,
+  userId,
+  {
+    requestedDisplayName,
+    requestedPhone,
+    requestedEmail,
+    requestedCpf,
+  },
+) => {
+  if (isLocalAuthMode()) {
+    const metaPatch = {};
+    if (requestedDisplayName) {
+      metaPatch.display_name = requestedDisplayName;
+      metaPatch.name = requestedDisplayName;
+      metaPatch.full_name = requestedDisplayName;
+    }
+    if (requestedPhone) metaPatch.phone = requestedPhone;
+    if (requestedCpf !== undefined) metaPatch.cpf = requestedCpf;
+
+    const { rows: userRows } = await query(
+      `SELECT email, phone, raw_user_meta_data
+       FROM public.users
+       WHERE id = $1 AND deleted_at IS NULL
+       LIMIT 1`,
+      [userId],
+    );
+    const current = userRows[0];
+    if (!current) throw badRequest('Usuário não encontrado');
+
+    let nextEmail = current.email;
+    if (requestedEmail && requestedEmail !== String(current.email || '').toLowerCase()) {
+      const { rows: taken } = await query(
+        `SELECT id FROM public.users
+         WHERE email = $1 AND id <> $2 AND deleted_at IS NULL
+         LIMIT 1`,
+        [requestedEmail, userId],
+      );
+      if (taken[0]) throw badRequest('E-mail já cadastrado');
+      nextEmail = requestedEmail;
+    }
+
+    const nextPhone = requestedPhone || current.phone || null;
+    const nextMeta = {
+      ...(current.raw_user_meta_data && typeof current.raw_user_meta_data === 'object'
+        ? current.raw_user_meta_data
+        : {}),
+      ...metaPatch,
+    };
+
+    await query(
+      `UPDATE public.users
+       SET email = $1,
+           phone = $2,
+           raw_user_meta_data = $3::jsonb,
+           updated_at = now()
+       WHERE id = $4`,
+      [nextEmail, nextPhone, JSON.stringify(nextMeta), userId],
+    );
+
+    if (requestedPhone) {
+      await assignN8nPhoneToUser(adminClient, userId, requestedPhone);
+    }
+    return;
+  }
+
+  if (requestedDisplayName || requestedPhone || requestedCpf !== undefined) {
+    const metadata = {};
+    if (requestedDisplayName) {
+      metadata.display_name = requestedDisplayName;
+      metadata.name = requestedDisplayName;
+      metadata.full_name = requestedDisplayName;
+    }
+    if (requestedPhone) metadata.phone = requestedPhone;
+    if (requestedCpf !== undefined) metadata.cpf = requestedCpf;
+    const { error: updateUserError } = await adminClient.auth.admin.updateUserById(userId, {
+      user_metadata: metadata,
+    });
+    if (updateUserError) {
+      console.warn('[Users] updateUser metadata error:', updateUserError.message);
+      throw badRequest(updateUserError.message);
+    }
+  }
+
+  if (requestedEmail) {
+    const { data: currentAuthUser, error: getUserError } = await adminClient.auth.admin.getUserById(userId);
+    if (getUserError) throw badRequest(getUserError.message);
+    const currentEmail = currentAuthUser?.user?.email?.trim().toLowerCase() || '';
+    if (currentEmail !== requestedEmail) {
+      const { error: updateEmailError } = await adminClient.auth.admin.updateUserById(userId, {
+        email: requestedEmail,
+      });
+      if (updateEmailError) throw badRequest(updateEmailError.message);
+    }
+  }
+
+  if (requestedPhone) {
+    await assignN8nPhoneToUser(adminClient, userId, requestedPhone);
+  }
+
+  if (requestedDisplayName) {
+    await adminClient
+      .from('profiles')
+      .upsert({ id: userId, display_name: requestedDisplayName }, { onConflict: 'id' });
+  }
+};
+
 export const updateUser = async (accessToken, userId, input) => {
   if (!userId) throw badRequest('userId é obrigatório');
 
@@ -1475,7 +1630,46 @@ export const updateUser = async (accessToken, userId, input) => {
         ? new Date(input.expiresAt).toISOString()
         : null;
 
+  const profileOnlyUpdate = isUserProfileOnlyUpdateInput({
+    requestedRole,
+    requestedEmpresaId,
+    requestedMei,
+    requestedExpiresAt,
+    requestedDisplayName,
+    requestedPhone,
+    requestedEmail,
+    requestedCpf,
+  });
+
   const adminClient = createSupabaseClient({ useServiceRole: true });
+
+  if (profileOnlyUpdate) {
+    if (requester.role === 'admin' && !isSelfUpdate) {
+      const { data: targetLink } = await adminClient
+        .from('role_x_user_x_empresa')
+        .select('empresas_id')
+        .eq('user_id', userId)
+        .eq('status', true)
+        .maybeSingle();
+      if (!targetLink?.empresas_id || targetLink.empresas_id !== requester.empresaId) {
+        throw forbidden();
+      }
+    }
+
+    await applyUserProfileMetadataPatch(adminClient, userId, {
+      requestedDisplayName,
+      requestedPhone,
+      requestedEmail,
+      requestedCpf,
+    });
+    const snapshot = await resolveUserRoleEmpresaSnapshot(adminClient, userId);
+    return {
+      userId,
+      role: snapshot.role,
+      empresaId: snapshot.empresaId,
+    };
+  }
+
   const { data: linkData, error: linkError } = await adminClient
     .from('role_x_user_x_empresa')
     .select('id, empresas_id, roles_id, mei')
