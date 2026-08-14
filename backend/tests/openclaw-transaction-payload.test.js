@@ -141,6 +141,7 @@ test('inferTipoFromNaturalLanguage detecta paguei/gastei como saida', () => {
   );
   assert.equal(inferTipoFromNaturalLanguage('gastei 25 no café'), 'saida');
   assert.equal(inferTipoFromNaturalLanguage('Pagamento da Prestação do Carro'), 'saida');
+  assert.equal(inferTipoFromNaturalLanguage('Paguei o cartão de crédito 1990'), 'saida');
   assert.equal(inferTipoFromNaturalLanguage('recebi 4599 de salário'), 'entrada');
   assert.equal(
     inferTipoFromNaturalLanguage('recebi pagamento do cliente João'),
@@ -164,4 +165,35 @@ test('create_transaction corrige entrada quando texto indica despesa (paguei)', 
   assert.equal(r.status, 'pago');
   assert.equal(r.tipoCorrected, true);
   assert.equal(r.tipoOriginal, 'entrada');
+});
+
+test('create_transaction corrige cartão de crédito sem confundir com carteira', () => {
+  const r = normalizeOpenclawTransactionPayload(
+    {
+      tipo: 'entrada',
+      valor: 1990,
+      classificacao: 'Pagamento do Cartão de Crédito',
+      data: 'hoje',
+      status: 'pago',
+      obs: 'Pagamento de cartão de crédito via WhatsApp',
+    },
+    { categories, contas: [contas[0]] },
+  );
+  assert.equal(r.tipo, 'saida');
+  assert.equal(r.status, 'pago');
+  assert.equal(r.tipoCorrected, true);
+});
+
+test('create_transaction infere saida a partir de transcript no payload', () => {
+  const r = normalizeOpenclawTransactionPayload(
+    {
+      tipo: 'entrada',
+      valor: 1990,
+      classificacao: 'Cartão de Crédito',
+      data: 'hoje',
+      transcript: 'Paguei o cartão de crédito 1990',
+    },
+    { categories, contas: [contas[0]] },
+  );
+  assert.equal(r.tipo, 'saida');
 });

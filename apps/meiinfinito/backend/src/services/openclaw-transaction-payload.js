@@ -53,6 +53,11 @@ const normalizeNaturalLanguageText = (value) =>
 
 const collectNaturalLanguageText = (payload = {}) =>
   [
+    payload?.transcript,
+    payload?.user_message,
+    payload?.mensagem,
+    payload?.texto,
+    payload?.original_text,
     payload?.obs,
     payload?.observacao,
     payload?.classificacao,
@@ -79,8 +84,8 @@ export const inferTipoFromNaturalLanguage = (text) => {
   );
   const hasPaguei = /\b(paguei|pague|pago|pagou|gastei|gasto|comprei|compra|debito|debitado)\b/.test(
     normalized,
-  );
-  const hasPagamentoDespesa = /\bpagamento\s+(do|da|de)\s+\w/.test(normalized);
+  ) || /\bpaguei\s+(o\s+)?cart[aã]o/.test(normalized);
+  const hasPagamentoDespesa = /\bpagamento\s+(do|da|de|o)\s+\w/.test(normalized);
 
   if (hasRecebi && !hasPaguei) return 'entrada';
   if (hasPaguei || (hasPagamentoDespesa && !hasRecebi)) return 'saida';

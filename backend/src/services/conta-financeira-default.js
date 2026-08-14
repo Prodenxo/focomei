@@ -111,6 +111,15 @@ export const extractCarteiraHintFromText = (text) => {
   const s = String(text || '').trim();
   if (!s) return '';
 
+  // "Pagamento de cartão" / "paguei o cartão" = despesa, não carteira de origem
+  if (
+    /\b(pagamento|paguei|pago|pagou)\s+(do|da|de|o)\s+cart[aã]o/i.test(s)
+    || /\bpagamento\s+de\s+cart[aã]o/i.test(s)
+    || /\bpaguei\s+(o\s+)?cart[aã]o/i.test(s)
+  ) {
+    return '';
+  }
+
   const tipoOnly = s.match(
     /\b(poupan[cç]a|corrente|cart[aã]o(?:\s+de\s+cr[eé]dito)?|dinheiro)\b/i,
   );

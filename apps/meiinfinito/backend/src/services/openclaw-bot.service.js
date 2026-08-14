@@ -1068,12 +1068,21 @@ export const runOpenclawAction = async (input) => {
     );
     const carteiraLabel = normalized.conta_nome || 'sem carteira';
     const tipoLabel = normalized.tipo === 'saida' ? 'Saídas' : 'Entradas';
+    const tipoPt = normalized.tipo === 'saida' ? 'Saída' : 'Entrada';
+    const valorFmt = Number(normalized.valor).toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    });
+    const [yyyy, mm, dd] = String(normalized.data || '').slice(0, 10).split('-');
+    const dataFmt = dd && mm && yyyy ? `${dd}/${mm}/${yyyy}` : String(normalized.data || '');
+    const whatsappReply =
+      `${tipoPt} de ${valorFmt} · ${normalized.classificacao} · ${dataFmt}${statusLabel}`;
     const tipoCorrectedHint = normalized.tipoCorrected
       ? ` O backend corrigiu tipo de ${normalized.tipoOriginal} para ${normalized.tipo} com base no texto (paguei/gastei = saída).`
       : '';
     return {
       ok: true,
-      message: `Transação criada na conta de ${accountLabel} · carteira ${carteiraLabel}${statusLabel}`,
+      message: whatsappReply,
       data: {
         transaction: created,
         contaId: normalized.conta_id,
@@ -1081,17 +1090,19 @@ export const runOpenclawAction = async (input) => {
         userId,
         account,
         actorContext,
+        whatsappReply,
+        tipo: normalized.tipo,
+        tipoLabel,
         ...linkDebug,
         agentInstructions:
           'Isto é LANÇAMENTO na carteira (create_transaction), NÃO é nota fiscal NFS-e/NF-e. '
           + 'PROIBIDO dizer "nota fiscal emitida" ou "NFS-e emitida" — diga apenas que o lançamento foi registrado. '
-          + 'Confirme ao utilizador SOMENTE após este ok. Na mensagem WhatsApp inclua '
-          + `*Conta:* ${accountLabel} (telefone ${phoneDigits}). `
-          + `*Carteira:* ${carteiraLabel}. `
-          + `Use *${tipoLabel}* (tipo=${normalized.tipo}) — PROIBIDO confirmar Entradas se tipo=saida ou Saídas se tipo=entrada. `
+          + 'Repita APENAS o campo message (ou whatsappReply) ao utilizador — copie literalmente, sem reformatar. '
+          + 'PROIBIDO usar formato *Resumo* / *Entradas* / *Saídas* com bullets para lançamentos. '
+          + `Este lançamento é *${tipoPt}* (tipo=${normalized.tipo}) — PROIBIDO dizer Entradas se tipo=saida. `
+          + `Na confirmação inclua *Conta:* ${accountLabel} (telefone ${phoneDigits}) e *Carteira:* ${carteiraLabel}. `
           + tipoCorrectedHint
-          + 'Se o nome não for de quem está a falar, NÃO diga que registrou — reporte erro interno. '
-          + 'Cite valor, classificacao, data, carteira e se já contabiliza no saldo (pago/recebido).',
+          + 'Se o nome não for de quem está a falar, NÃO diga que registrou — reporte erro interno.',
       },
     };
   }

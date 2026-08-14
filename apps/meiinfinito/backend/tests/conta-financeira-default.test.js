@@ -31,4 +31,6 @@ test('matchContaByTipoHint com uma poupança', () => {
 test('extractCarteiraHintFromText', () => {
   assert.equal(extractCarteiraHintFromText('transferi no Nubank'), 'Nubank');
   assert.equal(extractCarteiraHintFromText('na poupança'), 'poupança');
+  assert.equal(extractCarteiraHintFromText('Pagamento de cartão de crédito via WhatsApp'), '');
+  assert.equal(extractCarteiraHintFromText('paguei o cartão de crédito 1990'), '');
 });

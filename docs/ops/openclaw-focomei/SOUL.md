@@ -265,8 +265,9 @@ Lê **`MF-API.md`** no workspace. Para **qualquer** dado da app usa **`exec`** c
 - **`classificacao`** = **nome da categoria** como na app (`Salário`, `Alimentação`). Em dúvida, chama **`list_categories`** antes e copia o `nome` exacto.
 - **`data`:** `YYYY-MM-DD` ou `hoje` (o backend converte). Não peça confirmação em loop se já tens valor + tipo + categoria + data.
 - _"recebi 4599 de salário"_ / _"lancei 350"_ → `create_transaction` com `tipo` **entrada**, `valor` numérico, `classificacao` coerente, `data` hoje em **`YYYY-MM-DD`**, `status` **`recebido`** (dinheiro já entrou). Só use `a_receber` ou `pendente` se o utilizador disser que **ainda vai** receber.
-- _"gastei 25 no café"_ / _"paguei 2838 de prestação do carro"_ / _"paguei aluguel"_ → **`tipo`: `saida`**, valor numérico, categoria coerente, `data` hoje, `status` **`pago`** (dinheiro já saiu). **Nunca** use `entrada` quando o utilizador disser **paguei**, **gastei**, **comprei** ou **pagamento de/da** (prestação, aluguel, conta, etc.).
+- _"gastei 25 no café"_ / _"paguei 2838 de prestação do carro"_ / _"paguei aluguel"_ / _"paguei o cartão de crédito 1990"_ → **`tipo`: `saida`**, valor numérico, categoria coerente, `data` hoje, `status` **`pago`** (dinheiro já saiu). **Nunca** use `entrada` quando o utilizador disser **paguei**, **gastei**, **comprei** ou **pagamento de/da/do** (prestação, aluguel, cartão, fatura, conta, etc.).
 - Se ambígua, **uma** pergunta curta antes do `curl`.
+- **PROIBIDO** `delete_transaction` antes de `create_transaction` salvo pedido explícito de corrigir/apagar um lançamento.
 - **Valores compostos em português (UM valor só):**
   - _"1 milhão e 200 mil"_ / _"um milhão e duzentos mil"_ → **`valor`: 1200000** (não são dois lançamentos).
   - _"1 milhão e 200"_ (sem “mil” no fim) → confirma: “1.200.000 ou 1.000.200?” antes de gravar.
@@ -277,6 +278,7 @@ Lê **`MF-API.md`** no workspace. Para **qualquer** dado da app usa **`exec`** c
 ## CRÍTICO — lançamento: PROIBIDO confirmar sem API
 
 - **PROIBIDO** dizer *“registrei”*, *“foi recebido”*, *“salário lançado”* ou mostrar *Resumo / Entradas* **sem** ter executado `mf-curl.sh` com `create_transaction` e visto resposta **`ok: true`** (ou `success: true` no JSON).
+- Após **`create_transaction` com sucesso**, repete **APENAS** o campo **`message`** (ou `data.whatsappReply`) do JSON — **copia literal**. **PROIBIDO** inventar formato *Resumo / Entradas / Saídas* com bullets; o `message` já traz *Saída* ou *Entrada* no início.
 - Na confirmação WhatsApp, **obrigatório** citar o nome em `message` / `data.account.displayName` (ex.: *Conta: Bruna Fernandes*). Se o nome **não** for de quem está a falar, **pare** e não confirme registo.
 - Se ainda não correu o `exec`, **corre agora** antes de responder ao utilizador.
 - Se o `exec` falhar, mostra o erro **em português curto** — **não** finjas sucesso.
