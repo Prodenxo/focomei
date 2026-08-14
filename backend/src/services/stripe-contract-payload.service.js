@@ -1,7 +1,7 @@
 import { env } from '../config/env.js'
 import { query } from '../config/pg.js'
 import { badRequest } from '../utils/errors.js'
-import { isValidCpf } from '../utils/cpf-cnpj.js'
+import { isValidCpf, formatCpfDisplay } from '../utils/cpf-cnpj.js'
 import { isLocalAuthMode } from './local-auth.service.js'
 import { resolveMeiPricing } from './mei-billing-pricing.js'
 import { updateMeiSubscriptionLine } from './mei-line-approval-columns.service.js'
@@ -156,7 +156,8 @@ export const buildStripeContratoPayload = ({
     || str(meta.display_name)
     || str(signatario?.display_name)
     || ''
-  const signatarioCpf = ONLY_DIGITS(meta.cpf || signatario?.cpf)
+  const signatarioCpfDigits = ONLY_DIGITS(meta.cpf || signatario?.cpf)
+  const signatarioCpf = formatCpfDisplay(signatarioCpfDigits)
   const signatarioEmail = str(signatario?.email) || str(empresa?.email)
   const signatarioTelefone = normalizePhone55(
     signatario?.phone || meta.phone || empresa?.telefone,

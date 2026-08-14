@@ -50,7 +50,7 @@ describe('stripe-contract-payload', () => {
           estado: 'SP',
           cep: '01000000',
           signatario_nome: 'CARLOS ALEXANDRE ANDREO',
-          signatario_cpf: '13414632810',
+          signatario_cpf: '134.146.328-10',
           signatario_email: 'andreo@andreocontabil.com.br',
           signatario_telefone: '5511961102292',
           quantidade_licencas: '5',
@@ -97,7 +97,7 @@ describe('stripe-contract-payload', () => {
       meiSlots: 5,
     })
 
-    assert.equal(payload.contratos[0].signatario_cpf, '96232137515')
+    assert.equal(payload.contratos[0].signatario_cpf, '962.321.375-15')
     assert.equal(payload.contratos[0].signatario_email, 'owner@empresa.com')
   })
 })
