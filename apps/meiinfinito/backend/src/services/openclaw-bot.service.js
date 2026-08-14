@@ -1060,11 +1060,17 @@ export const runOpenclawAction = async (input) => {
         account: accountLabel,
         valor: normalized.valor,
         classificacao: normalized.classificacao,
+        tipo: normalized.tipo,
+        tipoCorrected: normalized.tipoCorrected || false,
         conta_id: normalized.conta_id,
         conta_nome: normalized.conta_nome,
       }),
     );
     const carteiraLabel = normalized.conta_nome || 'sem carteira';
+    const tipoLabel = normalized.tipo === 'saida' ? 'Saídas' : 'Entradas';
+    const tipoCorrectedHint = normalized.tipoCorrected
+      ? ` O backend corrigiu tipo de ${normalized.tipoOriginal} para ${normalized.tipo} com base no texto (paguei/gastei = saída).`
+      : '';
     return {
       ok: true,
       message: `Transação criada na conta de ${accountLabel} · carteira ${carteiraLabel}${statusLabel}`,
@@ -1082,6 +1088,8 @@ export const runOpenclawAction = async (input) => {
           + 'Confirme ao utilizador SOMENTE após este ok. Na mensagem WhatsApp inclua '
           + `*Conta:* ${accountLabel} (telefone ${phoneDigits}). `
           + `*Carteira:* ${carteiraLabel}. `
+          + `Use *${tipoLabel}* (tipo=${normalized.tipo}) — PROIBIDO confirmar Entradas se tipo=saida ou Saídas se tipo=entrada. `
+          + tipoCorrectedHint
           + 'Se o nome não for de quem está a falar, NÃO diga que registrou — reporte erro interno. '
           + 'Cite valor, classificacao, data, carteira e se já contabiliza no saldo (pago/recebido).',
       },

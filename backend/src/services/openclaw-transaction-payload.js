@@ -48,6 +48,77 @@ const normalizeCategoryKey = (value) =>
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
 
+const normalizeNaturalLanguageText = (value) =>
+  normalizeCategoryKey(value);
+
+const collectNaturalLanguageText = (payload = {}) =>
+  [
+    payload?.obs,
+    payload?.observacao,
+    payload?.classificacao,
+    payload?.categoria,
+    payload?.category,
+    payload?.descricao,
+    payload?.description,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+/**
+ * Infere entrada/saída a partir de verbos PT-BR no texto (obs/classificação).
+ * Corrige quando o modelo envia tipo errado (ex.: "paguei prestação" como entrada).
+ * @param {string} text
+ * @returns {'entrada' | 'saida' | null}
+ */
+export const inferTipoFromNaturalLanguage = (text) => {
+  const normalized = normalizeNaturalLanguageText(text);
+  if (!normalized.trim()) return null;
+
+  const hasRecebi = /\b(recebi|recebimento|recebido|ganhei|entrou na conta|caiu na conta)\b/.test(
+    normalized,
+  );
+  const hasPaguei = /\b(paguei|pague|pago|pagou|gastei|gasto|comprei|compra|debito|debitado)\b/.test(
+    normalized,
+  );
+  const hasPagamentoDespesa = /\bpagamento\s+(do|da|de)\s+\w/.test(normalized);
+
+  if (hasRecebi && !hasPaguei) return 'entrada';
+  if (hasPaguei || (hasPagamentoDespesa && !hasRecebi)) return 'saida';
+  return null;
+};
+
+/**
+ * @param {object} payload
+ * @param {string | undefined} explicitTipo
+ * @returns {{ tipo: string | undefined, tipoCorrected: boolean, tipoOriginal: string | undefined }}
+ */
+const resolveTipoWithNaturalLanguage = (payload = {}, explicitTipo) => {
+  const inferred = inferTipoFromNaturalLanguage(collectNaturalLanguageText(payload));
+  const tipoOriginal = explicitTipo;
+
+  if (!explicitTipo || (explicitTipo !== 'entrada' && explicitTipo !== 'saida')) {
+    return {
+      tipo: inferred || explicitTipo,
+      tipoCorrected: false,
+      tipoOriginal,
+    };
+  }
+
+  if (inferred && inferred !== explicitTipo) {
+    return {
+      tipo: inferred,
+      tipoCorrected: true,
+      tipoOriginal: explicitTipo,
+    };
+  }
+
+  return {
+    tipo: explicitTipo,
+    tipoCorrected: false,
+    tipoOriginal,
+  };
+};
+
 const parseValor = (raw) => {
   if (raw === null || raw === undefined || raw === '') return null;
   if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
@@ -201,7 +272,12 @@ const resolveContaForOpenclawTransaction = (contas = [], payload = {}) => {
 export const normalizeOpenclawTransactionPayload = (payload = {}, options = {}) => {
   const categories = options.categories || [];
   const tipoRaw = String(payload?.tipo ?? payload?.type ?? '').trim().toLowerCase();
-  const tipo = TIPO_ALIASES[tipoRaw] || (tipoRaw === 'saída' ? 'saida' : tipoRaw);
+  const explicitTipo = TIPO_ALIASES[tipoRaw] || (tipoRaw === 'saída' ? 'saida' : tipoRaw);
+  const {
+    tipo,
+    tipoCorrected,
+    tipoOriginal,
+  } = resolveTipoWithNaturalLanguage(payload, explicitTipo);
 
   let classificacao = String(
     payload?.classificacao
@@ -277,6 +353,8 @@ export const normalizeOpenclawTransactionPayload = (payload = {}, options = {}) 
     obs: payload?.obs ?? payload?.observacao ?? null,
     conta_id,
     conta_nome,
+    tipoCorrected,
+    tipoOriginal,
   };
 };
 

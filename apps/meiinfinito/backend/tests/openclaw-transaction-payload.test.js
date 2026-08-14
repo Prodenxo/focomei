@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  inferTipoFromNaturalLanguage,
   normalizeOpenclawTransactionPayload,
   normalizeOpenclawTransactionUpdate,
 } from '../src/services/openclaw-transaction-payload.js';
@@ -131,4 +132,36 @@ test('update_transaction altera carteira para Nubank', () => {
     { categories, contas },
   );
   assert.equal(patch.conta_id, 'id-nu');
+});
+
+test('inferTipoFromNaturalLanguage detecta paguei/gastei como saida', () => {
+  assert.equal(
+    inferTipoFromNaturalLanguage('Paguei dois mil oitocentos e trinta e oito de prestação do carro'),
+    'saida',
+  );
+  assert.equal(inferTipoFromNaturalLanguage('gastei 25 no café'), 'saida');
+  assert.equal(inferTipoFromNaturalLanguage('Pagamento da Prestação do Carro'), 'saida');
+  assert.equal(inferTipoFromNaturalLanguage('recebi 4599 de salário'), 'entrada');
+  assert.equal(
+    inferTipoFromNaturalLanguage('recebi pagamento do cliente João'),
+    'entrada',
+  );
+});
+
+test('create_transaction corrige entrada quando texto indica despesa (paguei)', () => {
+  const r = normalizeOpenclawTransactionPayload(
+    {
+      tipo: 'entrada',
+      valor: 2838,
+      classificacao: 'Pagamento da Prestação do Carro',
+      data: 'hoje',
+      status: 'pago',
+      obs: 'Pagamento de prestação do carro via WhatsApp',
+    },
+    { categories, contas: [contas[0]] },
+  );
+  assert.equal(r.tipo, 'saida');
+  assert.equal(r.status, 'pago');
+  assert.equal(r.tipoCorrected, true);
+  assert.equal(r.tipoOriginal, 'entrada');
 });
