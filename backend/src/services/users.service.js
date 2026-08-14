@@ -22,6 +22,7 @@ import {
   hashPassword,
 } from './local-auth.service.js';
 import { query } from '../config/pg.js';
+import { isValidCpf, normalizeDocDigits } from '../utils/cpf-cnpj.js';
 
 const ROLE_CREATE_ALLOWED = new Set(['superadmin', 'admin']);
 const ROLE_TARGET_ALLOWED = new Set(['admin', 'usuario', 'outsider']);
@@ -1158,10 +1159,6 @@ export const listEmpresas = async (accessToken) => {
     empresas = await mergeStripeContractedMeiIntoEmpresaLimits(adminClient, empresas);
   }
 
-  if (isFocoMeiApiDeploy()) {
-    empresas = empresas.filter((empresa) => isEmpresaMeiModuleActive(empresa.max_mei));
-  }
-
   empresas = empresas.map((empresa) => ({
     ...empresa,
     product_line: deriveEmpresaProductLine(empresa.max_mei),
@@ -1459,6 +1456,18 @@ export const updateUser = async (accessToken, userId, input) => {
     throw badRequest('E-mail inválido');
   }
   const requestedMei = typeof input?.mei === 'boolean' ? input.mei : undefined;
+  const requestedCpfRaw = input?.cpf;
+  const requestedCpf = requestedCpfRaw !== undefined && requestedCpfRaw !== null
+    ? normalizeDocDigits(requestedCpfRaw)
+    : undefined;
+  if (requestedCpf !== undefined) {
+    if (!requestedCpf || !isValidCpf(requestedCpf)) {
+      throw badRequest('CPF inválido');
+    }
+    if (requester.role !== 'superadmin' && !isSelfUpdate) {
+      throw forbidden('Somente superadmin pode cadastrar CPF de outro usuário');
+    }
+  }
   const requestedExpiresAt =
     input?.expiresAt === undefined
       ? undefined
@@ -1687,8 +1696,9 @@ export const updateUser = async (accessToken, userId, input) => {
       metaPatch.full_name = requestedDisplayName;
     }
     if (requestedPhone) metaPatch.phone = requestedPhone;
+    if (requestedCpf !== undefined) metaPatch.cpf = requestedCpf;
 
-    if (Object.keys(metaPatch).length > 0 || requestedEmail || requestedPhone) {
+    if (Object.keys(metaPatch).length > 0 || requestedEmail || requestedPhone || requestedCpf !== undefined) {
       const { rows: userRows } = await query(
         `SELECT email, phone, raw_user_meta_data
          FROM public.users
@@ -1749,7 +1759,7 @@ export const updateUser = async (accessToken, userId, input) => {
     };
   }
 
-  if (requestedDisplayName || requestedPhone) {
+  if (requestedDisplayName || requestedPhone || requestedCpf !== undefined) {
     const metadata = {};
     if (requestedDisplayName) {
       metadata.display_name = requestedDisplayName;
@@ -1757,6 +1767,7 @@ export const updateUser = async (accessToken, userId, input) => {
       metadata.full_name = requestedDisplayName;
     }
     if (requestedPhone) metadata.phone = requestedPhone;
+    if (requestedCpf !== undefined) metadata.cpf = requestedCpf;
     const { error: updateUserError } = await adminClient.auth.admin.updateUserById(userId, {
       user_metadata: metadata
     });

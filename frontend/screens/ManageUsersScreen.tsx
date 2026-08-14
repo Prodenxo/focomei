@@ -23,7 +23,7 @@ import { getTheme, mfSpacing, type Theme } from '../lib/theme';
 import { getTechTokens, mfTechInsetSurface } from '../lib/techDesign';
 import { cleanPhone, hasRole } from '../lib/auth-roles';
 import { getMeiUserStatusShort, getMeiUserTypeLabel, isMeiSlotUser } from '../lib/meiUserSlot';
-import { countFocoMeiEmpresaAdmins, filterFocoMeiAdminEmpresas, filterFocoMeiAdminEmpresasAguardandoPlano, filterFocoMeiAdminUsers, listEmpresaMembersForMeiAdmin } from '../lib/focomeiAdminFilters';
+import { countFocoMeiEmpresaAdmins, filterFocoMeiAdminEmpresas, filterFocoMeiAdminEmpresasAguardandoPlano, filterFocoMeiAdminEmpresasMeiDesativado, filterFocoMeiAdminUsers, listEmpresaMembersForMeiAdmin } from '../lib/focomeiAdminFilters';
 import { isFocoMeiProductLine, productLineLabel, resolveEmpresaProductLine, resolveUserProductLine } from '../lib/productLine';
 import { getManagedUserActions } from '../lib/managedUserActions';
 import { formatPhoneBrCell } from '../lib/numberFormat';
@@ -58,7 +58,7 @@ import {
 
 type RoleOption = 'admin' | 'usuario' | 'outsider';
 type TabKey = 'users' | 'invites' | 'empresas' | 'billing';
-type EmpresaMeiFilter = 'active' | 'pending_planos' | 'all';
+type EmpresaMeiFilter = 'active' | 'pending_planos' | 'inactive' | 'all';
 type ClipboardModule = typeof import('expo-clipboard');
 
 interface Props {
@@ -1154,6 +1154,10 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
     () => filterFocoMeiAdminEmpresasAguardandoPlano(empresas, users),
     [empresas, users],
   );
+  const empresasMeiDesativado = useMemo(
+    () => filterFocoMeiAdminEmpresasMeiDesativado(empresas, users),
+    [empresas, users],
+  );
   const focomeiUsers = useMemo(
     () => filterFocoMeiAdminUsers(users, focomeiEmpresas),
     [users, focomeiEmpresas],
@@ -1168,8 +1172,8 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
     [role, users, focomeiUsers],
   );
   const empresasForManagement = useMemo(
-    () => (role === 'admin' ? empresas : focomeiEmpresas),
-    [role, empresas, focomeiEmpresas],
+    () => empresas,
+    [empresas],
   );
 
   const empresaMembersList = useMemo(() => {
@@ -1583,6 +1587,8 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
     const source =
       empresaMeiFilter === 'pending_planos'
         ? empresasAguardandoPlano
+        : empresaMeiFilter === 'inactive'
+          ? empresasMeiDesativado
         : empresaMeiFilter === 'all'
           ? empresas
           : focomeiEmpresas;
@@ -1593,7 +1599,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
       const matchesName = !term || displayName(e).toLowerCase().includes(term);
       if (!matchesName) return false;
 
-      if (empresaMeiFilter === 'all' || empresaMeiFilter === 'pending_planos') {
+      if (empresaMeiFilter === 'all' || empresaMeiFilter === 'pending_planos' || empresaMeiFilter === 'inactive') {
         return true;
       }
 
@@ -1604,6 +1610,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
   }, [
     empresas,
     empresasAguardandoPlano,
+    empresasMeiDesativado,
     focomeiEmpresas,
     empresaTabSearch,
     empresaMeiFilter,
@@ -2053,6 +2060,8 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
                 <Text style={styles.empresaMeiFilterHint}>
                   {empresaMeiFilter === 'pending_planos'
                     ? 'Empresas cadastradas que ainda não concluíram o plano MEI (presas em /planos). Use Cobrança → Reconciliar pago após Stripe.'
+                    : empresaMeiFilter === 'inactive'
+                      ? 'Empresas com módulo MEI desativado. Você pode reativar editando a empresa.'
                     : empresaMeiFilter === 'all'
                       ? 'Todas as empresas cadastradas no sistema.'
                       : 'Empresas com MEI disponível ou em uso.'}
@@ -2061,6 +2070,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
                   {([
                     ['active', `MEI ativo (${totalEmpresasMeiAtivo})`],
                     ['pending_planos', `Aguardando plano (${empresasAguardandoPlano.length})`],
+                    ['inactive', `MEI desativado (${empresasMeiDesativado.length})`],
                     ['all', `Todas (${empresas.length})`],
                   ] as const).map(([key, label]) => {
                     const selected = empresaMeiFilter === key;
@@ -2098,7 +2108,7 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
                 renderItem={(item: EmpresaOption) => (
                   <EmpresaCard
                     empresa={item}
-                    aguardandoPlano={empresaMeiFilter === 'pending_planos' || (Number(item.max_mei) || 0) <= 0}
+                    aguardandoPlano={empresaMeiFilter === 'pending_planos' || (empresaMeiFilter !== 'inactive' && (Number(item.max_mei) || 0) <= 0)}
                     theme={theme}
                     styles={styles}
                     onEdit={openEditEmpresa}

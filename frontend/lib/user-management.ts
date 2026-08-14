@@ -215,7 +215,7 @@ export const createUser = async (input: {
 
 export const updateUser = async (
   userId: string,
-  input: { role?: string; empresaId?: string; displayName?: string; phone?: string; email?: string; mei?: boolean; expiresAt?: string | null },
+  input: { role?: string; empresaId?: string; displayName?: string; phone?: string; email?: string; cpf?: string; mei?: boolean; expiresAt?: string | null },
 ) => {
   const hasMeiApi = Boolean(getMeiApiBaseUrl());
 

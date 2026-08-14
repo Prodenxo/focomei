@@ -22,6 +22,8 @@ import {
   type MeiPaymentApprovalsSummary,
 } from '../../services/adminBillingService';
 import type { EmpresaOption } from '../../services/empresaService';
+import { emitContratoOrPromptCpf, type SignatarioCpfPromptState } from '../../lib/emitContratoWithCpfRecovery';
+import { SignatarioCpfModal } from './SignatarioCpfModal';
 
 type PaymentFilter = '' | 'pix' | 'card';
 type ContratoFilter = '' | 'pending' | 'sent' | 'failed' | 'skipped';
@@ -88,6 +90,8 @@ export function MeiPaymentApprovalsTab({
   const [contratoFilter, setContratoFilter] = useState<ContratoFilter>('');
   const [accessFilter, setAccessFilter] = useState<AccessFilter>('');
   const [emittingId, setEmittingId] = useState<string | null>(null);
+  const [cpfPrompt, setCpfPrompt] = useState<SignatarioCpfPromptState | null>(null);
+  const [cpfRetryItem, setCpfRetryItem] = useState<MeiPaymentApprovalItem | null>(null);
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -120,14 +124,42 @@ export function MeiPaymentApprovalsTab({
   const handleEmitContrato = async (item: MeiPaymentApprovalItem) => {
     setEmittingId(item.lineId);
     try {
-      await emitStripeMeiContrato(item.empresaId);
-      onFeedback?.({ type: 'success', message: `Contrato reenviado para ${item.empresaName}` });
+      const result = await emitContratoOrPromptCpf({
+        empresaId: item.empresaId,
+        empresaName: item.empresaName,
+        ownerId: item.ownerId,
+        ownerDisplayName: item.ownerDisplayName,
+        ownerEmail: item.ownerEmail,
+        onCpfRequired: (prompt) => {
+          setCpfRetryItem(item);
+          setCpfPrompt(prompt);
+        },
+      });
+      if (result === 'sent') {
+        onFeedback?.({ type: 'success', message: `Contrato reenviado para ${item.empresaName}` });
+        await loadItems();
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Erro ao gerar contrato';
+      onFeedback?.({ type: 'error', message });
+    } finally {
+      setEmittingId(null);
+    }
+  };
+
+  const handleCpfSavedAndRetry = async () => {
+    if (!cpfRetryItem) return;
+    setEmittingId(cpfRetryItem.lineId);
+    try {
+      await emitStripeMeiContrato(cpfRetryItem.empresaId);
+      onFeedback?.({ type: 'success', message: `Contrato enviado para ${cpfRetryItem.empresaName}` });
       await loadItems();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Erro ao gerar contrato';
       onFeedback?.({ type: 'error', message });
     } finally {
       setEmittingId(null);
+      setCpfRetryItem(null);
     }
   };
 
@@ -151,6 +183,7 @@ export function MeiPaymentApprovalsTab({
   ];
 
   return (
+    <>
     <MfScrollView style={styles.container} contentContainerStyle={styles.scrollContent} hideLegalFooter>
       <View style={[styles.heroPanel, panelChrome]}>
         <View style={styles.heroHeader}>
@@ -396,6 +429,19 @@ export function MeiPaymentApprovalsTab({
         })}
       </View>
     </MfScrollView>
+    <SignatarioCpfModal
+      visible={Boolean(cpfPrompt)}
+      userId={cpfPrompt?.userId ?? null}
+      signatarioName={cpfPrompt?.signatarioName}
+      signatarioEmail={cpfPrompt?.signatarioEmail}
+      empresaName={cpfPrompt?.empresaName}
+      onClose={() => {
+        setCpfPrompt(null);
+        setCpfRetryItem(null);
+      }}
+      onSaved={handleCpfSavedAndRetry}
+    />
+    </>
   );
 }
 

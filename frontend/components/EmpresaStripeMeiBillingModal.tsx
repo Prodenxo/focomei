@@ -31,6 +31,9 @@ import { MeiPrimaryButton } from './mei/meiFlowUi';
 import { MfGlassCard } from './ui/MfGlassCard';
 import { MfScrollView } from './ui/MfScrollView';
 import { MfConfirmDialog } from './ui/MfConfirmDialog';
+import { SignatarioCpfModal } from './admin/SignatarioCpfModal';
+import { emitContratoOrPromptCpf, resolveSignatarioForEmpresa, type SignatarioCpfPromptState } from '../lib/emitContratoWithCpfRecovery';
+import { isSignatarioCpfMissingError } from '../lib/contratoSignatarioCpf';
 import { useMfTheme } from './ui/useMfTheme';
 import { getTechTokens, mfTechInsetSurface, mfTechPanelChrome } from '../lib/techDesign';
 import { mfRadius, mfSpacing, mfTypography } from '../lib/theme';
@@ -104,6 +107,7 @@ export function EmpresaStripeMeiBillingModal({
   const [syncMaxMeiLoading, setSyncMaxMeiLoading] = useState(false);
   const [reconcileLoading, setReconcileLoading] = useState(false);
   const [emitContratoLoading, setEmitContratoLoading] = useState(false);
+  const [cpfPrompt, setCpfPrompt] = useState<SignatarioCpfPromptState | null>(null);
   const [confirmPixLoading, setConfirmPixLoading] = useState(false);
   const [cancelLineId, setCancelLineId] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<BillingConfirmAction | null>(null);
@@ -197,6 +201,19 @@ export function EmpresaStripeMeiBillingModal({
     return empresa.nome_fantasia?.trim() || empresa.empresa;
   }, [empresa]);
 
+  const openCpfPromptFromContratoError = useCallback(async (errorMessage: string) => {
+    if (!empresa || !isSignatarioCpfMissingError(errorMessage)) return false;
+    const resolved = await resolveSignatarioForEmpresa(empresa.id);
+    setCpfPrompt({
+      empresaId: empresa.id,
+      empresaName: empresaDisplayName,
+      userId: resolved.userId,
+      signatarioName: resolved.signatarioName,
+      signatarioEmail: resolved.signatarioEmail,
+    });
+    return true;
+  }, [empresa, empresaDisplayName]);
+
   const handleSubmit = async () => {
     if (!empresa) return;
     if (!billingOptionsReady) return;
@@ -273,10 +290,13 @@ export function EmpresaStripeMeiBillingModal({
       const contratoError = typeof contratoStep?.error === 'string' ? contratoStep.error : null;
 
       if (contratoError) {
-        showToast(
-          `Acesso OK (MEI: ${maxMei}), mas contrato falhou: ${contratoError}`,
-          'error',
-        );
+        const openedCpfModal = await openCpfPromptFromContratoError(contratoError);
+        if (!openedCpfModal) {
+          showToast(
+            `Acesso OK (MEI: ${maxMei}), mas contrato falhou: ${contratoError}`,
+            'error',
+          );
+        }
         return;
       }
 
@@ -296,6 +316,25 @@ export function EmpresaStripeMeiBillingModal({
   };
 
   const handleEmitContrato = async () => {
+    if (!empresa) return;
+    setEmitContratoLoading(true);
+    try {
+      const result = await emitContratoOrPromptCpf({
+        empresaId: empresa.id,
+        empresaName: empresaDisplayName,
+        onCpfRequired: setCpfPrompt,
+      });
+      if (result === 'sent') {
+        showToast('Contrato enviado ao robô Onety. Confira os logs do robo-contrato.', 'success');
+      }
+    } catch (e: unknown) {
+      showToast(apiErrorMessage(e, 'Erro ao gerar contrato'), 'error');
+    } finally {
+      setEmitContratoLoading(false);
+    }
+  };
+
+  const handleCpfSavedAndRetryContrato = async () => {
     if (!empresa) return;
     setEmitContratoLoading(true);
     try {
@@ -326,10 +365,13 @@ export function EmpresaStripeMeiBillingModal({
         result.contrato && result.contrato.ok === false ? result.contrato.error : null;
 
       if (contratoErr) {
-        showToast(
-          `PIX confirmado (${maxMei} vagas). Contrato falhou — use "Gerar contrato", não clique PIX de novo. ${contratoErr}`,
-          'error',
-        );
+        const openedCpfModal = await openCpfPromptFromContratoError(contratoErr);
+        if (!openedCpfModal) {
+          showToast(
+            `PIX confirmado (${maxMei} vagas). Contrato falhou — use "Gerar contrato", não clique PIX de novo. ${contratoErr}`,
+            'error',
+          );
+        }
         return;
       }
 
@@ -846,6 +888,15 @@ export function EmpresaStripeMeiBillingModal({
         }}
       />
     ) : null}
+    <SignatarioCpfModal
+      visible={Boolean(cpfPrompt)}
+      userId={cpfPrompt?.userId ?? null}
+      signatarioName={cpfPrompt?.signatarioName}
+      signatarioEmail={cpfPrompt?.signatarioEmail}
+      empresaName={cpfPrompt?.empresaName}
+      onClose={() => setCpfPrompt(null)}
+      onSaved={handleCpfSavedAndRetryContrato}
+    />
     </>
   );
 }

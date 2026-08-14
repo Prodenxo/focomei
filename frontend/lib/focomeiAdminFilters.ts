@@ -50,6 +50,19 @@ export function filterFocoMeiAdminEmpresasAguardandoPlano (
 /** @deprecated use isEmpresaMeiDisponivel */
 export const isEmpresaMeiModuleActive = isEmpresaMeiDisponivel
 
+/** Empresa com módulo MEI desligado (max_mei = 0), excluindo as que aguardam plano. */
+export function filterFocoMeiAdminEmpresasMeiDesativado (
+  empresas: EmpresaOption[],
+  users: ManagedUser[] = [],
+): EmpresaOption[] {
+  const aguardandoIds = new Set(
+    filterFocoMeiAdminEmpresasAguardandoPlano(empresas, users).map((e) => e.id),
+  )
+  return empresas.filter(
+    (empresa) => !isEmpresaMeiDisponivel(empresa) && !aguardandoIds.has(empresa.id),
+  )
+}
+
 /** Empresas com MEI disponível (max_mei) ou MEI em uso (algum membro mei=true). */
 export function filterFocoMeiAdminEmpresas (
   empresas: EmpresaOption[],
