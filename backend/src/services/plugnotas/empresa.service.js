@@ -369,9 +369,9 @@ const parseResponsePayload = async (response) => {
   }
 };
 
-const requestJson = async (method, path, body) => {
+const requestJson = async (method, path, body, opts = {}) => {
   ensureConfigured();
-  const timeoutMs = Number(env.PLUGNOTAS_TIMEOUT_MS || 15000);
+  const timeoutMs = Number(opts.timeoutMs || env.PLUGNOTAS_TIMEOUT_MS || 15000);
   const { controller, timeout } = withTimeout(timeoutMs);
   const baseUrl = getPlugnotasRootUrl();
 
@@ -581,7 +581,7 @@ const buildUpdateAttempts = (cnpj, payload) => {
   return [{ method: 'PATCH', path: `/empresa/${safeCnpj}`, body: payload }];
 };
 
-const tryUpdateEmpresa = async (cnpj, payload) => {
+const tryUpdateEmpresa = async (cnpj, payload, opts = {}) => {
   const attempts = buildUpdateAttempts(cnpj, payload);
   let lastError = null;
   /** @type {{ method: string, path: string, status: number|null, message: string }[]} */
@@ -589,7 +589,7 @@ const tryUpdateEmpresa = async (cnpj, payload) => {
 
   for (const attempt of attempts) {
     try {
-      const response = await requestJson(attempt.method, attempt.path, attempt.body);
+      const response = await requestJson(attempt.method, attempt.path, attempt.body, opts);
       return { response, attempt, lastError: null, failures: [] };
     } catch (error) {
       if (error?.status === 401 || error?.status === 403) {
@@ -950,8 +950,9 @@ export const consultarEmpresaPlugNotas = async (cnpjInput) => {
  * Atualiza cadastro da empresa no provedor via PATCH /empresa/:cnpj, sem exigir reenvio de certificado.
  * Útil quando a empresa e o certificado já existem no provedor e só os dados cadastrais mudam.
  * @param {Record<string, unknown>} input
+ * @param {{ timeoutMs?: number }} [opts]
  */
-export const atualizarEmpresaPlugNotas = async (input) => {
+export const atualizarEmpresaPlugNotas = async (input, opts = {}) => {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw badRequest('Payload da empresa é obrigatório e deve ser um objeto');
   }
@@ -1043,7 +1044,7 @@ export const atualizarEmpresaPlugNotas = async (input) => {
     credState
   });
 
-  const updateResult = await tryUpdateEmpresa(cnpj, payload);
+  const updateResult = await tryUpdateEmpresa(cnpj, payload, opts);
   if (updateResult.response) {
     const data = toObject(updateResult.response?.data);
     const fallbackMessage = `Empresa atualizada no serviço de emissão (${updateResult.attempt.method} ${updateResult.attempt.path}).`;

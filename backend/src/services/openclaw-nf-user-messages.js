@@ -142,6 +142,12 @@ export const BOT_NF_EMIT_IDEMPOTENT_GUARD =
  */
 export const formatNfseEmitErrorForUser = (rawMessage = '') => {
   const msg = String(rawMessage || '').trim();
+  if (/certificado digital não encontrado/i.test(msg)) {
+    return (
+      'Não encontrei certificado A1 activo no emissor fiscal para alinhar a numeração. '
+      + 'Na app: MEI → Certificado — envie o .pfx de novo ou actualize o cadastro da empresa.'
+    );
+  }
   if (/alinhar a numeração|operation was aborted|aborted/i.test(msg)) {
     return (
       'Não consegui concluir a emissão agora — a PlugNotas demorou a responder '

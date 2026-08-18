@@ -1656,6 +1656,10 @@ export const rethrowNfseErrorForBot = (err) => {
     });
   }
 
+  if (code === 'NFSE_CERTIFICADO_RPS') {
+    throw badRequest(userMessage, { code, botHint: loopGuard });
+  }
+
   if (existingHint) {
     throw badRequest(userMessage, { code, botHint: loopGuard });
   }

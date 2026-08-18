@@ -1,4 +1,6 @@
 import { unwrapPlugnotasEmpresaRecord } from '../mei-emitente-empresa-sync.js';
+import { env } from '../../config/env.js';
+import { badRequest } from '../../utils/errors.js';
 import {
   atualizarEmpresaPlugNotas,
   consultarEmpresaPlugNotas,
@@ -13,6 +15,22 @@ import {
 } from './plugnotas-empresa-rps-inicial.js';
 
 const normalizeDoc = (value) => String(value || '').replace(/\D/g, '');
+
+const RPS_SYNC_RETRY_MAX = 3;
+const RPS_SYNC_RETRY_BASE_MS = 2000;
+
+const resolveRpsSyncTimeoutMs = () => {
+  const dedicated = Number(env.PLUGNOTAS_RPS_SYNC_TIMEOUT_MS || 0);
+  if (Number.isFinite(dedicated) && dedicated >= 5000) return dedicated;
+  const base = Number(env.PLUGNOTAS_TIMEOUT_MS || 15000);
+  return Math.max(base, 45000);
+};
+
+const isRetryableRpsSyncError = (error) => {
+  const message = error instanceof Error ? error.message : String(error || '');
+  if (/certificado digital não encontrado/i.test(message)) return false;
+  return /aborted|timeout|timed out|ECONNRESET|ETIMEDOUT|fetch failed|502|503|504|gateway/i.test(message);
+};
 
 const parsePositiveInt = (value, fallback = NaN) => {
   const n = Number.parseInt(String(value ?? ''), 10);
@@ -414,7 +432,7 @@ const resolveCertificadoIdForEmpresaRpsPatch = async (cnpj, empresaJson) => {
   }
 };
 
-const patchPlugnotasEmpresaRpsNextNumero = async (cnpj, empresaJson, { serie, lote, numero }) => {
+const patchPlugnotasEmpresaRpsNextNumero = async (cnpj, empresaJson, { serie, lote, numero }, opts = {}) => {
   const empresa = unwrapPlugnotasEmpresaRecord(empresaJson);
   const nfseAtivo = empresa?.nfse?.ativo !== false;
   const existingConfig = empresa?.nfse?.config && typeof empresa.nfse.config === 'object'
@@ -437,7 +455,7 @@ const patchPlugnotasEmpresaRpsNextNumero = async (cnpj, empresaJson, { serie, lo
       ativo: nfseAtivo,
       config: buildMinimalNfseConfigForRpsPatch(existingConfig, configRps),
     }
-  });
+  }, { timeoutMs: opts.timeoutMs ?? resolveRpsSyncTimeoutMs() });
 };
 
 /**
@@ -464,16 +482,55 @@ export async function syncPlugnotasNfseRpsBeforeEmit(cnpjInput, targetRps, empre
     }
   }
 
-  try {
-    await patchPlugnotasEmpresaRpsNextNumero(cnpj, empresa, {
+  const current = readPlugnotasNfseNextRpsFromEmpresa(empresa);
+  if (
+    current
+    && current.numero === targetNumero
+    && current.serie === usedSerie
+    && current.lote === usedLote
+  ) {
+    console.info('[plugnotas-rps] sync skip — contador PlugNotas já alinhado', {
+      cnpj,
+      targetNumero,
       serie: usedSerie,
       lote: usedLote,
-      numero: targetNumero
     });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn('[plugnotas-rps] falha ao sincronizar contador RPS antes da emissão', message);
+    return;
+  }
+
+  const timeoutMs = resolveRpsSyncTimeoutMs();
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= RPS_SYNC_RETRY_MAX; attempt += 1) {
+    try {
+      await patchPlugnotasEmpresaRpsNextNumero(cnpj, empresa, {
+        serie: usedSerie,
+        lote: usedLote,
+        numero: targetNumero,
+      }, { timeoutMs });
+      return;
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn('[plugnotas-rps] falha ao sincronizar contador RPS antes da emissão', {
+        attempt,
+        maxAttempts: RPS_SYNC_RETRY_MAX,
+        timeoutMs,
+        message,
+      });
+      if (attempt >= RPS_SYNC_RETRY_MAX || !isRetryableRpsSyncError(error)) {
+        break;
+      }
+      await sleepMs(RPS_SYNC_RETRY_BASE_MS * attempt);
+    }
+  }
+
+  if (lastError) {
+    const message = lastError instanceof Error ? lastError.message : String(lastError);
     if (opts.strict === true) {
+      if (/certificado digital não encontrado/i.test(message)) {
+        throw badRequest(message, { code: 'NFSE_CERTIFICADO_RPS' });
+      }
       throw new Error(`Não foi possível alinhar a numeração na PlugNotas: ${message}`);
     }
   }

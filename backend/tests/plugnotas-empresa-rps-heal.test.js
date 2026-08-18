@@ -106,6 +106,7 @@ test('syncPlugnotasNfseRpsBeforeEmit faz PATCH quando contador PlugNotas está a
     if (String(url).includes('/empresa/12345678000199') && options.method === 'GET') {
       return new Response(JSON.stringify({
         cpfCnpj: '12345678000199',
+        certificado: 'cert-test-1',
         nfse: { ativo: true, config: { rps: { numeracao: [{ serie: '1', numero: 5 }], lote: 1 } } }
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
@@ -131,6 +132,79 @@ test('syncPlugnotasNfseRpsBeforeEmit faz PATCH quando contador PlugNotas está a
   }
 });
 
+test('syncPlugnotasNfseRpsBeforeEmit ignora PATCH quando contador já está alinhado', async () => {
+  const originalFetch = global.fetch;
+  const calls = [];
+
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    return new Response(JSON.stringify({ message: 'unexpected' }), { status: 500 });
+  };
+
+  const empresaAlinhada = {
+    cpfCnpj: '12345678000199',
+    certificado: 'cert-1',
+    nfse: {
+      ativo: true,
+      config: { rps: { numeracao: [{ serie: '1', numero: 18 }], lote: 1 } },
+    },
+  };
+
+  try {
+    await syncPlugnotasNfseRpsBeforeEmit(
+      '12.345.678/0001-99',
+      { serie: '1', numero: 18, lote: 1 },
+      empresaAlinhada,
+      { strict: true },
+    );
+    assert.equal(calls.length, 0);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('syncPlugnotasNfseRpsBeforeEmit reintenta PATCH após timeout da PlugNotas', async () => {
+  const originalFetch = global.fetch;
+  let patchAttempts = 0;
+
+  global.fetch = async (url, options = {}) => {
+    if (String(url).includes('/empresa/12345678000199') && options.method === 'PATCH') {
+      patchAttempts += 1;
+      if (patchAttempts < 3) {
+        const error = new Error('This operation was aborted');
+        error.name = 'AbortError';
+        throw error;
+      }
+      return new Response(JSON.stringify({ message: 'ok' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ message: 'unexpected' }), { status: 500 });
+  };
+
+  const empresa = {
+    cpfCnpj: '12345678000199',
+    certificado: 'cert-1',
+    nfse: {
+      ativo: true,
+      config: { rps: { numeracao: [{ serie: '1', numero: 5 }], lote: 1 } },
+    },
+  };
+
+  try {
+    await syncPlugnotasNfseRpsBeforeEmit(
+      '12.345.678/0001-99',
+      { serie: '1', numero: 18, lote: 1 },
+      empresa,
+      { strict: true },
+    );
+    assert.equal(patchAttempts, 3);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('syncPlugnotasNfseRpsBeforeEmit não reenvia credenciais prefeitura no PATCH de RPS', async () => {
   const originalFetch = global.fetch;
   const calls = [];
@@ -148,6 +222,7 @@ test('syncPlugnotasNfseRpsBeforeEmit não reenvia credenciais prefeitura no PATC
 
   const empresaComPrefeitura = {
     cpfCnpj: '12345678000199',
+    certificado: 'cert-test-1',
     nfse: {
       ativo: true,
       config: {
@@ -265,6 +340,7 @@ test('advancePlugnotasNfseRpsAfterEmit faz PATCH quando contador PlugNotas está
     if (String(url).includes('/empresa/12345678000199') && options.method === 'GET') {
       return new Response(JSON.stringify({
         cpfCnpj: '12345678000199',
+        certificado: 'cert-test-1',
         nfse: { ativo: true, config: { rps: { numeracao: [{ serie: '1', numero: 5 }], lote: 1 } } }
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }

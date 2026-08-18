@@ -198,6 +198,8 @@ export const env = {
   PLUGNOTAS_CERT_409_RESOLVE_LOG_LEVEL:
     process.env.PLUGNOTAS_CERT_409_RESOLVE_LOG_LEVEL || "warn",
   PLUGNOTAS_TIMEOUT_MS: process.env.PLUGNOTAS_TIMEOUT_MS || "15000",
+  /** Timeout dedicado ao PATCH de alinhamento RPS (NFS-e). Padrão: max(45000, PLUGNOTAS_TIMEOUT_MS). */
+  PLUGNOTAS_RPS_SYNC_TIMEOUT_MS: process.env.PLUGNOTAS_RPS_SYNC_TIMEOUT_MS || "",
   /**
    * Trilho B (P0): `true` — BFF preenche `nfse.config.prefeitura.codigoIbge` a partir de `endereco.codigoCidade`
    * (7 dígitos) quando `nfse` está activo. **Desligado por defeito** (NFR-P0-REG-01). Ver ADR apenas-NFS-e e `nfsePrefeituraPayload.js`.
