@@ -15,6 +15,8 @@ import {
   cadastrarCertificadoPlugNotas,
   cadastrarEmpresaPlugNotas,
   consultarEmpresaPlugNotas,
+  atualizarEmpresaPlugNotas,
+  extractCertificadoIdFromEmpresaPayload,
   resolverCertificadoIdPorCnpj,
 } from './empresa.service.js';
 import { resolvePrestadorEmitEmail } from './plugnotas-nfse-email-resolve.js';
@@ -200,6 +202,39 @@ export const resolvePlugnotasCertificadoIdForUser = async (userId, cnpj14) => {
 };
 
 /**
+ * Vincula certificado local/PlugNotas à ficha da empresa quando GET não expõe o ID.
+ * @param {string} userId
+ * @param {string} cnpj14
+ * @param {unknown} empresaJson
+ * @returns {Promise<Record<string, unknown>|null>}
+ */
+export const ensurePlugnotasEmpresaCertificadoLinked = async (userId, cnpj14, empresaJson) => {
+  const cnpj = normalizeDoc(cnpj14);
+  if (!userId || cnpj.length !== 14) {
+    return unwrapPlugnotasEmpresaRecord(empresaJson);
+  }
+
+  const linked = extractCertificadoIdFromEmpresaPayload(empresaJson)
+    ?? extractCertificadoIdFromEmpresaPayload(unwrapPlugnotasEmpresaRecord(empresaJson));
+  if (linked) return unwrapPlugnotasEmpresaRecord(empresaJson);
+
+  const certId = await resolvePlugnotasCertificadoIdForUser(userId, cnpj);
+  if (!certId) return unwrapPlugnotasEmpresaRecord(empresaJson);
+
+  try {
+    await atualizarEmpresaPlugNotas({ cpfCnpj: cnpj, certificado: certId });
+    const refreshed = await consultarEmpresaPlugNotas(cnpj);
+    return unwrapPlugnotasEmpresaRecord(refreshed);
+  } catch (error) {
+    console.warn('[plugnotas-cert] falha ao vincular certificado na empresa PlugNotas', {
+      cnpj,
+      message: error instanceof Error ? error.message : error,
+    });
+    return unwrapPlugnotasEmpresaRecord(empresaJson);
+  }
+};
+
+/**
  * Garante cadastro da empresa no Plugnotas antes da NFS-e (auto-registo a partir do espelho local).
  * @param {string} userId
  * @param {string} cnpjInput
@@ -211,7 +246,7 @@ export const ensureMeiNfsePlugnotasCadastroBeforeEmit = async (userId, cnpjInput
 
   try {
     const empresaJson = await consultarEmpresaPlugNotas(cnpj);
-    return unwrapPlugnotasEmpresaRecord(empresaJson);
+    return ensurePlugnotasEmpresaCertificadoLinked(userId, cnpj, empresaJson);
   } catch (error) {
     if (!isEmpresaNaoCadastradaError(error)) throw error;
   }
@@ -265,7 +300,7 @@ export const ensureMeiNfsePlugnotasCadastroBeforeEmit = async (userId, cnpjInput
   await persistDocumentosAtivosMirrorAfterEmpresa(userId, payload).catch(() => {});
 
   const empresaJson = await consultarEmpresaPlugNotas(cnpj);
-  return unwrapPlugnotasEmpresaRecord(empresaJson);
+  return ensurePlugnotasEmpresaCertificadoLinked(userId, cnpj, empresaJson);
 };
 
 /**

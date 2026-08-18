@@ -225,6 +225,7 @@ export async function applyAllocatedNfseRpsToEmitPayload(
   cnpj,
   allocation,
   empresaJson = null,
+  userId = null,
 ) {
   const serie = String(allocation?.serie ?? '1').trim() || '1';
   const lote = parsePositiveInt(allocation?.lote, 1);
@@ -235,6 +236,11 @@ export async function applyAllocatedNfseRpsToEmitPayload(
 
   emitPayload.rps = { lote, numeracao: [{ serie, numero }] };
   const empresaForSync = allocation?.empresaJson ?? empresaJson;
-  await syncPlugnotasNfseRpsBeforeEmit(cnpj, { serie, lote, numero }, empresaForSync, { strict: true });
+  await syncPlugnotasNfseRpsBeforeEmit(
+    cnpj,
+    { serie, lote, numero },
+    empresaForSync,
+    { strict: true, userId },
+  );
   return readRpsFromNfseEmitPayload(emitPayload);
 }

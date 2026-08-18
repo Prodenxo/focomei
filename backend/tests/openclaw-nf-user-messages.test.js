@@ -102,6 +102,19 @@ test('formatNfseEmitErrorForUser traduz timeout PlugNotas', () => {
   assert.doesNotMatch(msg, /aborted/i);
 });
 
+test('formatNfseEmitErrorForUser repassa rejeição E0014 sem culpar certificado', () => {
+  const msg = formatNfseEmitErrorForUser(
+    'E0014 - Conjunto de Série, Número, Código do Município Emissor e CNPJ/CPF/CNPJ do emitente já informado.',
+  );
+  assert.match(msg, /E0014/);
+  assert.doesNotMatch(msg, /certificado A1/i);
+});
+
+test('formatNfseEmitErrorForUser repassa mensagem PlugNotas específica', () => {
+  const upstream = 'Código de serviço municipal inválido para o município informado.';
+  assert.equal(formatNfseEmitErrorForUser(upstream), upstream);
+});
+
 test('isVagueNfItemLabel rejeita nomes genéricos do áudio', () => {
   assert.equal(isVagueNfItemLabel(''), true);
   assert.equal(isVagueNfItemLabel('nota fiscal de serviços'), true);

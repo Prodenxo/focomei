@@ -4,8 +4,10 @@ import { badRequest } from '../../utils/errors.js';
 import {
   atualizarEmpresaPlugNotas,
   consultarEmpresaPlugNotas,
+  extractCertificadoIdFromEmpresaPayload,
   resolverCertificadoIdPorCnpj,
 } from './empresa.service.js';
+import { resolvePlugnotasCertificadoIdForUser } from './plugnotas-mei-nfse-emit-prep.js';
 import { consultarNfsePorPeriodo } from './nfse.service.js';
 import {
   cloneEmpresaPlugnotasRpsInicialPost,
@@ -392,23 +394,9 @@ const buildMinimalNfseConfigForRpsPatch = (existingConfig, configRps) => {
  * @param {unknown} empresaJson
  * @returns {string|null}
  */
-const readCertificadoIdFromEmpresaJson = (empresaJson) => {
-  const empresa = unwrapPlugnotasEmpresaRecord(empresaJson);
-  if (!empresa || typeof empresa !== 'object') return null;
-  const candidates = [
-    empresa.certificado,
-    empresa.certificadoId,
-    empresa.idCertificado,
-  ];
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
-    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
-      const nested = candidate.id ?? candidate._id ?? candidate.uuid;
-      if (nested != null && String(nested).trim()) return String(nested).trim();
-    }
-  }
-  return null;
-};
+export const readCertificadoIdFromEmpresaJson = (empresaJson) =>
+  extractCertificadoIdFromEmpresaPayload(empresaJson)
+  ?? extractCertificadoIdFromEmpresaPayload(unwrapPlugnotasEmpresaRecord(empresaJson));
 
 /**
  * Resolve `certificado` obrigatório no PATCH /empresa (PlugNotas).
@@ -416,9 +404,23 @@ const readCertificadoIdFromEmpresaJson = (empresaJson) => {
  * @param {unknown} empresaJson
  * @returns {Promise<string|null>}
  */
-const resolveCertificadoIdForEmpresaRpsPatch = async (cnpj, empresaJson) => {
+const resolveCertificadoIdForEmpresaRpsPatch = async (cnpj, empresaJson, userId = null) => {
   const fromEmpresa = readCertificadoIdFromEmpresaJson(empresaJson);
   if (fromEmpresa) return fromEmpresa;
+
+  if (userId) {
+    try {
+      const fromUser = await resolvePlugnotasCertificadoIdForUser(userId, cnpj);
+      const userCertId = fromUser != null ? String(fromUser).trim() : '';
+      if (userCertId) return userCertId;
+    } catch (error) {
+      console.warn(
+        '[plugnotas-rps] certificado local/PlugNotas indisponível para PATCH RPS',
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+
   try {
     const resolved = await resolverCertificadoIdPorCnpj(cnpj);
     const id = resolved != null ? String(resolved).trim() : '';
@@ -439,7 +441,7 @@ const patchPlugnotasEmpresaRpsNextNumero = async (cnpj, empresaJson, { serie, lo
     ? empresa.nfse.config
     : { producao: true };
   const { rootRps, configRps } = buildPlugnotasEmpresaRpsBlocks({ serie, lote, numero });
-  const certificado = await resolveCertificadoIdForEmpresaRpsPatch(cnpj, empresaJson);
+  const certificado = await resolveCertificadoIdForEmpresaRpsPatch(cnpj, empresaJson, opts.userId ?? null);
   if (!certificado) {
     throw new Error(
       'Certificado digital não encontrado no emissor para alinhar a numeração. '
@@ -507,7 +509,7 @@ export async function syncPlugnotasNfseRpsBeforeEmit(cnpjInput, targetRps, empre
         serie: usedSerie,
         lote: usedLote,
         numero: targetNumero,
-      }, { timeoutMs });
+      }, { timeoutMs, userId: opts.userId ?? null });
       return;
     } catch (error) {
       lastError = error;
@@ -874,7 +876,11 @@ export function empresaPlugnotasTemRpsCadastrado(empresaJson) {
  * Idempotente quando o emissor já possui numeração.
  * @param {string} cnpjInput
  */
-export async function ensureEmpresaPlugnotasRpsForNfseEmit(cnpjInput, empresaJsonCached = null) {
+export async function ensureEmpresaPlugnotasRpsForNfseEmit(
+  cnpjInput,
+  empresaJsonCached = null,
+  userId = null,
+) {
   const cnpj = normalizeDoc(cnpjInput);
   if (cnpj.length !== 14) return;
 
@@ -891,8 +897,9 @@ export async function ensureEmpresaPlugnotasRpsForNfseEmit(cnpjInput, empresaJso
 
   const empresa = unwrapPlugnotasEmpresaRecord(empresaJson);
   const nfseAtivo = empresa?.nfse?.ativo !== false;
+  const certificado = await resolveCertificadoIdForEmpresaRpsPatch(cnpj, empresaJson, userId);
 
-  await atualizarEmpresaPlugNotas({
+  const patchPayload = {
     cpfCnpj: cnpj,
     rps: cloneEmpresaPlugnotasRpsInicialPost(),
     nfse: {
@@ -905,5 +912,8 @@ export async function ensureEmpresaPlugnotasRpsForNfseEmit(cnpjInput, empresaJso
         rps: { ...EMPRESA_PLUGNOTAS_NFSE_CONFIG_RPS_CANONICAL }
       }
     }
-  });
+  };
+  if (certificado) patchPayload.certificado = certificado;
+
+  await atualizarEmpresaPlugNotas(patchPayload);
 }

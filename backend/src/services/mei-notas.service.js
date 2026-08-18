@@ -1474,6 +1474,7 @@ const emitNfseWithAutoRpsRecovery = async (
         cnpjPrestadorNfse,
         allocation,
         empresaJsonCache,
+        userId,
       );
     } catch (syncError) {
       // Contador local atrasado vs Plug (Pendente/Processando/Cancelado): sync falha
@@ -2093,7 +2094,7 @@ export const emitirNota = async (userId, input) => {
         || String(payload?.prestador?.cpfCnpj || payload?.emitente?.cpfCnpj || '').replace(/\D/g, '');
       if (cnpjPrestadorNfse.length === 14) {
         const empresaJsonCache = await ensureMeiNfsePlugnotasCadastroBeforeEmit(userId, cnpjPrestadorNfse);
-        await ensureEmpresaPlugnotasRpsForNfseEmit(cnpjPrestadorNfse, empresaJsonCache);
+        await ensureEmpresaPlugnotasRpsForNfseEmit(cnpjPrestadorNfse, empresaJsonCache, userId);
         const [initialLocalMax, authoritativeMax] = await Promise.all([
           queryMaxRpsNumeroEmitted(userId, cnpjPrestadorNfse),
           queryAuthoritativeNfseRpsMaxUsed(cnpjPrestadorNfse, 0),

@@ -142,6 +142,9 @@ export const BOT_NF_EMIT_IDEMPOTENT_GUARD =
  */
 export const formatNfseEmitErrorForUser = (rawMessage = '') => {
   const msg = String(rawMessage || '').trim();
+  if (!msg) {
+    return 'Não foi possível emitir a nota fiscal agora. Tente de novo em instantes.';
+  }
   if (/certificado digital não encontrado/i.test(msg)) {
     return (
       'Não encontrei certificado A1 activo no emissor fiscal para alinhar a numeração. '
@@ -155,7 +158,20 @@ export const formatNfseEmitErrorForUser = (rawMessage = '') => {
       + 'ou emita pelo app Meu Financeiro → MEI → Notas.'
     );
   }
-  if (/erro interno/i.test(msg)) {
+  if (
+    /certificado\s+(a1|digital|n[aã]o|expirado|vencido|inv[aá]lido|ausente)/i.test(msg)
+    || /envie o arquivo \.pfx/i.test(msg)
+    || /certificado_nao_configurado/i.test(msg)
+  ) {
+    return (
+      'Não foi possível emitir a nota. Verifique certificado A1 e dados fiscais '
+      + 'no app Meu Financeiro → MEI → Notas.'
+    );
+  }
+  if (/^E\d{4}\b/.test(msg) || /\bE\d{4}\s*-\s*/.test(msg)) {
+    return msg.length > 280 ? `${msg.slice(0, 277)}...` : msg;
+  }
+  if (/erro interno/i.test(msg) && !/plugnotas/i.test(msg)) {
     return (
       'A emissora fiscal recusou a NF-e com erro genérico. '
       + 'Confira na app: certificado, NF-e ativa na empresa, endereço completo do cliente '
@@ -163,11 +179,8 @@ export const formatNfseEmitErrorForUser = (rawMessage = '') => {
       + 'Se for venda para outro estado, aceite o aviso interestadual na app e tente de novo.'
     );
   }
-  if (/certificado|plugnotas/i.test(msg)) {
-    return (
-      'Não foi possível emitir a nota. Verifique certificado A1 e dados fiscais '
-      + 'no app Meu Financeiro → MEI → Notas.'
-    );
+  if (msg.length >= 12 && !/^erro no serviço de emissão fiscal$/i.test(msg)) {
+    return msg.length > 280 ? `${msg.slice(0, 277)}...` : msg;
   }
   return msg || 'Não foi possível emitir a nota fiscal agora. Tente de novo em instantes.';
 };

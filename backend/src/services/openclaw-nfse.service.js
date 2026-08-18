@@ -1669,7 +1669,16 @@ export const rethrowNfseErrorForBot = (err) => {
       botHint: loopGuard,
     });
   }
-  if (/erro interno|certificado|plugnotas/i.test(rawMsg)) {
+  if (
+    /certificado digital não encontrado|certificado_nao_configurado|envie o arquivo \.pfx/i.test(rawMsg)
+    || (/certificado/i.test(rawMsg) && /n[aã]o encontrado|ausente|inv[aá]lido|expirado/i.test(rawMsg))
+  ) {
+    throw badRequest(userMessage, {
+      code: code || 'NFSE_CERTIFICADO',
+      botHint: loopGuard,
+    });
+  }
+  if (/erro interno/i.test(rawMsg) && !/\bE\d{4}\b/.test(rawMsg)) {
     throw badRequest(userMessage, {
       code: code || 'NFSE_PLUGNOTAS',
       botHint: loopGuard,

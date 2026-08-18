@@ -644,7 +644,7 @@ const isCertificadoDuplicado409 = (error) => {
   return m.includes('certificado') && (m.includes('já existe') || m.includes('ja existe') || m.includes('parâmetros'));
 };
 
-const extractCertificadoIdFromEmpresaPayload = (payload) => {
+export const extractCertificadoIdFromEmpresaPayload = (payload) => {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
   const root = toObject(payload);
   const data = toObject(payload?.data);
