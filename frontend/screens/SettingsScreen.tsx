@@ -334,6 +334,9 @@ export default function SettingsScreen() {
       return "Este número de WhatsApp já está em outra conta. Entre na conta certa ou peça ao suporte para desvincular.";
     }
     const message = getErrorMessage(error);
+    if (/não autenticado|sessão inválida|sessão expirada|token ausente/i.test(message)) {
+      return "Sessão expirada. Saia da conta, entre novamente e tente salvar o telefone.";
+    }
     if (message && message !== "{}") return message;
     return "Erro ao salvar telefone. Por favor, tente novamente.";
   };

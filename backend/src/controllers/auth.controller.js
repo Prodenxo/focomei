@@ -125,7 +125,11 @@ export const updatePassword = async (req, res, next) => {
 
 export const updatePhone = async (req, res, next) => {
   try {
-    const phone = await authService.updatePhone(req.accessToken, req.body.phone);
+    const phone = await authService.updatePhone(
+      req.accessToken,
+      req.body.phone,
+      req.user,
+    );
     return sendSuccess(res, { phone }, 'Telefone atualizado');
   } catch (error) {
     return next(error);

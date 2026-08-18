@@ -27,6 +27,7 @@ import {
   localSignOut,
   localSignUp,
   localUpdatePassword,
+  localUpdatePhone,
   verifyLocalAccessToken,
 } from './local-auth.service.js';
 import { claimInviteTokenForSignup } from './invite-claim.service.js';
@@ -553,9 +554,21 @@ export const updatePassword = async ({ accessToken, userId, newPassword }) => {
   }
 };
 
-export const updatePhone = async (accessToken, phone) => {
+export const updatePhone = async (accessToken, phone, authenticatedUser = null) => {
   if (!accessToken) throw unauthorized();
   if (!phone) throw badRequest('Telefone é obrigatório');
+
+  const cleanedPhone = assertValidWhatsappPhone(phone);
+
+  if (isLocalAuthMode()) {
+    const user = authenticatedUser?.id
+      ? authenticatedUser
+      : verifyLocalAccessToken(accessToken);
+    if (!user?.id) {
+      throw unauthorized('Sessão inválida ou expirada. Faça login novamente.');
+    }
+    return localUpdatePhone(user.id, cleanedPhone);
+  }
 
   const supabase = createSupabaseClient({ accessToken });
   const { data: { user } = {}, error: userError } = await supabase.auth.getUser();
@@ -565,7 +578,6 @@ export const updatePhone = async (accessToken, phone) => {
     throw badRequest('SUPABASE_SERVICE_ROLE_KEY não configurada');
   }
 
-  const cleanedPhone = assertValidWhatsappPhone(phone);
   const adminClient = createSupabaseClient({ useServiceRole: true });
 
   await releaseAuthPhoneFromOtherUsers(adminClient, cleanedPhone, user.id);

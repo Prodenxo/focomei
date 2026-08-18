@@ -1,7 +1,12 @@
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { query } from '../config/pg.js';
+import { createSupabaseClient } from '../config/supabase.js';
 import { env } from '../config/env.js';
 import { badRequest, unauthorized, forbidden } from '../utils/errors.js';
+import {
+  assignN8nPhoneToUser,
+  buildPhoneLookupCandidates,
+} from './n8n-link-phone.service.js';
 import { assertStrongPassword } from '../utils/passwordPolicy.js';
 import {
   buildRecoveryUrl,
@@ -748,4 +753,88 @@ export const localUpdatePassword = async ({ userId, newPassword }) => {
 
 export const localSignOut = async () => {
   // JWT stateless — cliente descarta o token
+};
+
+const releaseLocalPhoneFromOtherUsers = async (cleanedPhone, userId) => {
+  const variants = [
+    ...new Set([cleanedPhone, ...buildPhoneLookupCandidates(cleanedPhone)]),
+  ];
+  const { rows } = await query(
+    `SELECT id, raw_user_meta_data
+     FROM public.users
+     WHERE id <> $1
+       AND deleted_at IS NULL
+       AND (
+         phone = ANY($2::text[])
+         OR (raw_user_meta_data->>'phone') = ANY($2::text[])
+       )`,
+    [userId, variants],
+  );
+
+  for (const row of rows) {
+    const meta = {
+      ...(row.raw_user_meta_data && typeof row.raw_user_meta_data === 'object'
+        ? row.raw_user_meta_data
+        : {}),
+      phone: null,
+    };
+    await query(
+      `UPDATE public.users
+       SET phone = NULL,
+           raw_user_meta_data = $1::jsonb,
+           updated_at = now()
+       WHERE id = $2`,
+      [JSON.stringify(meta), row.id],
+    );
+  }
+};
+
+/**
+ * Atualiza telefone WhatsApp no AUTH_MODE=local (Postgres + n8n_link).
+ * @param {string} userId
+ * @param {string} cleanedPhone — formato canónico (ex.: 5521999602300)
+ */
+export const localUpdatePhone = async (userId, cleanedPhone) => {
+  const { rows: existing } = await query(
+    `SELECT id, raw_user_meta_data
+     FROM public.users
+     WHERE id = $1 AND deleted_at IS NULL
+     LIMIT 1`,
+    [userId],
+  );
+  if (!existing[0]) throw unauthorized();
+
+  await releaseLocalPhoneFromOtherUsers(cleanedPhone, userId);
+
+  const currentMeta =
+    existing[0].raw_user_meta_data && typeof existing[0].raw_user_meta_data === 'object'
+      ? existing[0].raw_user_meta_data
+      : {};
+  const nextMeta = { ...currentMeta, phone: cleanedPhone };
+
+  await query(
+    `UPDATE public.users
+     SET phone = $1,
+         raw_user_meta_data = $2::jsonb,
+         updated_at = now()
+     WHERE id = $3`,
+    [cleanedPhone, JSON.stringify(nextMeta), userId],
+  );
+
+  try {
+    await query(
+      'UPDATE public.profiles SET phone = $1 WHERE id = $2',
+      [cleanedPhone, userId],
+    );
+  } catch (profileErr) {
+    console.warn(
+      '[LocalAuth] profiles.phone não atualizado:',
+      profileErr?.message || profileErr,
+    );
+  }
+
+  const adminClient = createSupabaseClient({ useServiceRole: true });
+  await assignN8nPhoneToUser(adminClient, userId, cleanedPhone);
+
+  return cleanedPhone;
 };

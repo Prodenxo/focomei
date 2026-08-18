@@ -394,18 +394,29 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   updatePhone: async (phone) => {
     const savedPhone = await updatePhoneApi(phone);
     const currentState = useAuthStore.getState();
+    const nextUser = currentState.user
+      ? {
+          ...currentState.user,
+          user_metadata: {
+            ...currentState.user.user_metadata,
+            phone: savedPhone,
+          },
+        }
+      : null;
     set({
       phone: savedPhone,
-      user: currentState.user
-        ? {
-            ...currentState.user,
-            user_metadata: {
-              ...currentState.user.user_metadata,
-              phone: savedPhone,
-            },
-          }
-        : null,
+      user: nextUser,
     });
+    if (isLocalApiAuthMode()) {
+      const snap = await readLocalAuthSnapshot();
+      if (snap) {
+        await writeLocalAuthSnapshot({
+          ...snap,
+          phone: savedPhone,
+          user: nextUser || snap.user,
+        });
+      }
+    }
   },
   updateDisplayName: async (displayName) => {
     const { data, error } = await supabase.auth.updateUser({
