@@ -9,6 +9,7 @@ import {
   pickClienteCatalogoByNomeResult,
   pickProdutoCatalogoByCodigoCnaeResult,
   pickProdutoCatalogoByCodigoResult,
+  pickProdutoCatalogoByIndexResult,
   pickProdutoCatalogoByNomeResult,
 } from '../src/services/openclaw-nfse.service.js';
 import { formatNfseCatalogChoiceMessage } from '../src/services/openclaw-nf-user-messages.js';
@@ -109,6 +110,17 @@ test('pickClienteCatalogoByNomeResult — NFE+NFSE mesmo CPF não é ambíguo', 
   assert.equal(r.cliente.documento, '11953257704');
   // Preferência NFE quando ambos têm endereço
   assert.equal(r.cliente.id, 'nfe-1');
+});
+
+test('pickProdutoCatalogoByIndexResult — índice 1-based', () => {
+  const rows = [
+    { id: '1', discriminacao: 'Treinamento', codigo: '080201', cnae: '8599604' },
+    { id: '2', discriminacao: 'Comércio varejista', codigo: null, cnae: '4757100' },
+  ];
+  const ok = pickProdutoCatalogoByIndexResult(rows, 2);
+  assert.equal(ok.kind, 'ok');
+  assert.equal(ok.produto.id, '2');
+  assert.equal(pickProdutoCatalogoByIndexResult(rows, 99).kind, 'not_found');
 });
 
 test('hasExplicitNfseServicoSelection — índice ou código contam; texto livre não', () => {

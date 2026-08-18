@@ -13,7 +13,7 @@ import {
   reconcileEmitenteMirrorFromEmpresaJson,
 } from './mei-emitente-empresa-sync.js';
 import { consultarEmpresaAndReconcileMirror } from './mei-notas-documentos-mirror.js';
-import { resolveCodigoNbsForServico } from './nfse-codigo-nbs.js';
+import { resolveCodigoNbsForServico, normalizeLc116CodigoKey } from './nfse-codigo-nbs.js';
 import {
   atualizarCatalogoCliente,
   baixarPdf,
@@ -25,6 +25,7 @@ import {
   listarNotas,
   obterNota,
   NFSE_SERVICO_CODIGO_MIN_LENGTH,
+  sugerirCodigosServicosPorTexto,
 } from './mei-notas.service.js';
 import {
   buildOpenclawNfseEmitFingerprint,
@@ -286,7 +287,7 @@ const findProdutoCatalogoByNome = async (userId, nome) => {
   return result;
 };
 
-const pickProdutoCatalogoByIndexResult = (rows, indexRaw) => {
+export const pickProdutoCatalogoByIndexResult = (rows, indexRaw) => {
   const index = Number(indexRaw);
   if (!Number.isInteger(index) || index < 1) return { kind: 'missing' };
   const list = Array.isArray(rows) ? rows : [];
@@ -313,10 +314,53 @@ const pickCodigoNbsFromCatalogMetadata = (metadataJson) => {
   return String(raw).trim();
 };
 
+const pickCodigoServicoFromCatalogMetadata = (metadataJson) => {
+  if (!metadataJson || typeof metadataJson !== 'object' || Array.isArray(metadataJson)) {
+    return null;
+  }
+  const raw = metadataJson.codigoServico
+    ?? metadataJson.codigo_servico
+    ?? metadataJson.codigoLc116
+    ?? metadataJson.codigo_lc116;
+  if (raw === undefined || raw === null || raw === '') return null;
+  const normalized = normalizeLc116CodigoKey(raw);
+  return normalized.length >= NFSE_SERVICO_CODIGO_MIN_LENGTH ? normalized : String(raw).trim();
+};
+
+const tryInferCodigoServicoFromDiscriminacao = async (discriminacao) => {
+  const texto = String(discriminacao || '').trim();
+  if (!texto) return null;
+  const suggestions = await sugerirCodigosServicosPorTexto({ texto, limit: 1 });
+  if (!Array.isArray(suggestions) || suggestions.length !== 1) return null;
+  const normalized = normalizeLc116CodigoKey(suggestions[0]?.codigo);
+  return normalized.length >= NFSE_SERVICO_CODIGO_MIN_LENGTH ? normalized : null;
+};
+
+const throwNfseCatalogServicoMissingCodigo = (produto, servicoIndice = null) => {
+  const nome = String(produto?.discriminacao || 'serviço selecionado').trim();
+  const pos = servicoIndice != null ? ` (item ${servicoIndice})` : '';
+  throw badRequest(
+    `O serviço "${nome}"${pos} não tem código municipal (LC 116) cadastrado. `
+    + 'Edite na app Meu Financeiro → MEI → Notas ou cadastre o código com register_nfse_produto.',
+    {
+      code: 'NFSE_CODIGO_SERVICO_MISSING',
+      servicoIndice,
+      discriminacao: nome,
+      botHint:
+        'Não peça para escolher serviço de novo — o índice já foi escolhido. '
+        + 'Oriente cadastrar codigoServico na app ou register_nfse_produto.',
+    },
+  );
+};
+
 const applyProdutoCatalogoToServico = (produto, refs) => {
   if (!produto) return refs;
   const next = { ...refs };
   if (!next.codigo && produto.codigo) next.codigo = String(produto.codigo);
+  if (!next.codigo) {
+    const fromMeta = pickCodigoServicoFromCatalogMetadata(produto.metadata_json);
+    if (fromMeta) next.codigo = fromMeta;
+  }
   if (!next.cnae && produto.cnae) next.cnae = String(produto.cnae);
   if (
     (next.aliquotaRaw === undefined || next.aliquotaRaw === null || next.aliquotaRaw === '')
@@ -384,7 +428,11 @@ const resolveServicoDefaults = async (userId, payload, emitente) => {
     );
   }
 
+  let catalogProdutoResolved = null;
+  let catalogServicoIndice = null;
+
   const applyCatalogProduto = (produto) => {
+    catalogProdutoResolved = produto;
     const merged = applyProdutoCatalogoToServico(produto, {
       codigo,
       cnae,
@@ -410,9 +458,22 @@ const resolveServicoDefaults = async (userId, payload, emitente) => {
   }
 
   const servicoIndice = firstNonEmpty(payload?.servicoIndice, payload?.servicoNumero, payload?.indice);
-  if (!codigo && servicoIndice) {
+  if (servicoIndice) {
+    catalogServicoIndice = servicoIndice;
     const byIndex = pickProdutoCatalogoByIndexResult(catalogNfse, servicoIndice);
-    if (byIndex.kind === 'ok') applyCatalogProduto(byIndex.produto);
+    if (byIndex.kind === 'ok') {
+      applyCatalogProduto(byIndex.produto);
+    } else if (byIndex.kind === 'not_found') {
+      throw badRequest(
+        `Serviço ${servicoIndice} não existe no catálogo (há ${catalogNfse.length} serviço(s)). `
+        + 'Use list_catalog_servicos e confira a numeração.',
+        {
+          code: 'NFSE_SERVICO_INDEX_NOT_FOUND',
+          servicoIndice: Number(servicoIndice),
+          botHint: 'Liste o catálogo de novo e repita preview_nfse com servicoIndice válido.',
+        },
+      );
+    }
   }
 
   if (codigo && (!cnae || !discriminacao)) {
@@ -455,6 +516,11 @@ const resolveServicoDefaults = async (userId, payload, emitente) => {
         botHint: 'Mostre a lista numerada e use servicoIndice ou codigoServico do catálogo.',
       });
     }
+  }
+
+  if (!codigo && discriminacao) {
+    const inferred = await tryInferCodigoServicoFromDiscriminacao(discriminacao);
+    if (inferred) codigo = inferred;
   }
 
   if (!codigo || !cnae || !discriminacao) {
@@ -508,6 +574,8 @@ const resolveServicoDefaults = async (userId, payload, emitente) => {
           botHint: 'Liste o catálogo e use servicoIndice ou codigoServico antes de preview_nfse.',
         },
       );
+    } else if (catalogProdutoResolved && discriminacao && cnae && !codigo) {
+      throwNfseCatalogServicoMissingCodigo(catalogProdutoResolved, catalogServicoIndice);
     } else {
       throw badRequest(formatNfseCatalogChoiceMessage(catalogNfse), {
         code: 'NFSE_SERVICO_CHOICE_REQUIRED',
@@ -532,6 +600,9 @@ const resolveServicoDefaults = async (userId, payload, emitente) => {
   }
 
   if (!codigo) {
+    if (catalogProdutoResolved) {
+      throwNfseCatalogServicoMissingCodigo(catalogProdutoResolved, catalogServicoIndice);
+    }
     throw badRequest(
       `Informe o código do serviço municipal (mín. ${NFSE_SERVICO_CODIGO_MIN_LENGTH} caracteres) ou cadastre um serviço na app.`,
       {
