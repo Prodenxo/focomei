@@ -1,4 +1,4 @@
-import { emitStripeMeiContrato, getContratoSignatario } from '../services/adminBillingService'
+import { emitStripeMeiContrato, getContratoSignatario, type EmitStripeMeiContratoInput } from '../services/adminBillingService'
 import { isSignatarioCpfMissingError } from './contratoSignatarioCpf'
 
 export interface SignatarioCpfPromptState {
@@ -34,10 +34,20 @@ export async function emitContratoOrPromptCpf(input: {
   ownerId?: string | null
   ownerDisplayName?: string | null
   ownerEmail?: string | null
+  funilId?: number | null
+  vendedorId?: number | null
+  valor?: number | null
   onCpfRequired: (prompt: SignatarioCpfPromptState) => void
 }): Promise<'sent' | 'cpf_prompt'> {
+  const emitBody: EmitStripeMeiContratoInput = {
+    empresaId: input.empresaId,
+    funilId: input.funilId ?? undefined,
+    vendedorId: input.vendedorId ?? undefined,
+    valor: input.valor ?? undefined,
+  }
+
   try {
-    await emitStripeMeiContrato(input.empresaId)
+    await emitStripeMeiContrato(emitBody)
     return 'sent'
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err ?? '')

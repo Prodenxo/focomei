@@ -4,6 +4,10 @@
 Servidor webhook 24h — recebe POST do FocoMEI após pagamento Stripe
 e gera o contrato no Onety automaticamente.
 
+Rotas:
+  POST /webhook/contrato              — gera contrato Autentique (fluxo existente)
+  POST /webhook/crm/preparar-proposta — cria lead CRM + move para Proposta
+
 Uso local:
   cd "robo contrato"
   python webhook_server.py
@@ -17,7 +21,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -28,7 +31,6 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parent
 ENTRADA = ROOT / "entrada"
 
-# Importa lógica existente do robô (sem duplicar)
 from gerar_contrato import (
     OnetyClient,
     autenticar,
@@ -172,8 +174,67 @@ def processar_payload_focomei(body: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def processar_crm_preparar_proposta(body: dict[str, Any]) -> dict[str, Any]:
+    cfg = resolver_config()
+    client, _, _ = get_client()
+
+    nome = str(body.get("nome") or "").strip()
+    email = str(body.get("email") or "").strip()
+    funil_id = body.get("funil_id")
+    fase_lead = body.get("funil_fase_id_lead") or body.get("funil_fase_id")
+    fase_proposta = body.get("funil_fase_id_proposta")
+
+    if not nome:
+        return {"ok": False, "error": "nome é obrigatório"}
+    if not email:
+        return {"ok": False, "error": "email é obrigatório"}
+    if funil_id in (None, ""):
+        return {"ok": False, "error": "funil_id é obrigatório"}
+    if fase_lead in (None, ""):
+        return {"ok": False, "error": "funil_fase_id_lead é obrigatório"}
+    if fase_proposta in (None, ""):
+        return {"ok": False, "error": "funil_fase_id_proposta é obrigatório"}
+
+    empresa_id = body.get("empresa_id") or cfg.get("empresa_id")
+    usuario_id = body.get("usuario_id")
+    telefone = str(body.get("telefone") or "0000000000").strip()
+    valor = body.get("valor")
+
+    lead_payload: dict[str, Any] = {
+        "nome": nome,
+        "telefone": telefone,
+        "email": email,
+        "data_prevista": body.get("data_prevista"),
+        "funil_id": int(funil_id),
+        "funil_fase_id": int(fase_lead),
+        "usuario_id": int(usuario_id) if usuario_id not in (None, "") else None,
+        "pre_venda_id": body.get("pre_venda_id"),
+        "empresa_id": int(empresa_id),
+        "valor": valor,
+        "status": str(body.get("status") or "aberto"),
+    }
+    lead_payload = {k: v for k, v in lead_payload.items() if v is not None}
+
+    log.info("CRM: criando lead funil=%s fase=%s nome=%s", funil_id, fase_lead, nome[:40])
+    criado = client.criar_lead(lead_payload)
+    lead_id = criado.get("leadId") or criado.get("id")
+    if not lead_id:
+        return {"ok": False, "error": f"API não retornou leadId: {criado}"}
+
+    log.info("CRM: movendo lead %s → Proposta (fase %s)", lead_id, fase_proposta)
+    client.mover_lead_fase(lead_id, int(fase_proposta))
+
+    return {
+        "ok": True,
+        "leadId": int(lead_id),
+        "fase_proposta_id": int(fase_proposta),
+        "funil_id": int(funil_id),
+        "message": "Lead criado e movido para Proposta",
+    }
+
+
 class WebhookHandler(BaseHTTPRequestHandler):
-    server_version = "RoboContratoWebhook/1.0"
+    server_version = "RoboContratoWebhook/1.1"
 
     def log_message(self, fmt: str, *args: Any) -> None:
         log.info("%s - %s", self.address_string(), fmt % args)
@@ -193,20 +254,11 @@ class WebhookHandler(BaseHTTPRequestHandler):
             return
         self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
 
-    def do_POST(self) -> None:
-        path = urlparse(self.path).path
-        if path not in ("/webhook/contrato", "/webhook/contrato/"):
-            self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
-            return
-
-        if not validar_auth(self.headers.get("Authorization")):
-            self._send_json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "unauthorized"})
-            return
-
+    def _read_json_body(self) -> dict[str, Any] | None:
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0:
             self._send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "body_vazio"})
-            return
+            return None
 
         try:
             raw = self.rfile.read(length)
@@ -216,17 +268,40 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 HTTPStatus.BAD_REQUEST,
                 {"ok": False, "error": f"json_invalido: {exc}"},
             )
-            return
+            return None
 
         if not isinstance(body, dict):
             self._send_json(
                 HTTPStatus.BAD_REQUEST,
                 {"ok": False, "error": "esperado objeto JSON"},
             )
+            return None
+
+        return body
+
+    def do_POST(self) -> None:
+        path = urlparse(self.path).path.rstrip("/") or "/"
+
+        if path not in ("/webhook/contrato", "/webhook/crm/preparar-proposta"):
+            self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
             return
 
+        if not validar_auth(self.headers.get("Authorization")):
+            self._send_json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "unauthorized"})
+            return
+
+        body = self._read_json_body()
+        if body is None:
+            return
+
+        handler_fn = (
+            processar_crm_preparar_proposta
+            if path == "/webhook/crm/preparar-proposta"
+            else processar_payload_focomei
+        )
+
         try:
-            resultado = processar_payload_focomei(body)
+            resultado = handler_fn(body)
             status = HTTPStatus.OK if resultado.get("ok") else HTTPStatus.UNPROCESSABLE_ENTITY
             self._send_json(status, resultado)
         except RuntimeError as exc:
@@ -234,7 +309,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 log.warning("Token Onety inválido — tentando relogin e reprocessando")
                 invalidate_client()
                 try:
-                    resultado = processar_payload_focomei(body)
+                    resultado = handler_fn(body)
                     status = HTTPStatus.OK if resultado.get("ok") else HTTPStatus.UNPROCESSABLE_ENTITY
                     self._send_json(status, resultado)
                     return
@@ -277,6 +352,7 @@ def main() -> int:
 
     httpd = ThreadingHTTPServer((host, port), WebhookHandler)
     log.info("Webhook ouvindo em http://%s:%s/webhook/contrato", host, port)
+    log.info("CRM webhook: http://%s:%s/webhook/crm/preparar-proposta", host, port)
     if _webhook_secret:
         log.info("Autenticação Bearer ativa (WEBHOOK_SECRET)")
     else:

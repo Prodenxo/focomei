@@ -380,4 +380,7 @@ export const env = {
   ONETY_CONTRATO_WEBHOOK_SECRET: normalizeEnvSecret(
     process.env.ONETY_CONTRATO_WEBHOOK_SECRET || "",
   ),
+  /** Webhook CRM (lead + Proposta). Se vazio, deriva de ONETY_CONTRATO_WEBHOOK_URL. */
+  ONETY_CRM_WEBHOOK_URL: (process.env.ONETY_CRM_WEBHOOK_URL || "").trim(),
+  ONETY_CRM_DEFAULT_VENDEDOR_ID: (process.env.ONETY_CRM_DEFAULT_VENDEDOR_ID || "1083").trim(),
 };

@@ -305,6 +305,43 @@ class OnetyClient:
             raise RuntimeError(f"Resposta inesperada ao criar cliente: {data}")
         return data
 
+    def criar_lead(self, payload: dict[str, Any]) -> dict[str, Any]:
+        data = self.request("POST", "/comercial/leads", json_body=payload)
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Resposta inesperada ao criar lead: {data}")
+        return data
+
+    def mover_lead_fase(self, lead_id: int | str, funil_fase_id: int) -> dict[str, Any]:
+        data = self.request(
+            "PUT",
+            f"/comercial/leads/{lead_id}/mover-fase",
+            json_body={"funil_fase_id": int(funil_fase_id)},
+        )
+        if isinstance(data, dict):
+            return data
+        return {"ok": True, "raw": data}
+
+    def listar_funil_fases(self, funil_id: int | str) -> list[dict[str, Any]]:
+        """Tenta listar fases do funil (endpoint pode variar por versão Onety)."""
+        paths = (
+            f"/comercial/funis/{funil_id}/fases",
+            f"/comercial/funil-fases/{funil_id}",
+            f"/comercial/funil/{funil_id}/fases",
+        )
+        for path in paths:
+            try:
+                data = self.request("GET", path, timeout=30)
+            except Exception:
+                continue
+            if isinstance(data, list):
+                return [x for x in data if isinstance(x, dict)]
+            if isinstance(data, dict):
+                for key in ("data", "fases", "funil_fases", "items"):
+                    raw = data.get(key)
+                    if isinstance(raw, list):
+                        return [x for x in raw if isinstance(x, dict)]
+        return []
+
     def criar_contrato_html(self, payload: dict[str, Any]) -> dict[str, Any]:
         data = self.request(
             "POST",

@@ -24,6 +24,7 @@ import {
 import type { EmpresaOption } from '../../services/empresaService';
 import { emitContratoOrPromptCpf, type SignatarioCpfPromptState } from '../../lib/emitContratoWithCpfRecovery';
 import { SignatarioCpfModal } from './SignatarioCpfModal';
+import { OnetyFunilPicker } from './OnetyFunilPicker';
 
 type PaymentFilter = '' | 'pix' | 'card';
 type ContratoFilter = '' | 'pending' | 'sent' | 'failed' | 'skipped';
@@ -92,6 +93,7 @@ export function MeiPaymentApprovalsTab({
   const [emittingId, setEmittingId] = useState<string | null>(null);
   const [cpfPrompt, setCpfPrompt] = useState<SignatarioCpfPromptState | null>(null);
   const [cpfRetryItem, setCpfRetryItem] = useState<MeiPaymentApprovalItem | null>(null);
+  const [selectedFunilId, setSelectedFunilId] = useState<number | null>(null);
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -122,6 +124,10 @@ export function MeiPaymentApprovalsTab({
   }, [loadItems]);
 
   const handleEmitContrato = async (item: MeiPaymentApprovalItem) => {
+    if (!selectedFunilId) {
+      onFeedback?.({ type: 'error', message: 'Selecione um funil comercial antes de gerar o contrato.' });
+      return;
+    }
     setEmittingId(item.lineId);
     try {
       const result = await emitContratoOrPromptCpf({
@@ -130,6 +136,8 @@ export function MeiPaymentApprovalsTab({
         ownerId: item.ownerId,
         ownerDisplayName: item.ownerDisplayName,
         ownerEmail: item.ownerEmail,
+        funilId: selectedFunilId,
+        valor: item.valueNumeric,
         onCpfRequired: (prompt) => {
           setCpfRetryItem(item);
           setCpfPrompt(prompt);
@@ -148,10 +156,14 @@ export function MeiPaymentApprovalsTab({
   };
 
   const handleCpfSavedAndRetry = async () => {
-    if (!cpfRetryItem) return;
+    if (!cpfRetryItem || !selectedFunilId) return;
     setEmittingId(cpfRetryItem.lineId);
     try {
-      await emitStripeMeiContrato(cpfRetryItem.empresaId);
+      await emitStripeMeiContrato({
+        empresaId: cpfRetryItem.empresaId,
+        funilId: selectedFunilId,
+        valor: cpfRetryItem.valueNumeric,
+      });
       onFeedback?.({ type: 'success', message: `Contrato enviado para ${cpfRetryItem.empresaName}` });
       await loadItems();
     } catch (err: unknown) {
@@ -228,6 +240,10 @@ export function MeiPaymentApprovalsTab({
             ))}
           </View>
         ) : null}
+      </View>
+
+      <View style={[styles.filtersPanel, panelChrome]}>
+        <OnetyFunilPicker theme={theme} value={selectedFunilId} onChange={setSelectedFunilId} />
       </View>
 
       <View style={[styles.filtersPanel, panelChrome]}>

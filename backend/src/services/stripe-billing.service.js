@@ -604,17 +604,39 @@ export const getContratoSignatarioForEmpresaAdmin = async (accessToken, empresaI
 };
 
 /** Superadmin: gera e envia contrato Onety para empresa com assinatura ativa. */
-export const emitMeiContratoForEmpresaAdmin = async (accessToken, empresaIdInput) => {
+export const emitMeiContratoForEmpresaAdmin = async (accessToken, input = {}) => {
   const requester = await getRequesterContext(accessToken);
   if (requester.role !== "superadmin") throw forbidden();
 
-  const empresaId = String(empresaIdInput || "").trim();
+  const body = typeof input === "string" ? { empresaId: input } : input || {};
+  const empresaId = String(body.empresaId || "").trim();
   if (!empresaId) throw badRequest("empresaId é obrigatório");
+
+  const funilIdRaw = body.funilId;
+  const funilId =
+    funilIdRaw === null || funilIdRaw === undefined || funilIdRaw === ""
+      ? null
+      : Number(funilIdRaw);
+  if (funilId !== null && (!Number.isFinite(funilId) || funilId <= 0)) {
+    throw badRequest("funilId inválido");
+  }
+
+  const vendedorIdRaw = body.vendedorId;
+  const vendedorId =
+    vendedorIdRaw === null || vendedorIdRaw === undefined || vendedorIdRaw === ""
+      ? null
+      : Number(vendedorIdRaw);
+
+  const valorRaw = body.valor;
+  const valor =
+    valorRaw === null || valorRaw === undefined || valorRaw === ""
+      ? null
+      : Number(valorRaw);
 
   const adminClient = createSupabaseClient({ useServiceRole: true });
   const { data: activeLine, error } = await adminClient
     .from("empresa_mei_subscription_lines")
-    .select("id, stripe_checkout_session_id")
+    .select("id, stripe_checkout_session_id, value_numeric")
     .eq("empresa_id", empresaId)
     .eq("status", "active")
     .order("updated_at", { ascending: false })
@@ -626,11 +648,24 @@ export const emitMeiContratoForEmpresaAdmin = async (accessToken, empresaIdInput
     throw badRequest("Nenhuma assinatura MEI ativa — reconcilie o pagamento antes de gerar o contrato.");
   }
 
-  return emitContratoForEmpresaOrThrow(adminClient, {
+  let crm = null;
+  if (funilId) {
+    const { prepararPropostaCrmForEmpresaOrThrow } = await import("./onety-crm.service.js");
+    crm = await prepararPropostaCrmForEmpresaOrThrow(adminClient, {
+      empresaId,
+      funilId,
+      vendedorId,
+      valor: valor ?? activeLine.value_numeric ?? undefined,
+    });
+  }
+
+  const contrato = await emitContratoForEmpresaOrThrow(adminClient, {
     empresaId,
     lineId: activeLine.id,
     checkoutSessionId: activeLine.stripe_checkout_session_id || undefined,
   });
+
+  return { ...contrato, crm };
 };
 
 const PIX_IDEMPOTENCY_WINDOW_MS = 10 * 60 * 1000;

@@ -164,8 +164,33 @@ export async function reconcileStripeMeiPayment(
   );
 }
 
-export async function emitStripeMeiContrato(empresaId: string): Promise<unknown> {
-  return apiClient.post('/admin/billing/stripe/emit-contrato', { empresaId });
+export async function emitStripeMeiContrato(
+  input: string | EmitStripeMeiContratoInput,
+): Promise<unknown> {
+  const body =
+    typeof input === 'string'
+      ? { empresaId: input }
+      : input;
+  return apiClient.post('/admin/billing/stripe/emit-contrato', body);
+}
+
+export interface EmitStripeMeiContratoInput {
+  empresaId: string;
+  funilId?: number | null;
+  vendedorId?: number | null;
+  valor?: number | null;
+}
+
+export interface OnetyCrmFunilOption {
+  id: number;
+  name: string;
+  ready: boolean;
+  faseLeadId: number | null;
+  fasePropostaId: number | null;
+}
+
+export async function listOnetyCrmFunis(): Promise<{ funis: OnetyCrmFunilOption[] }> {
+  return apiClient.get<{ funis: OnetyCrmFunilOption[] }>('/admin/billing/onety-crm/funis');
 }
 
 export interface ConfirmPixMeiPaymentInput {

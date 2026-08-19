@@ -32,6 +32,7 @@ import { MfGlassCard } from './ui/MfGlassCard';
 import { MfScrollView } from './ui/MfScrollView';
 import { MfConfirmDialog } from './ui/MfConfirmDialog';
 import { SignatarioCpfModal } from './admin/SignatarioCpfModal';
+import { OnetyFunilPicker } from './admin/OnetyFunilPicker';
 import { emitContratoOrPromptCpf, resolveSignatarioForEmpresa, type SignatarioCpfPromptState } from '../lib/emitContratoWithCpfRecovery';
 import { isSignatarioCpfMissingError } from '../lib/contratoSignatarioCpf';
 import { useMfTheme } from './ui/useMfTheme';
@@ -107,6 +108,7 @@ export function EmpresaStripeMeiBillingModal({
   const [syncMaxMeiLoading, setSyncMaxMeiLoading] = useState(false);
   const [reconcileLoading, setReconcileLoading] = useState(false);
   const [emitContratoLoading, setEmitContratoLoading] = useState(false);
+  const [selectedFunilId, setSelectedFunilId] = useState<number | null>(null);
   const [cpfPrompt, setCpfPrompt] = useState<SignatarioCpfPromptState | null>(null);
   const [confirmPixLoading, setConfirmPixLoading] = useState(false);
   const [cancelLineId, setCancelLineId] = useState<string | null>(null);
@@ -317,11 +319,16 @@ export function EmpresaStripeMeiBillingModal({
 
   const handleEmitContrato = async () => {
     if (!empresa) return;
+    if (!selectedFunilId) {
+      showToast('Selecione um funil comercial antes de gerar o contrato.', 'error');
+      return;
+    }
     setEmitContratoLoading(true);
     try {
       const result = await emitContratoOrPromptCpf({
         empresaId: empresa.id,
         empresaName: empresaDisplayName,
+        funilId: selectedFunilId,
         onCpfRequired: setCpfPrompt,
       });
       if (result === 'sent') {
@@ -335,10 +342,10 @@ export function EmpresaStripeMeiBillingModal({
   };
 
   const handleCpfSavedAndRetryContrato = async () => {
-    if (!empresa) return;
+    if (!empresa || !selectedFunilId) return;
     setEmitContratoLoading(true);
     try {
-      await emitStripeMeiContrato(empresa.id);
+      await emitStripeMeiContrato({ empresaId: empresa.id, funilId: selectedFunilId });
       showToast('Contrato enviado ao robô Onety. Confira os logs do robo-contrato.', 'success');
     } catch (e: unknown) {
       showToast(apiErrorMessage(e, 'Erro ao gerar contrato'), 'error');
@@ -544,6 +551,15 @@ export function EmpresaStripeMeiBillingModal({
                 <Text style={styles.heroMeta} selectable>
                   Ref. {shortEmpresaId(empresa.id)}
                 </Text>
+              </View>
+
+              <View style={styles.sectionBlock}>
+                <OnetyFunilPicker
+                  theme={theme}
+                  value={selectedFunilId}
+                  onChange={setSelectedFunilId}
+                  compact
+                />
               </View>
 
               <View style={styles.sectionBlock}>

@@ -104,6 +104,12 @@ router.post(
   requireSuperAdmin,
   adminBillingController.emitStripeMeiContrato
 );
+router.get(
+  '/billing/onety-crm/funis',
+  requireAuth,
+  requireSuperAdmin,
+  adminBillingController.listOnetyCrmFunis
+);
 router.post(
   '/billing/pix/confirm-payment',
   requireAuth,

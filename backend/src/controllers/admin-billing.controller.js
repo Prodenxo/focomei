@@ -60,12 +60,24 @@ export const reconcileStripeMeiPayment = async (req, res, next) => {
 
 export const emitStripeMeiContrato = async (req, res, next) => {
   try {
-    const empresaId = String(req.body?.empresaId || '').trim();
     const data = await stripeBillingService.emitMeiContratoForEmpresaAdmin(
       req.accessToken,
-      empresaId,
+      req.body || {},
     );
-    return sendSuccess(res, data, 'Contrato enviado ao robô Onety com sucesso');
+    const crmLeadId = data?.crm?.dispatch?.response?.leadId;
+    const msg = crmLeadId
+      ? `Lead CRM #${crmLeadId} criado e contrato enviado ao robô Onety`
+      : 'Contrato enviado ao robô Onety com sucesso';
+    return sendSuccess(res, data, msg);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const listOnetyCrmFunis = async (req, res, next) => {
+  try {
+    const { listOnetyCrmFunis: listFunis } = await import('../services/onety-crm.service.js');
+    return sendSuccess(res, { funis: listFunis() });
   } catch (error) {
     return next(error);
   }
