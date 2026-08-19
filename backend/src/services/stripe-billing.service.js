@@ -650,6 +650,11 @@ export const emitMeiContratoForEmpresaAdmin = async (accessToken, input = {}) =>
 
   let crm = null;
   if (funilId) {
+    const { getFunilById } = await import("../config/onety-crm-funis.js");
+    const funil = getFunilById(funilId);
+    if (!funil) {
+      throw badRequest("Funil comercial inválido ou não habilitado para gerar contrato no FocoMEI.");
+    }
     const { prepararPropostaCrmForEmpresaOrThrow } = await import("./onety-crm.service.js");
     crm = await prepararPropostaCrmForEmpresaOrThrow(adminClient, {
       empresaId,

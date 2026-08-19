@@ -31,15 +31,22 @@ Credenciais: mesmo `config.env` do serviço `services/robo-contrato/` (`EMAIL`, 
 
 ## Mapa de funis (`funil_id`)
 
-| Funil | ID | Fase Lead | Fase Proposta |
-|-------|-----|-----------|---------------|
-| Tráfego Pago | 598 | _pendente_ | _pendente_ |
-| Franqueado Cf | 583 | _pendente_ | _pendente_ |
-| **BNI** | **597** | **2874** | **2871** |
-| Workshop - Método Mei Lucrativo | 716 | _pendente_ | _pendente_ |
-| Funil De Aquisição Whatsapp | 794 | _pendente_ | _pendente_ |
-| Funil De Captação - Evento Dna Contábil | 807 | _pendente_ | _pendente_ |
-| Contrio Mangaratiba | 682 | _pendente_ | _pendente_ |
+| Funil | ID | Fase Lead | Fase Proposta | Status |
+|-------|-----|-----------|---------------|--------|
+| **BNI** | **597** | **2874** | **2871** | Pronto |
+| **Tráfego Pago** | **598** | **2880** | **2877** | Pronto |
+| **Franqueado Cf** | **583** | **2827** | **2798** | Pronto |
+| **Workshop - Método Mei Lucrativo** | **716** | **3482** | **3479** | Pronto |
+| **Funil De Captação - Evento Dna Contábil** | **807** | **3951** | **3948** | Pronto |
+
+**Não liberados para contrato no FocoMEI** (sem fases CRM mapeadas):
+
+| Funil | ID |
+|-------|-----|
+| Funil De Aquisição Whatsapp | 794 |
+| Contrio Mangaratiba | 682 |
+
+**Dois IDs por funil:** Lead vem do `POST /comercial/leads`; Proposta vem do `PUT .../mover-fase` (arrastar card no kanban).
 
 Fases Lead/Proposta variam por funil. Configurar em `backend/src/config/onety-crm-funis.js` após capturar no DevTools (arrastar card Lead → Proposta).
 

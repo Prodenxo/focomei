@@ -185,6 +185,7 @@ export interface OnetyCrmFunilOption {
   id: number;
   name: string;
   ready: boolean;
+  crmEnabled: boolean;
   faseLeadId: number | null;
   fasePropostaId: number | null;
 }

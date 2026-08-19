@@ -93,6 +93,7 @@ export function OnetyFunilPicker({ theme, value, onChange, compact = false }: Pr
               {funis.map((funil) => {
                 const disabled = !funil.ready
                 const active = funil.id === value
+                const metaLabel = funil.crmEnabled ? `CRM · ID ${funil.id}` : 'Indisponível'
                 return (
                   <TouchableOpacity
                     key={funil.id}
@@ -108,9 +109,7 @@ export function OnetyFunilPicker({ theme, value, onChange, compact = false }: Pr
                       <Text style={[styles.optionTitle, disabled && styles.optionTitleDisabled]}>
                         {funil.name}
                       </Text>
-                      <Text style={styles.optionMeta}>
-                        {disabled ? 'Fases não configuradas' : `ID ${funil.id}`}
-                      </Text>
+                      <Text style={styles.optionMeta}>{metaLabel}</Text>
                     </View>
                     {active ? <Ionicons name="checkmark-circle" size={20} color={theme.primary} /> : null}
                   </TouchableOpacity>
