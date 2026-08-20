@@ -668,6 +668,7 @@ export const emitMeiContratoForEmpresaAdmin = async (accessToken, input = {}) =>
     empresaId,
     lineId: activeLine.id,
     checkoutSessionId: activeLine.stripe_checkout_session_id || undefined,
+    onetyLeadId: crm?.dispatch?.response?.leadId ?? undefined,
   });
 
   return { ...contrato, crm };

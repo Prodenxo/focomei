@@ -142,6 +142,7 @@ export const buildStripeContratoPayload = ({
   signatario,
   meiSlots,
   valorMensal,
+  onetyLeadId,
 }) => {
   const slots = Number(meiSlots) || 0
   const pricing = resolveMeiPricing(slots)
@@ -163,29 +164,38 @@ export const buildStripeContratoPayload = ({
     signatario?.phone || meta.phone || empresa?.telefone,
   )
 
+  const leadIdNum = Number(onetyLeadId)
+  const onetyLeadIdFinal =
+    Number.isFinite(leadIdNum) && leadIdNum > 0 ? leadIdNum : null
+
+  const contratoItem = {
+    tipo_cliente: 'empresa',
+    razao_social: str(empresa?.razao_social || empresa?.nome_fantasia || empresa?.empresa),
+    cpf_cnpj: extractEmpresaCnpjDigits(empresa),
+    email: str(empresa?.email) || str(signatario?.email),
+    telefone: normalizePhone55(empresa?.telefone),
+    endereco: str(empresa?.logradouro),
+    numero: str(empresa?.numero),
+    complemento: str(empresa?.complemento),
+    bairro: str(empresa?.bairro),
+    cidade: str(empresa?.cidade),
+    estado: str(empresa?.estado)?.toUpperCase()?.slice(0, 2) || '',
+    cep: ONLY_DIGITS(empresa?.cep),
+    signatario_nome: signatarioNome,
+    signatario_cpf: signatarioCpf,
+    signatario_email: signatarioEmail,
+    signatario_telefone: signatarioTelefone,
+    quantidade_licencas: String(slots),
+    valor_mensal: monthly,
+  }
+
+  if (onetyLeadIdFinal) {
+    contratoItem.onety_lead_id = onetyLeadIdFinal
+  }
+
   return {
-    contratos: [
-      {
-        tipo_cliente: 'empresa',
-        razao_social: str(empresa?.razao_social || empresa?.nome_fantasia || empresa?.empresa),
-        cpf_cnpj: extractEmpresaCnpjDigits(empresa),
-        email: str(empresa?.email) || str(signatario?.email),
-        telefone: normalizePhone55(empresa?.telefone),
-        endereco: str(empresa?.logradouro),
-        numero: str(empresa?.numero),
-        complemento: str(empresa?.complemento),
-        bairro: str(empresa?.bairro),
-        cidade: str(empresa?.cidade),
-        estado: str(empresa?.estado)?.toUpperCase()?.slice(0, 2) || '',
-        cep: ONLY_DIGITS(empresa?.cep),
-        signatario_nome: signatarioNome,
-        signatario_cpf: signatarioCpf,
-        signatario_email: signatarioEmail,
-        signatario_telefone: signatarioTelefone,
-        quantidade_licencas: String(slots),
-        valor_mensal: monthly,
-      },
-    ],
+    contratos: [contratoItem],
+    ...(onetyLeadIdFinal ? { onety_lead_id: onetyLeadIdFinal } : {}),
   }
 }
 
@@ -365,7 +375,7 @@ const loadSubscriptionLine = async (adminClient, { empresaId, checkoutSessionId,
  */
 export const buildStripeContratoPayloadForEmpresa = async (
   adminClient,
-  { empresaId, checkoutSessionId, lineId } = {},
+  { empresaId, checkoutSessionId, lineId, onetyLeadId } = {},
 ) => {
   const id = str(empresaId)
   if (!id) return null
@@ -390,6 +400,7 @@ export const buildStripeContratoPayloadForEmpresa = async (
     signatario,
     meiSlots: line.mei_slots,
     valorMensal: line.value_numeric,
+    onetyLeadId,
   })
 }
 
@@ -489,12 +500,13 @@ const contratoDispatchErrorMessage = (dispatch) => {
  */
 export const emitContratoForEmpresaOrThrow = async (
   adminClient,
-  { empresaId, checkoutSessionId, lineId } = {},
+  { empresaId, checkoutSessionId, lineId, onetyLeadId } = {},
 ) => {
   const result = await emitOnetyContratoAfterStripePayment(adminClient, {
     empresaId,
     checkoutSessionId,
     lineId,
+    onetyLeadId,
   })
 
   if (!result.ok) {
@@ -534,12 +546,13 @@ export const emitContratoForEmpresaOrThrow = async (
  */
 export const emitOnetyContratoAfterStripePayment = async (
   adminClient,
-  { empresaId, checkoutSessionId, lineId } = {},
+  { empresaId, checkoutSessionId, lineId, onetyLeadId } = {},
 ) => {
   const payload = await buildStripeContratoPayloadForEmpresa(adminClient, {
     empresaId,
     checkoutSessionId,
     lineId,
+    onetyLeadId,
   })
   if (!payload) {
     if (lineId && adminClient) {

@@ -36,6 +36,7 @@ from gerar_contrato import (
     autenticar,
     extrair_specs,
     processar_spec,
+    resolver_client_id_via_lead,
     resolver_config,
 )
 from padrao_lote import carregar_padrao, expandir_lista
@@ -139,6 +140,16 @@ def processar_payload_focomei(body: dict[str, Any]) -> dict[str, Any]:
     if not specs_raw:
         return {"ok": False, "error": "Nenhum contrato no JSON (esperado { contratos: [...] })"}
 
+    lead_id_body = body.get("onety_lead_id") or body.get("lead_id")
+    if lead_id_body not in (None, ""):
+        lid = int(lead_id_body)
+        specs_raw = [
+            {**s, "onety_lead_id": s.get("onety_lead_id") or s.get("lead_id") or lid}
+            if isinstance(s, dict)
+            else s
+            for s in specs_raw
+        ]
+
     specs = expandir_lista(specs_raw, padrao)
     resultados: list[dict[str, Any]] = []
     ok_count = 0
@@ -224,9 +235,17 @@ def processar_crm_preparar_proposta(body: dict[str, Any]) -> dict[str, Any]:
     log.info("CRM: movendo lead %s → Proposta (fase %s)", lead_id, fase_proposta)
     client.mover_lead_fase(lead_id, int(fase_proposta))
 
+    pre_cliente_id = None
+    try:
+        log.info("CRM: convertendo lead %s em pré-cliente", lead_id)
+        pre_cliente_id = resolver_client_id_via_lead(client, lead_id)
+    except Exception as exc:
+        log.warning("CRM: convert lead %s falhou (contrato tentará de novo): %s", lead_id, exc)
+
     return {
         "ok": True,
         "leadId": int(lead_id),
+        "preClienteId": pre_cliente_id,
         "fase_proposta_id": int(fase_proposta),
         "funil_id": int(funil_id),
         "message": "Lead criado e movido para Proposta",

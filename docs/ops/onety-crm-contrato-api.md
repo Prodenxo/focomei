@@ -106,6 +106,29 @@ PUT /comercial/leads/{leadId}/mover-fase
 
 Após o `mover-fase`, o Onety abre a tela de contrato (~3s). A geração Autentique continua sendo feita pelo webhook `/webhook/contrato` existente.
 
+### Converter lead em pré-cliente (vínculo CRM ↔ contrato)
+
+O Onety **não** grava `contract_id + lead_id` juntos. O elo é:
+
+```
+leads.id → pre_clientes.lead_id → contratos.pre_cliente_id
+```
+
+Antes do `POST /contratual/contratos-autentique/html`, o pré-cliente usado como `client_id` **precisa** ter `lead_id`.
+
+```http
+POST /comercial/leads/convert/{leadId}
+```
+
+Alternativa: `POST /comercial/pre-clientes` com `lead_id` no body.
+
+O robô FocoMEI chama `convert` automaticamente quando recebe `onety_lead_id` no payload do contrato (ou após o webhook CRM).
+
+**Consulta:**
+
+- `GET /comercial/pre-clientes/{clientId}/contracts`
+- `GET /comercial/leads/{leadId}` (JOIN com `pre_cliente_id`)
+
 ### Endpoints auxiliares (UI Onety — robô não precisa)
 
 - `GET /comercial/leads/{leadId}` — refresh do card
@@ -142,9 +165,30 @@ Auth: `Authorization: Bearer <WEBHOOK_SECRET>` (mesmo segredo do contrato).
 {
   "ok": true,
   "leadId": 74598,
+  "preClienteId": 2595,
   "fase_proposta_id": 2871
 }
 ```
+
+`preClienteId` vem do `POST /comercial/leads/convert/{leadId}` (best-effort; o contrato repete convert se necessário).
+
+## Payload contrato com CRM
+
+Quando o admin escolhe funil, o backend envia `onety_lead_id` junto ao webhook de contrato:
+
+```json
+{
+  "onety_lead_id": 74598,
+  "contratos": [
+    {
+      "razao_social": "...",
+      "onety_lead_id": 74598
+    }
+  ]
+}
+```
+
+O robô converte o lead → usa `client_id` do pré-cliente → gera HTML. A proposta aparece no card do lead no CRM.
 
 ## Variáveis de ambiente (backend FocoMEI)
 

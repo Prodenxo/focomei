@@ -311,6 +311,19 @@ class OnetyClient:
             raise RuntimeError(f"Resposta inesperada ao criar lead: {data}")
         return data
 
+    def converter_lead(self, lead_id: int | str) -> dict[str, Any]:
+        """Lead → pré-cliente com pre_clientes.lead_id (vínculo CRM ↔ contrato)."""
+        data = self.request("POST", f"/comercial/leads/convert/{lead_id}")
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Resposta inesperada ao converter lead {lead_id}: {data}")
+        return data
+
+    def get_lead(self, lead_id: int | str) -> dict[str, Any]:
+        data = self.request("GET", f"/comercial/leads/{lead_id}")
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Lead {lead_id} inválido: {data}")
+        return data
+
     def mover_lead_fase(self, lead_id: int | str, funil_fase_id: int) -> dict[str, Any]:
         data = self.request(
             "PUT",
@@ -817,6 +830,9 @@ def montar_payload_novo_cliente(spec: dict[str, Any], empresa_id: str | int) -> 
         "estado": cli.get("uf") or cli.get("estado"),
         "empresa_id": int(empresa_id),
     }
+    lead_id = spec.get("lead_id") or spec.get("onety_lead_id")
+    if lead_id not in (None, ""):
+        payload["lead_id"] = int(lead_id)
     return {k: v for k, v in payload.items() if v not in (None, "")}
 
 
@@ -1063,6 +1079,65 @@ def listar_arquivos_entrada() -> list[Path]:
     )
 
 
+def extrair_pre_cliente_id(dados: dict[str, Any] | None) -> int | None:
+    """ID de pre_clientes (client_id no POST contratos-autentique/html)."""
+    if not isinstance(dados, dict):
+        return None
+    for key in (
+        "preClienteId",
+        "pre_cliente_id",
+        "clientId",
+        "client_id",
+        "id",
+    ):
+        val = dados.get(key)
+        if val is not None and str(val).strip() != "":
+            try:
+                return int(val)
+            except (TypeError, ValueError):
+                continue
+    for nest in ("preCliente", "pre_cliente", "cliente", "data"):
+        nested = dados.get(nest)
+        if isinstance(nested, dict):
+            found = extrair_pre_cliente_id(nested)
+            if found is not None:
+                return found
+    return None
+
+
+def resolver_client_id_via_lead(client: OnetyClient, lead_id: int | str) -> int:
+    """
+    Garante pré-cliente ligado ao lead antes do contrato HTML.
+    Tenta convert; se falhar, lê pre_cliente_id do GET lead.
+    """
+    lid = int(lead_id)
+    try:
+        convertido = client.converter_lead(lid)
+        pre_id = extrair_pre_cliente_id(convertido)
+        if pre_id is not None:
+            return pre_id
+    except Exception:
+        pass
+
+    lead = client.get_lead(lid)
+    pre_id = extrair_pre_cliente_id(lead)
+    if pre_id is not None:
+        return pre_id
+
+    for key in ("pre_cliente_id", "preClienteId", "client_id", "clientId"):
+        val = lead.get(key)
+        if val is not None and str(val).strip() != "":
+            try:
+                return int(val)
+            except (TypeError, ValueError):
+                continue
+
+    raise RuntimeError(
+        f"Não foi possível obter pre_cliente_id do lead {lid} "
+        f"(convert + GET /comercial/leads/{lid})"
+    )
+
+
 def extrair_contrato_id(resultado: dict[str, Any] | None) -> int | None:
     """ID usado em POST /contratual/contratos/{id}/send-whatsapp."""
     if not isinstance(resultado, dict):
@@ -1279,7 +1354,16 @@ def processar_spec(
         return False, "invalido: " + "; ".join(erros)
 
     cliente_criado_id = None
+    lead_id = spec.get("lead_id") or spec.get("onety_lead_id")
     precisa_criar = bool(spec.get("criar_cliente")) or not spec.get("client_id")
+
+    if lead_id not in (None, "") and not dry_run:
+        try:
+            pre_id = resolver_client_id_via_lead(client, lead_id)
+            spec = {**spec, "client_id": pre_id, "criar_cliente": False}
+            precisa_criar = False
+        except Exception as exc:
+            return False, f"falha ao vincular lead {lead_id} ao pré-cliente: {exc}"
 
     if precisa_criar and not spec.get("client_id"):
         body_cli = montar_payload_novo_cliente(spec, cfg["empresa_id"])

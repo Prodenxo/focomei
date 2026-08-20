@@ -111,6 +111,9 @@ def expandir_com_padrao(spec: dict[str, Any], padrao: dict[str, Any]) -> dict[st
             if not ja_tem:
                 signs.append(dict(contr))
                 out["signatories"] = signs
+        lead_id = spec.get("onety_lead_id") or spec.get("lead_id")
+        if lead_id not in (None, ""):
+            out["lead_id"] = int(lead_id)
         return out
 
     cli_in = dict(spec.get("cliente") or {})
@@ -255,6 +258,9 @@ def expandir_com_padrao(spec: dict[str, Any], padrao: dict[str, Any]) -> dict[st
     if spec.get("client_id"):
         out["client_id"] = int(spec["client_id"])
         out.pop("criar_cliente", None)
+    lead_id = spec.get("onety_lead_id") or spec.get("lead_id")
+    if lead_id not in (None, ""):
+        out["lead_id"] = int(lead_id)
     return out
 
 
