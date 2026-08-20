@@ -17,6 +17,9 @@ export const EMPRESA_CNPJ_ONBOARDING_ROUTE = '/(app)/empresa-cnpj' as const
 /** Escolha de plano MEI + Checkout Stripe (self-serve). */
 export const MEI_BILLING_PLANS_ROUTE = '/(app)/planos' as const
 
+/** Aguardando assinatura do contrato Onety (self-serve contract_first). */
+export const MEI_AWAITING_CONTRACT_ROUTE = '/(app)/aguardando-contrato' as const
+
 export type SettingsRouteHref = (typeof SETTINGS_ROUTES)[keyof typeof SETTINGS_ROUTES]
 
 type GoBackRouter = Pick<Router, 'back' | 'replace' | 'canGoBack'>

@@ -202,7 +202,23 @@ ONETY_CONTRATO_WEBHOOK_SECRET=mesmo_WEBHOOK_SECRET_do_robo
 
 # Vendedor padrão ao criar lead (usuario_id Onety)
 ONETY_CRM_DEFAULT_VENDEDOR_ID=1083
+
+# Cadastro self-serve: funil fixo (598 = Tráfego Pago)
+ONETY_CRM_SELF_SERVE_FUNIL_ID=598
 ```
+
+## Cadastro self-serve (contract_first)
+
+Todo cadastro pelo app cai no funil **Tráfego Pago (598)** — sem pergunta de origem na UI.
+
+| Config | Valor |
+|--------|--------|
+| Funil | `598` Tráfego Pago |
+| Fase Lead | `2880` |
+| Fase Proposta | `2877` |
+| Override env | `ONETY_CRM_SELF_SERVE_FUNIL_ID=598` |
+
+Fluxo: `POST /billing/mei/confirm-plan` → CRM + contrato → `/aguardando-contrato`.
 
 ## Fluxo admin FocoMEI
 

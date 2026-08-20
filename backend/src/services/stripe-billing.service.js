@@ -14,7 +14,11 @@ import {
   emitContratoForEmpresaOrThrow,
   buildStripeContratoPayloadForEmpresa,
   resolveContratoSignatarioForEmpresa,
+  parseContratoWebhookMeta,
+  dispatchOnetyContratoStatusCheck,
 } from "./stripe-contract-payload.service.js";
+import { getFunilById, getSelfServeFunil, ONETY_CRM_SELF_SERVE_FUNIL_ID } from "../config/onety-crm-funis.js";
+import { prepararPropostaCrmForEmpresaOrThrow } from "./onety-crm.service.js";
 import {
   buildMeiLineInsertPayload,
   hasMeiLineApprovalColumns,
@@ -506,11 +510,17 @@ export const listSubscriptionLinesForEmpresa = async (
 export const getMeiBillingStatusForRequester = async (accessToken) => {
   const requester = await getRequesterContext(accessToken);
   if (requester.role === "superadmin") {
-    return { required: false, maxMei: null, hasActiveSubscription: true };
+    return { required: false, maxMei: null, hasActiveSubscription: true, phase: "ok" };
   }
   if (requester.role !== "admin" || !requester.empresaId) {
-    return { required: false, maxMei: null, hasActiveSubscription: false };
+    return { required: false, maxMei: null, hasActiveSubscription: false, phase: "ok" };
   }
+
+  const billingMode =
+    String(env.MEI_SELF_SERVE_BILLING_MODE || "contract_first").toLowerCase() ===
+    "stripe"
+      ? "stripe"
+      : "contract_first";
 
   const adminClient = createSupabaseClient({ useServiceRole: true });
   const empresaId = String(requester.empresaId);
@@ -524,22 +534,313 @@ export const getMeiBillingStatusForRequester = async (accessToken) => {
   if (error) throw badRequest(error.message);
 
   const maxMei = Number(empresa?.max_mei || 0);
-  const { data: lines } = await adminClient
+  const { data: activeLines } = await adminClient
     .from("empresa_mei_subscription_lines")
     .select("id")
     .eq("empresa_id", empresaId)
     .eq("status", "active")
     .limit(1);
 
-  const hasActiveSubscription = Array.isArray(lines) && lines.length > 0;
-  const required = maxMei <= 0 && !hasActiveSubscription;
+  const hasActiveSubscription = Array.isArray(activeLines) && activeLines.length > 0;
+
+  const lineSelect =
+    "id, status, billing_type, contrato_status, contrato_signing_url, contrato_onety_id, onety_funil_id, onety_lead_id, mei_slots";
+
+  const { data: contractFirstLine } = await adminClient
+    .from("empresa_mei_subscription_lines")
+    .select(lineSelect)
+    .eq("empresa_id", empresaId)
+    .eq("billing_type", "contract_first")
+    .eq("status", "pending")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const awaitingContractSignature = Boolean(
+    contractFirstLine?.id && contractFirstLine?.contrato_onety_id,
+  );
+
+  let phase = "ok";
+  if (hasActiveSubscription || maxMei > 0) {
+    phase = "ok";
+  } else if (awaitingContractSignature || contractFirstLine?.id) {
+    phase = "aguardando_contrato";
+  } else {
+    phase = "planos";
+  }
+
+  const required = !hasActiveSubscription && maxMei <= 0;
 
   return {
     required,
     maxMei,
     hasActiveSubscription,
     empresaId,
+    billingMode,
+    phase,
     packages: MEI_PUBLIC_PACKAGES,
+    selfServeFunilId: getSelfServeFunil(env.ONETY_CRM_SELF_SERVE_FUNIL_ID)?.id
+      ?? ONETY_CRM_SELF_SERVE_FUNIL_ID,
+    contract: contractFirstLine
+      ? {
+          lineId: contractFirstLine.id,
+          signingUrl: contractFirstLine.contrato_signing_url || null,
+          contratoOnetyId: contractFirstLine.contrato_onety_id || null,
+          contratoStatus: contractFirstLine.contrato_status || null,
+          funilId: contractFirstLine.onety_funil_id || null,
+          leadId: contractFirstLine.onety_lead_id || null,
+          meiSlots: contractFirstLine.mei_slots || null,
+        }
+      : null,
+  };
+};
+
+/** Funil CRM fixo do cadastro self-serve (Tráfego Pago). */
+export const listMeiFunisForSelfServe = () => {
+  const funil = getSelfServeFunil(env.ONETY_CRM_SELF_SERVE_FUNIL_ID);
+  return {
+    funilId: funil?.id ?? ONETY_CRM_SELF_SERVE_FUNIL_ID,
+    funilName: funil?.name ?? "Tráfego Pago",
+  };
+};
+
+/**
+ * Self-serve sem Stripe: confirma vagas → CRM Tráfego Pago + contrato → aguarda assinatura.
+ */
+export const confirmMeiPlanContractFirstForRequester = async (
+  accessToken,
+  { meiSlots } = {},
+) => {
+  const requester = await getRequesterContext(accessToken);
+  if (requester.role !== "admin" || !requester.empresaId) {
+    throw forbidden("Somente admin da empresa pode contratar o plano.");
+  }
+
+  const slots = Number(meiSlots);
+  const pricing = resolveMeiPricing(slots);
+  const funil = getSelfServeFunil(env.ONETY_CRM_SELF_SERVE_FUNIL_ID);
+  if (!funil?.faseLeadId || !funil?.fasePropostaId) {
+    throw badRequest(
+      "Funil Tráfego Pago (598) não está configurado para cadastro self-serve.",
+    );
+  }
+
+  const empresaId = String(requester.empresaId);
+  const adminClient = createSupabaseClient({ useServiceRole: true });
+
+  const { data: activeLine } = await adminClient
+    .from("empresa_mei_subscription_lines")
+    .select("id")
+    .eq("empresa_id", empresaId)
+    .eq("status", "active")
+    .limit(1)
+    .maybeSingle();
+
+  if (activeLine?.id) {
+    throw badRequest("Sua empresa já possui plano MEI ativo.");
+  }
+
+  const { data: pendingContract } = await adminClient
+    .from("empresa_mei_subscription_lines")
+    .select("id, contrato_onety_id, contrato_signing_url")
+    .eq("empresa_id", empresaId)
+    .eq("billing_type", "contract_first")
+    .eq("status", "pending")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (pendingContract?.contrato_onety_id) {
+    return {
+      ok: true,
+      alreadyPending: true,
+      lineId: pendingContract.id,
+      signingUrl: pendingContract.contrato_signing_url || null,
+      contratoOnetyId: pendingContract.contrato_onety_id,
+    };
+  }
+
+  const corePayload = {
+    id: randomUUID(),
+    empresa_id: empresaId,
+    mei_slots: slots,
+    value_numeric: pricing.total,
+    status: "pending",
+    billing_type: "contract_first",
+    onety_funil_id: funil.id,
+    external_reference: randomUUID(),
+  };
+
+  const insertPayload = await buildMeiLineInsertPayload(adminClient, corePayload, {
+    contrato_status: "awaiting_signature",
+  });
+  const line = await insertMeiSubscriptionLine(adminClient, insertPayload);
+  if (!line?.id) throw badRequest("Não foi possível registrar o plano.");
+
+  let crm = null;
+  let leadId = null;
+  try {
+    crm = await prepararPropostaCrmForEmpresaOrThrow(adminClient, {
+      empresaId,
+      funilId: funil.id,
+      valor: pricing.total,
+    });
+    leadId = crm?.dispatch?.response?.leadId ?? null;
+  } catch (crmErr) {
+    await updateMeiSubscriptionLine(adminClient, line.id, {
+      contrato_status: "failed",
+      contrato_error: crmErr instanceof Error ? crmErr.message : String(crmErr),
+    });
+    throw crmErr;
+  }
+
+  let contrato;
+  try {
+    contrato = await emitContratoForEmpresaOrThrow(adminClient, {
+      empresaId,
+      lineId: line.id,
+      onetyLeadId: leadId ?? undefined,
+    });
+  } catch (contratoErr) {
+    await updateMeiSubscriptionLine(adminClient, line.id, {
+      contrato_status: "failed",
+      contrato_error:
+        contratoErr instanceof Error ? contratoErr.message : String(contratoErr),
+    });
+    throw contratoErr;
+  }
+
+  const meta = parseContratoWebhookMeta(contrato?.dispatch);
+  const signingUrl = meta.signingUrl;
+  const contratoOnetyId = meta.contratoId;
+
+  await updateMeiSubscriptionLine(adminClient, line.id, {
+    contrato_status: contratoOnetyId ? "sent" : "failed",
+    contrato_sent_at: new Date().toISOString(),
+    contrato_signing_url: signingUrl,
+    contrato_onety_id: contratoOnetyId,
+    onety_lead_id: leadId,
+    onety_funil_id: funil.id,
+    contrato_error: contratoOnetyId
+      ? null
+      : meta.mensagem || "Contrato gerado sem ID Onety",
+  });
+
+  if (!contratoOnetyId) {
+    throw badRequest(
+      meta.mensagem ||
+        "Contrato enviado ao robô, mas o ID Onety não foi retornado.",
+    );
+  }
+
+  return {
+    ok: true,
+    lineId: line.id,
+    signingUrl,
+    contratoOnetyId,
+    leadId,
+    funilId: funil.id,
+    crm,
+    contrato,
+  };
+};
+
+/**
+ * Polling: libera conta quando o contratante assina (parcial — antes de todas as partes).
+ */
+export const refreshMeiContractSignatureForRequester = async (accessToken) => {
+  const requester = await getRequesterContext(accessToken);
+  if (requester.role !== "admin" || !requester.empresaId) {
+    throw forbidden();
+  }
+
+  const empresaId = String(requester.empresaId);
+  const adminClient = createSupabaseClient({ useServiceRole: true });
+
+  const { data: line } = await adminClient
+    .from("empresa_mei_subscription_lines")
+    .select(
+      "id, status, contrato_onety_id, contrato_signing_url, contrato_status, contrato_client_signed_at, mei_slots",
+    )
+    .eq("empresa_id", empresaId)
+    .eq("billing_type", "contract_first")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!line?.id) {
+    return { ok: false, reason: "no_contract_line" };
+  }
+
+  if (line.status === "active") {
+    return {
+      ok: true,
+      activated: true,
+      clientSigned: true,
+      signingUrl: line.contrato_signing_url || null,
+      contratoOnetyId: line.contrato_onety_id || null,
+    };
+  }
+
+  const contratoId = Number(line.contrato_onety_id);
+  if (!Number.isFinite(contratoId) || contratoId <= 0) {
+    return {
+      ok: false,
+      reason: "missing_contrato_id",
+      signingUrl: line.contrato_signing_url || null,
+    };
+  }
+
+  const check = await dispatchOnetyContratoStatusCheck(contratoId);
+  if (!check.ok) {
+    return {
+      ok: true,
+      activated: false,
+      clientSigned: false,
+      signingUrl: line.contrato_signing_url || check.signingUrl || null,
+      contratoOnetyId: contratoId,
+      pollError: check.reason || check.error,
+    };
+  }
+
+  const signingUrl = check.signingUrl || line.contrato_signing_url || null;
+  const patch = {
+    contrato_signing_url: signingUrl,
+  };
+
+  if (check.clientSigned && line.status === "pending") {
+    const signedAt = new Date().toISOString();
+    await updateMeiSubscriptionLine(adminClient, line.id, {
+      ...patch,
+      status: "active",
+      contrato_status: check.fullySigned ? "fully_signed" : "client_signed",
+      contrato_client_signed_at: signedAt,
+      approved_at: signedAt,
+    });
+    await syncEmpresaMaxMeiFromLines(adminClient, empresaId, { force: true });
+    await activateEmpresaMeiAccessAfterPayment(adminClient, empresaId);
+
+    return {
+      ok: true,
+      activated: true,
+      clientSigned: true,
+      fullySigned: Boolean(check.fullySigned),
+      signingUrl,
+      contratoOnetyId: contratoId,
+    };
+  }
+
+  if (signingUrl && signingUrl !== line.contrato_signing_url) {
+    await updateMeiSubscriptionLine(adminClient, line.id, patch);
+  }
+
+  return {
+    ok: true,
+    activated: false,
+    clientSigned: Boolean(check.clientSigned),
+    fullySigned: Boolean(check.fullySigned),
+    signingUrl,
+    contratoOnetyId: contratoId,
   };
 };
 

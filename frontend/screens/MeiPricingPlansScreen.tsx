@@ -20,6 +20,7 @@ import {
   type MeiPublicPackage,
 } from '@/lib/meiBillingPricing'
 import {
+  confirmSelfServeMeiPlan,
   createSelfServeMeiCheckout,
   fetchMeiBillingStatus,
 } from '@/services/billingService'
@@ -52,6 +53,7 @@ export default function MeiPricingPlansScreen () {
   const [packages, setPackages] = useState<readonly MeiPublicPackage[]>(
     MEI_PUBLIC_PACKAGES,
   )
+  const [billingMode, setBillingMode] = useState<'contract_first' | 'stripe'>('contract_first')
 
   const isWide = width >= 720
   const styles = useMemo(() => createStyles(isWide), [isWide])
@@ -62,6 +64,15 @@ export default function MeiPricingPlansScreen () {
       const status = await fetchMeiBillingStatus()
       if (status.packages?.length) {
         setPackages(status.packages as MeiPublicPackage[])
+      }
+      if (status.billingMode === 'stripe') {
+        setBillingMode('stripe')
+      } else {
+        setBillingMode('contract_first')
+      }
+      if (status.phase === 'aguardando_contrato') {
+        router.replace('/(app)/aguardando-contrato' as never)
+        return
       }
       if (!status.required) {
         router.replace('/(app)/' as never)
@@ -94,6 +105,13 @@ export default function MeiPricingPlansScreen () {
   const handleSelect = async (pack: MeiPublicPackage) => {
     setLoadingSlots(pack.meiSlots)
     try {
+      if (billingMode === 'contract_first') {
+        await confirmSelfServeMeiPlan(pack.meiSlots)
+        showToast('Contrato gerado! Assine para liberar sua conta.', 'success')
+        router.replace('/(app)/aguardando-contrato' as never)
+        return
+      }
+
       const data = await createSelfServeMeiCheckout(pack.meiSlots)
       const url = data.checkoutUrl
       if (!url) throw new Error('Checkout sem URL')
@@ -105,7 +123,7 @@ export default function MeiPricingPlansScreen () {
       await refreshGate()
     } catch (e) {
       showToast(
-        e instanceof Error ? e.message : 'Não foi possível abrir o Checkout',
+        e instanceof Error ? e.message : 'Não foi possível continuar',
         'error',
       )
     } finally {
@@ -154,7 +172,9 @@ export default function MeiPricingPlansScreen () {
 
         <View style={styles.mid}>
           <Text style={styles.midHint}>
-            Toque em um plano para ir ao pagamento seguro (Stripe).
+            {billingMode === 'contract_first'
+              ? 'Escolha o plano e assine o contrato digital para liberar sua conta.'
+              : 'Toque em um plano para ir ao pagamento seguro (Stripe).'}
           </Text>
 
           <View style={styles.list}>
@@ -218,7 +238,7 @@ export default function MeiPricingPlansScreen () {
                             featured ? styles.ctaTextFeatured : null,
                           ]}
                         >
-                          Assinar agora
+                          {billingMode === 'contract_first' ? 'Confirmar plano' : 'Assinar agora'}
                         </Text>
                         <Ionicons
                           name="arrow-forward"

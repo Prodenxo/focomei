@@ -26,9 +26,9 @@ import {
   resetSessionActivationSkip,
   setSessionActivationSkipped,
 } from '@/lib/activationSession';
-import { ACTIVATION_ROUTE, EMPRESA_CNPJ_ONBOARDING_ROUTE, MEI_BILLING_PLANS_ROUTE } from '@/lib/settingsRoutes';
+import { ACTIVATION_ROUTE, EMPRESA_CNPJ_ONBOARDING_ROUTE, MEI_AWAITING_CONTRACT_ROUTE, MEI_BILLING_PLANS_ROUTE } from '@/lib/settingsRoutes';
 import { isEmpresaCnpjOnboardingRequired } from '@/lib/empresaCnpjGate';
-import { shouldRequireMeiBillingRoute } from '@/lib/meiBillingGate';
+import { fetchMeiBillingGateStatus } from '@/lib/meiBillingGate';
 import {
   registerEmpresaCnpjLayoutGateReset,
   unregisterEmpresaCnpjLayoutGateReset,
@@ -69,8 +69,9 @@ export default function AppLayout() {
   const isActivationRoute = pathname.includes('/ativacao');
   const isEmpresaCnpjRoute = pathname.includes('/empresa-cnpj');
   const isPlanosRoute = pathname.includes('/planos');
+  const isAguardandoContratoRoute = pathname.includes('/aguardando-contrato');
   /** Onboarding obrigatório: sem top nav, drawer, sair ou sair da impersonação. */
-  const shellLocked = isEmpresaCnpjRoute || isActivationRoute || isPlanosRoute;
+  const shellLocked = isEmpresaCnpjRoute || isActivationRoute || isPlanosRoute || isAguardandoContratoRoute;
   /** Navbar web desktop; no resto, drawer (☰) nas telas. */
   const hasGlobalNav = isWebDesktop && !shellLocked;
   const loginCnpjGateDone = useRef(false);
@@ -271,13 +272,13 @@ export default function AppLayout() {
     };
   }, [user, accessStatus, isEmpresaCnpjRoute, router]);
 
-  // Admin sem plano MEI pago → /planos (Checkout Stripe).
+  // Admin sem plano MEI → /planos ou /aguardando-contrato (contract_first).
   useEffect(() => {
     if (!user || accessStatus !== 'ok' || cnpjGate === 'checking') {
       setBillingGate('checking');
       return;
     }
-    if (isPlanosRoute) {
+    if (isPlanosRoute || isAguardandoContratoRoute) {
       loginBillingGateDone.current = true;
       setBillingGate('ready');
       return;
@@ -293,10 +294,16 @@ export default function AppLayout() {
     }
     let cancelled = false;
     setBillingGate('checking');
-    void shouldRequireMeiBillingRoute().then((required) => {
+    void fetchMeiBillingGateStatus().then((status) => {
       if (cancelled) return;
       loginBillingGateDone.current = true;
-      if (required) {
+      if (status.phase === 'aguardando_contrato') {
+        if (!isAguardandoContratoRoute) {
+          router.replace(MEI_AWAITING_CONTRACT_ROUTE as never);
+        }
+        return;
+      }
+      if (status.phase === 'planos' || status.required) {
         if (!isPlanosRoute) {
           router.replace(MEI_BILLING_PLANS_ROUTE as never);
         }
@@ -307,7 +314,7 @@ export default function AppLayout() {
     return () => {
       cancelled = true;
     };
-  }, [user, accessStatus, cnpjGate, role, isPlanosRoute, router]);
+  }, [user, accessStatus, cnpjGate, role, isPlanosRoute, isAguardandoContratoRoute, router]);
 
   /** Em /ativacao sem CNPJ: revalida e manda para empresa-cnpj (não liberar ativação antes). */
   useEffect(() => {
@@ -339,7 +346,7 @@ export default function AppLayout() {
       setActivationGate((prev) => (prev === 'ready' ? prev : 'ready'));
       return;
     }
-    if (isEmpresaCnpjRoute || isActivationRoute || isPlanosRoute) {
+    if (isEmpresaCnpjRoute || isActivationRoute || isPlanosRoute || isAguardandoContratoRoute) {
       loginActivationGateDone.current = true;
       setActivationGate((prev) => (prev === 'ready' ? prev : 'ready'));
       return;
@@ -363,7 +370,7 @@ export default function AppLayout() {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, accessStatus, cnpjGate, billingGate, isEmpresaCnpjRoute, isActivationRoute, isPlanosRoute, router]);
+  }, [user?.id, accessStatus, cnpjGate, billingGate, isEmpresaCnpjRoute, isActivationRoute, isPlanosRoute, isAguardandoContratoRoute, router]);
 
   /** Impede URL manual / histórico enquanto CNPJ pendente (admin). */
   useEffect(() => {
@@ -378,18 +385,22 @@ export default function AppLayout() {
     };
   }, [user, accessStatus, role, pathname, isEmpresaCnpjRoute, router]);
 
-  /** Impede sair de /planos sem pagar (admin). */
+  /** Impede sair de /planos ou /aguardando-contrato sem liberar (admin). */
   useEffect(() => {
-    if (!user || accessStatus !== 'ok' || role !== 'admin' || isPlanosRoute) return;
+    if (!user || accessStatus !== 'ok' || role !== 'admin' || isPlanosRoute || isAguardandoContratoRoute) return;
     let cancelled = false;
-    void shouldRequireMeiBillingRoute().then((required) => {
-      if (cancelled || !required) return;
+    void fetchMeiBillingGateStatus().then((status) => {
+      if (cancelled || status.phase === 'ok') return;
+      if (status.phase === 'aguardando_contrato') {
+        router.replace(MEI_AWAITING_CONTRACT_ROUTE as never);
+        return;
+      }
       router.replace(MEI_BILLING_PLANS_ROUTE as never);
     });
     return () => {
       cancelled = true;
     };
-  }, [user, accessStatus, role, pathname, isPlanosRoute, router]);
+  }, [user, accessStatus, role, pathname, isPlanosRoute, isAguardandoContratoRoute, router]);
 
   const openDrawer = useCallback(() => {
     if (shellLocked) return;

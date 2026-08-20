@@ -60,6 +60,41 @@ router.post('/mei/checkout', requireAuth, requireAdmin, async (req, res, next) =
   }
 });
 
+/** Funil CRM fixo do self-serve (Tráfego Pago 598). */
+router.get('/mei/funis', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const data = stripeBillingService.listMeiFunisForSelfServe();
+    return sendSuccess(res, data);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+/** Confirma plano MEI sem Stripe — gera contrato e aguarda assinatura. */
+router.post('/mei/confirm-plan', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const data = await stripeBillingService.confirmMeiPlanContractFirstForRequester(
+      req.accessToken,
+      req.body,
+    );
+    return sendCreated(res, data, 'Contrato gerado — assine para liberar sua conta');
+  } catch (error) {
+    return next(error);
+  }
+});
+
+/** Polling: verifica assinatura do contratante e libera conta. */
+router.post('/mei/contrato/refresh-signature', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const data = await stripeBillingService.refreshMeiContractSignatureForRequester(
+      req.accessToken,
+    );
+    return sendSuccess(res, data);
+  } catch (error) {
+    return next(error);
+  }
+});
+
 /** JSON de contrato Onety (empresa do admin, linha Stripe ativa). */
 router.get('/mei/contrato-payload', requireAuth, requireAdmin, async (req, res, next) => {
   try {

@@ -470,6 +470,79 @@ export const dispatchOnetyContratoPayload = async (payload) => {
   }
 }
 
+/** Extrai metadados úteis da resposta do robô contrato. */
+export const parseContratoWebhookMeta = (dispatch) => {
+  const resultados = dispatch?.response?.resultados
+  const first = Array.isArray(resultados) ? resultados[0] : null
+  const contratoIdRaw = first?.contratoId ?? first?.contrato_id
+  const contratoId = Number(contratoIdRaw)
+  const signingUrl = str(first?.signingUrl || first?.signing_url || '')
+  return {
+    contratoId: Number.isFinite(contratoId) && contratoId > 0 ? contratoId : null,
+    signingUrl: signingUrl || null,
+    leadId: Number(first?.leadId) > 0 ? Number(first.leadId) : null,
+    clientId: Number(first?.clientId) > 0 ? Number(first.clientId) : null,
+    ok: first?.ok !== false,
+    mensagem: str(first?.mensagem),
+  }
+}
+
+const resolveContratoStatusWebhookUrl = () => {
+  const base = str(env.ONETY_CONTRATO_WEBHOOK_URL)
+  if (!base) return ''
+  if (base.includes('/webhook/contrato')) {
+    return base.replace(/\/webhook\/contrato\/?$/, '/webhook/contrato-status')
+  }
+  return ''
+}
+
+/** Consulta signatários no Onety via robô (assinatura parcial do contratante). */
+export const dispatchOnetyContratoStatusCheck = async (contratoId) => {
+  const url = resolveContratoStatusWebhookUrl()
+  const id = Number(contratoId)
+  if (!Number.isFinite(id) || id <= 0) {
+    return { ok: false, reason: 'invalid_contrato_id' }
+  }
+  if (!url) {
+    return { ok: false, reason: 'webhook_url_not_configured' }
+  }
+
+  const headers = { 'Content-Type': 'application/json' }
+  const secret = str(env.ONETY_CONTRATO_WEBHOOK_SECRET)
+  if (secret) headers.Authorization = `Bearer ${secret}`
+
+  let response
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ contratoId: id }),
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return { ok: false, reason: 'webhook_unreachable', error: message, url }
+  }
+
+  let body = null
+  try {
+    body = await response.json()
+  } catch {
+    body = null
+  }
+
+  if (!response.ok || body?.ok === false) {
+    return {
+      ok: false,
+      reason: 'webhook_http_error',
+      status: response.status,
+      body,
+      url,
+    }
+  }
+
+  return { ok: true, ...body }
+}
+
 const contratoDispatchErrorMessage = (dispatch) => {
   const reason = str(dispatch?.reason)
   if (reason === 'webhook_url_not_configured') {

@@ -33,6 +33,7 @@ ENTRADA = ROOT / "entrada"
 
 from gerar_contrato import (
     OnetyClient,
+    analisar_status_contrato,
     autenticar,
     extrair_specs,
     processar_spec,
@@ -162,7 +163,7 @@ def processar_payload_focomei(body: dict[str, Any]) -> dict[str, Any]:
         )
         rotulo = str(razao).replace(" ", "_")[:60]
         log.info("Gerando contrato %s/%s: %s", i, len(specs), rotulo)
-        sucesso, msg = processar_spec(
+        sucesso, msg, meta = processar_spec(
             client,
             cfg,
             spec,
@@ -174,7 +175,12 @@ def processar_payload_focomei(body: dict[str, Any]) -> dict[str, Any]:
         )
         if sucesso:
             ok_count += 1
-        resultados.append({"rotulo": rotulo, "ok": sucesso, "mensagem": msg})
+        item: dict[str, Any] = {"rotulo": rotulo, "ok": sucesso, "mensagem": msg}
+        if isinstance(meta, dict):
+            for key in ("contratoId", "signingUrl", "clientId", "leadId"):
+                if meta.get(key) not in (None, ""):
+                    item[key] = meta[key]
+        resultados.append(item)
 
     return {
         "ok": ok_count == len(specs),
@@ -260,6 +266,18 @@ def processar_crm_preparar_proposta(body: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def processar_contrato_status(body: dict[str, Any]) -> dict[str, Any]:
+    contract_id = body.get("contratoId") or body.get("contract_id") or body.get("contrato_id")
+    if contract_id in (None, ""):
+        return {"ok": False, "error": "contratoId é obrigatório"}
+    client, _, _ = get_client()
+    try:
+        status = analisar_status_contrato(client, int(contract_id))
+        return {"ok": True, **status}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 class WebhookHandler(BaseHTTPRequestHandler):
     server_version = "RoboContratoWebhook/1.1"
 
@@ -309,7 +327,11 @@ class WebhookHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
 
-        if path not in ("/webhook/contrato", "/webhook/crm/preparar-proposta"):
+        if path not in (
+            "/webhook/contrato",
+            "/webhook/crm/preparar-proposta",
+            "/webhook/contrato-status",
+        ):
             self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
             return
 
@@ -324,6 +346,8 @@ class WebhookHandler(BaseHTTPRequestHandler):
         handler_fn = (
             processar_crm_preparar_proposta
             if path == "/webhook/crm/preparar-proposta"
+            else processar_contrato_status
+            if path == "/webhook/contrato-status"
             else processar_payload_focomei
         )
 
@@ -380,6 +404,7 @@ def main() -> int:
     httpd = ThreadingHTTPServer((host, port), WebhookHandler)
     log.info("Webhook ouvindo em http://%s:%s/webhook/contrato", host, port)
     log.info("CRM webhook: http://%s:%s/webhook/crm/preparar-proposta", host, port)
+    log.info("Status contrato: http://%s:%s/webhook/contrato-status", host, port)
     if _webhook_secret:
         log.info("Autenticação Bearer ativa (WEBHOOK_SECRET)")
     else:

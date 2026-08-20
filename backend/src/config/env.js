@@ -383,4 +383,14 @@ export const env = {
   /** Webhook CRM (lead + Proposta). Se vazio, deriva de ONETY_CONTRATO_WEBHOOK_URL. */
   ONETY_CRM_WEBHOOK_URL: (process.env.ONETY_CRM_WEBHOOK_URL || "").trim(),
   ONETY_CRM_DEFAULT_VENDEDOR_ID: (process.env.ONETY_CRM_DEFAULT_VENDEDOR_ID || "1083").trim(),
+  /** Funil CRM do cadastro self-serve (padrão: 598 Tráfego Pago). */
+  ONETY_CRM_SELF_SERVE_FUNIL_ID: (
+    process.env.ONETY_CRM_SELF_SERVE_FUNIL_ID || "598"
+  ).trim(),
+  /**
+   * Self-serve /planos: `contract_first` (contrato + assinatura, sem Stripe) ou `stripe` (checkout).
+   */
+  MEI_SELF_SERVE_BILLING_MODE: (
+    process.env.MEI_SELF_SERVE_BILLING_MODE || "contract_first"
+  ).trim().toLowerCase(),
 };

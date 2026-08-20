@@ -366,6 +366,21 @@ class OnetyClient:
             raise RuntimeError(f"Resposta inesperada: {data}")
         return data
 
+    def listar_signatarios_contrato(self, contract_id: int | str) -> list[dict[str, Any]]:
+        data = self.request(
+            "GET",
+            f"/contratual/contratos/{contract_id}/signatories",
+            timeout=60,
+        )
+        if isinstance(data, list):
+            return [x for x in data if isinstance(x, dict)]
+        if isinstance(data, dict):
+            for key in ("data", "signatories", "signatarios", "items"):
+                raw = data.get(key)
+                if isinstance(raw, list):
+                    return [x for x in raw if isinstance(x, dict)]
+        return []
+
     def criar_contrato_pdf(
         self,
         *,
@@ -1180,6 +1195,123 @@ def resolver_client_id_via_lead(
     )
 
 
+def _url_parece_assinatura(val: Any) -> bool:
+    s = str(val or "").strip()
+    return s.startswith("http") and ("autentique" in s.lower() or "sign" in s.lower() or len(s) > 24)
+
+
+def extrair_link_assinatura(
+    resultado: dict[str, Any] | None,
+    *,
+    client: OnetyClient | None = None,
+    contract_id: int | str | None = None,
+) -> str | None:
+    """Link Autentique do signatário contratante (para copiar na UI)."""
+    url_keys = (
+        "link",
+        "signingUrl",
+        "signing_url",
+        "url_assinatura",
+        "link_assinatura",
+        "public_url",
+        "url",
+    )
+
+    def scan_signatario(sig: dict[str, Any]) -> str | None:
+        funcao = str(sig.get("funcao_assinatura") or sig.get("role") or "").lower()
+        is_contratante = "contratante" in funcao and "contratada" not in funcao
+        if not is_contratante and funcao:
+            return None
+        for key in url_keys:
+            val = sig.get(key)
+            if _url_parece_assinatura(val):
+                return str(val).strip()
+        return None
+
+    if isinstance(resultado, dict):
+        for key in url_keys:
+            val = resultado.get(key)
+            if _url_parece_assinatura(val):
+                return str(val).strip()
+        for nest in ("contract", "contrato", "data"):
+            nested = resultado.get(nest)
+            if isinstance(nested, dict):
+                found = extrair_link_assinatura(nested, client=client, contract_id=contract_id)
+                if found:
+                    return found
+        signs = resultado.get("signatories") or resultado.get("signatarios") or []
+        if isinstance(signs, list):
+            for sig in signs:
+                if not isinstance(sig, dict):
+                    continue
+                found = scan_signatario(sig)
+                if found:
+                    return found
+            for sig in signs:
+                if not isinstance(sig, dict):
+                    continue
+                for key in url_keys:
+                    val = sig.get(key)
+                    if _url_parece_assinatura(val):
+                        return str(val).strip()
+
+    if client is not None and contract_id is not None:
+        try:
+            for sig in client.listar_signatarios_contrato(contract_id):
+                found = scan_signatario(sig)
+                if found:
+                    return found
+                for key in url_keys:
+                    val = sig.get(key)
+                    if _url_parece_assinatura(val):
+                        return str(val).strip()
+        except Exception:
+            pass
+
+    return None
+
+
+def contratante_ja_assinou(signatories: list[dict[str, Any]]) -> bool:
+    """True quando o signatário contratante tem assinado_em (parcial — suficiente p/ liberar FocoMEI)."""
+    if not signatories:
+        return False
+    for sig in signatories:
+        funcao = str(sig.get("funcao_assinatura") or sig.get("role") or "").lower()
+        is_contratante = "contratante" in funcao and "contratada" not in funcao
+        if not is_contratante:
+            continue
+        if sig.get("assinado_em") or sig.get("signed_at") or sig.get("assinadoEm"):
+            return True
+    # Fallback: primeiro signatário que não é contratada
+    for sig in signatories:
+        funcao = str(sig.get("funcao_assinatura") or sig.get("role") or "").lower()
+        if "contratada" in funcao:
+            continue
+        if sig.get("assinado_em") or sig.get("signed_at") or sig.get("assinadoEm"):
+            return True
+    return False
+
+
+def analisar_status_contrato(client: OnetyClient, contract_id: int | str) -> dict[str, Any]:
+    signs = client.listar_signatarios_contrato(contract_id)
+    client_signed = contratante_ja_assinou(signs)
+    signing_url = extrair_link_assinatura(None, client=client, contract_id=contract_id)
+    total = len(signs)
+    assinados = sum(
+        1
+        for s in signs
+        if s.get("assinado_em") or s.get("signed_at") or s.get("assinadoEm")
+    )
+    return {
+        "contratoId": int(contract_id),
+        "clientSigned": client_signed,
+        "fullySigned": total > 0 and assinados >= total,
+        "signedCount": assinados,
+        "totalSignatories": total,
+        "signingUrl": signing_url,
+    }
+
+
 def extrair_contrato_id(resultado: dict[str, Any] | None) -> int | None:
     """ID usado em POST /contratual/contratos/{id}/send-whatsapp."""
     if not isinstance(resultado, dict):
@@ -1389,11 +1521,11 @@ def processar_spec(
     pdf_arg: str | None,
     usuario: dict[str, Any] | None = None,
     force: bool = False,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, dict[str, Any]]:
     modo = (pdf_arg and "pdf") or (spec.get("modo") or "html")
     erros = validar_spec(spec, modo=modo)
     if erros:
-        return False, "invalido: " + "; ".join(erros)
+        return False, "invalido: " + "; ".join(erros), {}
 
     cliente_criado_id = None
     lead_id = spec.get("lead_id") or spec.get("onety_lead_id")
@@ -1410,7 +1542,7 @@ def processar_spec(
             spec = {**spec, "client_id": pre_id, "criar_cliente": False}
             precisa_criar = False
         except Exception as exc:
-            return False, f"falha ao vincular lead {lead_id} ao pré-cliente: {exc}"
+            return False, f"falha ao vincular lead {lead_id} ao pré-cliente: {exc}", {}
 
     if precisa_criar and not spec.get("client_id"):
         body_cli = montar_payload_novo_cliente(spec, cfg["empresa_id"])
@@ -1461,13 +1593,13 @@ def processar_spec(
                         spec = {**spec, "client_id": int(achado)}
                         precisa_criar = False
                     else:
-                        return False, f"falha ao criar cliente: {exc}"
+                        return False, f"falha ao criar cliente: {exc}", {}
                 else:
-                    return False, f"falha ao criar cliente: {exc}"
+                    return False, f"falha ao criar cliente: {exc}", {}
             else:
                 cliente_criado_id = criado.get("clientId") or criado.get("id")
                 if not cliente_criado_id:
-                    return False, f"API nao retornou clientId: {criado}"
+                    return False, f"API nao retornou clientId: {criado}", {}
                 spec = {**spec, "client_id": int(cliente_criado_id)}
 
     try:
@@ -1475,7 +1607,7 @@ def processar_spec(
             client, cfg, spec, usuario=usuario
         )
     except Exception as exc:
-        return False, f"falha ao montar variaveis: {exc}"
+        return False, f"falha ao montar variaveis: {exc}", {}
 
     if faltando and not force and not dry_run:
         preview = {
@@ -1490,6 +1622,7 @@ def processar_spec(
             "variaveis vazias no template (ficariam vermelhas): "
             + ", ".join(faltando)
             + f" | detalhe em {out.name} | use --force para gerar mesmo assim",
+            {},
         )
 
     payload = montar_payload(spec, cfg["empresa_id"], variables=variables)
@@ -1509,17 +1642,17 @@ def processar_spec(
         }
         out = salvar_saida(preview, rotulo)
         extra = f" | faltando={len(faltando)}" if faltando else " | vars OK"
-        return True, f"dry-run -> {out.name}{extra}"
+        return True, f"dry-run -> {out.name}{extra}", {}
 
     try:
         if modo == "pdf":
             if not pdf_arg:
-                return False, "modo pdf exige --pdf"
+                return False, "modo pdf exige --pdf", {}
             pdf_path = Path(pdf_arg)
             if not pdf_path.is_absolute():
                 pdf_path = (ROOT / pdf_arg).resolve()
             if not pdf_path.exists():
-                return False, f"PDF nao encontrado: {pdf_path}"
+                return False, f"PDF nao encontrado: {pdf_path}", {}
             resultado = client.criar_contrato_pdf(
                 nome=spec.get("nome") or f"Contrato {spec['client_id']}",
                 pdf_path=pdf_path,
@@ -1528,7 +1661,7 @@ def processar_spec(
         else:
             resultado = client.criar_contrato_html(payload)
     except Exception as exc:
-        return False, str(exc)
+        return False, str(exc), {}
 
     resultado["_meta"] = {
         "client_id": spec.get("client_id"),
@@ -1537,9 +1670,12 @@ def processar_spec(
         "faltando": faltando,
     }
     contract_id = extrair_contrato_id(resultado)
+    signing_url = extrair_link_assinatura(resultado, client=client, contract_id=contract_id)
     whatsapp_ok = False
     whatsapp_msg = ""
     if contract_id is not None:
+        if not signing_url:
+            signing_url = extrair_link_assinatura(None, client=client, contract_id=contract_id)
         whatsapp_ok, whatsapp_msg = tentar_enviar_contrato_whatsapp(
             client,
             cfg,
@@ -1548,6 +1684,8 @@ def processar_spec(
         resultado["_meta"]["whatsapp_enviado"] = whatsapp_ok
         resultado["_meta"]["whatsapp_detalhe"] = whatsapp_msg
         resultado["_meta"]["contrato_id"] = contract_id
+        if signing_url:
+            resultado["_meta"]["signing_url"] = signing_url
 
     out = salvar_saida(resultado, rotulo)
     parts = []
@@ -1555,6 +1693,8 @@ def processar_spec(
         parts.append(f"cliente={cliente_criado_id}")
     if contract_id:
         parts.append(f"contrato={contract_id}")
+    if signing_url:
+        parts.append("link=OK")
     if cfg.get("auto_enviar_whatsapp"):
         if whatsapp_ok:
             parts.append("whatsapp=OK")
@@ -1563,7 +1703,13 @@ def processar_spec(
     if faltando:
         parts.append(f"faltando={len(faltando)}")
     extra = (" " + " ".join(parts)) if parts else ""
-    return True, f"OK{extra} -> {out.name}"
+    meta: dict[str, Any] = {
+        "contratoId": contract_id,
+        "signingUrl": signing_url,
+        "clientId": spec.get("client_id"),
+        "leadId": spec.get("lead_id") or spec.get("onety_lead_id"),
+    }
+    return True, f"OK{extra} -> {out.name}", meta
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1786,7 +1932,7 @@ def main(argv: list[str] | None = None) -> int:
     falhas = 0
     for idx, (rotulo, spec, pdf_arg) in enumerate(jobs, 1):
         print(f"[{idx}/{len(jobs)}] {rotulo} ...", end=" ", flush=True)
-        sucesso, msg = processar_spec(
+        sucesso, msg, _meta = processar_spec(
             client,
             cfg,
             spec,

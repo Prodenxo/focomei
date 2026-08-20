@@ -13,6 +13,11 @@ const APPROVAL_COLUMN_NAMES = [
   'contrato_status',
   'contrato_sent_at',
   'contrato_error',
+  'contrato_signing_url',
+  'contrato_onety_id',
+  'onety_funil_id',
+  'onety_lead_id',
+  'contrato_client_signed_at',
 ];
 
 export const isMissingApprovalColumnError = (error) => {
