@@ -8,6 +8,11 @@ import {
   MEI_AWAITING_CONTRACT_ROUTE,
   MEI_BILLING_PLANS_ROUTE,
 } from '@/lib/settingsRoutes'
+import {
+  hasMeiContractPendingSession,
+  readMeiContractPendingSession,
+  clearMeiContractPendingSession,
+} from '@/lib/meiContractPendingSession'
 import { useAuthStore } from '@/store/authStore'
 
 export type { MeiBillingPhase }
@@ -29,6 +34,53 @@ function normalizeMeiBillingStatus (status: MeiBillingStatus): MeiBillingStatus 
   return { ...status, phase: inferMeiBillingPhase(status) }
 }
 
+async function mergePendingContractSession (
+  status: MeiBillingStatus,
+): Promise<MeiBillingStatus> {
+  const pending = await readMeiContractPendingSession()
+  if (!hasMeiContractPendingSession(pending)) {
+    if (status.phase === 'ok' || !status.required) {
+      await clearMeiContractPendingSession()
+    }
+    return status
+  }
+
+  if (status.phase === 'ok' || status.hasActiveSubscription) {
+    await clearMeiContractPendingSession()
+    return status
+  }
+
+  return normalizeMeiBillingStatus({
+    ...status,
+    required: true,
+    phase: 'aguardando_contrato',
+    contract: {
+      lineId: pending?.lineId ?? status.contract?.lineId,
+      signingUrl: pending?.signingUrl ?? status.contract?.signingUrl ?? null,
+      contratoOnetyId: pending?.contratoOnetyId ?? status.contract?.contratoOnetyId ?? null,
+      contratoStatus: status.contract?.contratoStatus ?? 'awaiting_signature',
+      meiSlots: status.contract?.meiSlots ?? null,
+    },
+  })
+}
+
+async function statusFromPendingSession (): Promise<MeiBillingStatus | null> {
+  const pending = await readMeiContractPendingSession()
+  if (!hasMeiContractPendingSession(pending)) return null
+  return {
+    required: true,
+    phase: 'aguardando_contrato',
+    maxMei: 0,
+    hasActiveSubscription: false,
+    contract: {
+      lineId: pending?.lineId,
+      signingUrl: pending?.signingUrl ?? null,
+      contratoOnetyId: pending?.contratoOnetyId ?? null,
+      contratoStatus: 'awaiting_signature',
+    },
+  }
+}
+
 /**
  * Admin sem MEI liberado precisa de /planos ou /aguardando-contrato.
  */
@@ -43,8 +95,10 @@ export async function fetchMeiBillingGateStatus (): Promise<MeiBillingStatus> {
 
   try {
     const status = await fetchMeiBillingStatus()
-    return normalizeMeiBillingStatus(status)
+    return mergePendingContractSession(normalizeMeiBillingStatus(status))
   } catch {
+    const fromSession = await statusFromPendingSession()
+    if (fromSession) return fromSession
     return {
       required: mei !== true,
       phase: mei !== true ? 'planos' : 'ok',

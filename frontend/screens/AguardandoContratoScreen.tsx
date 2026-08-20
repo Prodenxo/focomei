@@ -16,6 +16,11 @@ import { AppBrandLogo } from '@/components/shell/AppBrandLogo'
 import { MfScrollView } from '@/components/ui/MfScrollView'
 import { brandColors } from '@/lib/brandTokens'
 import { fetchMeiBillingGateStatus } from '@/lib/meiBillingGate'
+import {
+  hasMeiContractPendingSession,
+  readMeiContractPendingSession,
+  clearMeiContractPendingSession,
+} from '@/lib/meiContractPendingSession'
 import { refreshMeiContractSignature } from '@/services/billingService'
 import { useAppToastStore } from '@/store/appToastStore'
 import { useAuthStore } from '@/store/authStore'
@@ -39,17 +44,22 @@ export default function AguardandoContratoScreen () {
   const styles = useMemo(() => createStyles(isWide), [isWide])
 
   const loadStatus = useCallback(async () => {
+    const pending = await readMeiContractPendingSession()
+    if (pending?.signingUrl) setSigningUrl(pending.signingUrl)
+    if (pending?.contratoOnetyId) setContratoId(pending.contratoOnetyId)
+
     const status = await fetchMeiBillingGateStatus()
     if (status.phase === 'ok' || status.hasActiveSubscription) {
+      await clearMeiContractPendingSession()
       router.replace('/(app)/' as never)
       return false
     }
-    if (status.phase === 'planos') {
+    if (status.phase === 'planos' && !hasMeiContractPendingSession(pending)) {
       router.replace('/(app)/planos' as never)
       return false
     }
-    setSigningUrl(status.contract?.signingUrl ?? null)
-    setContratoId(status.contract?.contratoOnetyId ?? null)
+    setSigningUrl(status.contract?.signingUrl ?? pending?.signingUrl ?? null)
+    setContratoId(status.contract?.contratoOnetyId ?? pending?.contratoOnetyId ?? null)
     return true
   }, [router])
 
@@ -59,6 +69,7 @@ export default function AguardandoContratoScreen () {
       if (result.signingUrl) setSigningUrl(result.signingUrl)
       if (result.contratoOnetyId) setContratoId(result.contratoOnetyId)
       if (result.activated) {
+        await clearMeiContractPendingSession()
         showToast('Contrato assinado! Liberando sua conta…', 'success')
         router.replace('/(app)/' as never)
       }

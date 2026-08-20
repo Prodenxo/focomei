@@ -22,8 +22,9 @@ import {
 import {
   confirmSelfServeMeiPlan,
   createSelfServeMeiCheckout,
-  fetchMeiBillingStatus,
 } from '@/services/billingService'
+import { fetchMeiBillingGateStatus } from '@/lib/meiBillingGate'
+import { stashMeiContractPendingSession } from '@/lib/meiContractPendingSession'
 import { useAppToastStore } from '@/store/appToastStore'
 import { useAuthStore } from '@/store/authStore'
 
@@ -61,7 +62,7 @@ export default function MeiPricingPlansScreen () {
   const refreshGate = useCallback(async () => {
     setChecking(true)
     try {
-      const status = await fetchMeiBillingStatus()
+      const status = await fetchMeiBillingGateStatus()
       if (status.packages?.length) {
         setPackages(status.packages as MeiPublicPackage[])
       }
@@ -106,7 +107,12 @@ export default function MeiPricingPlansScreen () {
     setLoadingSlots(pack.meiSlots)
     try {
       if (billingMode === 'contract_first') {
-        await confirmSelfServeMeiPlan(pack.meiSlots)
+        const result = await confirmSelfServeMeiPlan(pack.meiSlots)
+        await stashMeiContractPendingSession({
+          lineId: result.lineId,
+          signingUrl: result.signingUrl ?? null,
+          contratoOnetyId: result.contratoOnetyId ?? null,
+        })
         showToast('Contrato gerado! Assine para liberar sua conta.', 'success')
         router.replace('/(app)/aguardando-contrato' as never)
         return

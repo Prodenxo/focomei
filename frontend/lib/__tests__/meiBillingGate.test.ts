@@ -2,6 +2,8 @@ import { resolveMeiBillingHref, shouldRequireMeiBillingRoute } from '../meiBilli
 
 const mockFetchMeiBillingStatus = jest.fn()
 const mockGetState = jest.fn()
+const mockReadMeiContractPendingSession = jest.fn()
+const mockClearMeiContractPendingSession = jest.fn()
 
 jest.mock('@/services/billingService', () => ({
   fetchMeiBillingStatus: (...args: unknown[]) => mockFetchMeiBillingStatus(...args),
@@ -13,9 +15,21 @@ jest.mock('@/store/authStore', () => ({
   },
 }))
 
+jest.mock('../meiContractPendingSession', () => ({
+  hasMeiContractPendingSession: (data: { lineId?: string; contratoOnetyId?: number | null } | null) =>
+    Boolean(data?.lineId || data?.contratoOnetyId),
+  readMeiContractPendingSession: (...args: unknown[]) =>
+    mockReadMeiContractPendingSession(...args),
+  clearMeiContractPendingSession: (...args: unknown[]) =>
+    mockClearMeiContractPendingSession(...args),
+  stashMeiContractPendingSession: jest.fn(),
+}))
+
 describe('shouldRequireMeiBillingRoute', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockReadMeiContractPendingSession.mockResolvedValue(null)
+    mockClearMeiContractPendingSession.mockResolvedValue(undefined)
   })
 
   it('superadmin nunca precisa de /planos', async () => {
@@ -92,6 +106,23 @@ describe('shouldRequireMeiBillingRoute', () => {
       hasActiveSubscription: false,
       contract: { lineId: 'abc', contratoOnetyId: 99 },
     })
+    await expect(resolveMeiBillingHref()).resolves.toBe('/(app)/aguardando-contrato')
+  })
+
+  it('resolveMeiBillingHref infere aguardando pela sessão local', async () => {
+    mockGetState.mockReturnValue({ role: 'admin', mei: false })
+    mockFetchMeiBillingStatus.mockResolvedValue({
+      required: true,
+      phase: 'planos',
+      maxMei: 0,
+      hasActiveSubscription: false,
+    })
+    mockReadMeiContractPendingSession.mockResolvedValue({
+      lineId: 'local-line',
+      contratoOnetyId: 123,
+      savedAt: new Date().toISOString(),
+    })
+
     await expect(resolveMeiBillingHref()).resolves.toBe('/(app)/aguardando-contrato')
   })
 

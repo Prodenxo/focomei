@@ -23,6 +23,7 @@ import {
   buildMeiLineInsertPayload,
   hasMeiLineApprovalColumns,
   insertMeiSubscriptionLine,
+  isMissingApprovalColumnError,
   updateMeiSubscriptionLine,
 } from "./mei-line-approval-columns.service.js";
 
@@ -506,6 +507,65 @@ export const listSubscriptionLinesForEmpresa = async (
   return { lines: data || [] };
 };
 
+const MEI_LINE_CONTRACT_SELECT_FULL =
+  "id, status, billing_type, contrato_status, contrato_signing_url, contrato_onety_id, onety_funil_id, onety_lead_id, mei_slots";
+
+const MEI_LINE_CONTRACT_SELECT_MIN =
+  "id, status, billing_type, mei_slots";
+
+const isPendingContractFirstLine = (line) => {
+  if (!line?.id) return false;
+  const billingType = String(line.billing_type || "").toLowerCase();
+  if (billingType === "contract_first") return true;
+  if (line.contrato_onety_id) return true;
+  const contratoStatus = String(line.contrato_status || "").toLowerCase();
+  return [
+    "awaiting_signature",
+    "sent",
+    "client_signed",
+    "fully_signed",
+    "pending",
+  ].includes(contratoStatus);
+};
+
+/** Linha pending de contrato self-serve (resiliente a migration parcial). */
+const fetchPendingContractFirstLine = async (adminClient, empresaId) => {
+  const runQuery = async (select, withBillingFilter) => {
+    let query = adminClient
+      .from("empresa_mei_subscription_lines")
+      .select(select)
+      .eq("empresa_id", empresaId)
+      .eq("status", "pending")
+      .order("updated_at", { ascending: false })
+      .limit(1);
+    if (withBillingFilter) {
+      query = query.eq("billing_type", "contract_first");
+    }
+    return query.maybeSingle();
+  };
+
+  let { data, error } = await runQuery(MEI_LINE_CONTRACT_SELECT_FULL, true);
+  if (!error && isPendingContractFirstLine(data)) return data;
+
+  if (error && isMissingApprovalColumnError(error)) {
+    ({ data, error } = await runQuery(MEI_LINE_CONTRACT_SELECT_MIN, true));
+    if (!error && isPendingContractFirstLine(data)) return data;
+  }
+
+  if (error) throw badRequest(error.message);
+
+  ({ data, error } = await runQuery(MEI_LINE_CONTRACT_SELECT_FULL, false));
+  if (!error && isPendingContractFirstLine(data)) return data;
+
+  if (error && isMissingApprovalColumnError(error)) {
+    ({ data, error } = await runQuery(MEI_LINE_CONTRACT_SELECT_MIN, false));
+    if (!error && isPendingContractFirstLine(data)) return data;
+  }
+
+  if (error) throw badRequest(error.message);
+  return null;
+};
+
 /** Status de cobrança da empresa do requester (gate /planos). */
 export const getMeiBillingStatusForRequester = async (accessToken) => {
   const requester = await getRequesterContext(accessToken);
@@ -543,18 +603,7 @@ export const getMeiBillingStatusForRequester = async (accessToken) => {
 
   const hasActiveSubscription = Array.isArray(activeLines) && activeLines.length > 0;
 
-  const lineSelect =
-    "id, status, billing_type, contrato_status, contrato_signing_url, contrato_onety_id, onety_funil_id, onety_lead_id, mei_slots";
-
-  const { data: contractFirstLine } = await adminClient
-    .from("empresa_mei_subscription_lines")
-    .select(lineSelect)
-    .eq("empresa_id", empresaId)
-    .eq("billing_type", "contract_first")
-    .eq("status", "pending")
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const contractFirstLine = await fetchPendingContractFirstLine(adminClient, empresaId);
 
   const awaitingContractSignature = Boolean(
     contractFirstLine?.id && contractFirstLine?.contrato_onety_id,
