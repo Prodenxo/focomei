@@ -541,7 +541,16 @@ const resolveContratoStatusWebhookUrl = () => {
   const base = str(env.ONETY_CONTRATO_WEBHOOK_URL)
   if (!base) return ''
   if (base.includes('/webhook/contrato')) {
-    return base.replace(/\/webhook\/contrato\/?$/, '/webhook/contrato-status')
+    return base.replace(/\/webhook\/contrato(-status|-link)?\/?$/, '/webhook/contrato-status')
+  }
+  return ''
+}
+
+const resolveContratoLinkWebhookUrl = () => {
+  const base = str(env.ONETY_CONTRATO_WEBHOOK_URL)
+  if (!base) return ''
+  if (base.includes('/webhook/contrato')) {
+    return base.replace(/\/webhook\/contrato(-status|-link)?\/?$/, '/webhook/contrato-link')
   }
   return ''
 }
@@ -591,6 +600,58 @@ export const dispatchOnetyContratoStatusCheck = async (contratoId) => {
   }
 
   return { ok: true, ...body }
+}
+
+/** Busca contrato/link por contratoId ou leadId (robô /webhook/contrato-link). */
+export const dispatchOnetyContratoLinkFetch = async ({ contratoId, leadId } = {}) => {
+  const url = resolveContratoLinkWebhookUrl()
+  const id = Number(contratoId)
+  const lead = Number(leadId)
+  const hasContrato = Number.isFinite(id) && id > 0
+  const hasLead = Number.isFinite(lead) && lead > 0
+  if (!url) {
+    return { ok: false, reason: 'webhook_url_not_configured' }
+  }
+  if (!hasContrato && !hasLead) {
+    return { ok: false, reason: 'missing_contrato_or_lead' }
+  }
+
+  const headers = { 'Content-Type': 'application/json' }
+  const secret = str(env.ONETY_CONTRATO_WEBHOOK_SECRET)
+  if (secret) headers.Authorization = `Bearer ${secret}`
+
+  const body = hasContrato ? { contratoId: id } : { leadId: lead }
+
+  let response
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return { ok: false, reason: 'webhook_unreachable', error: message, url }
+  }
+
+  let payload = null
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+
+  if (!response.ok || payload?.ok === false) {
+    return {
+      ok: false,
+      reason: 'webhook_http_error',
+      status: response.status,
+      body: payload,
+      url,
+    }
+  }
+
+  return { ok: true, ...payload }
 }
 
 const contratoDispatchErrorMessage = (dispatch) => {

@@ -283,6 +283,21 @@ class OnetyClient:
             raise RuntimeError(f"Cliente {client_id} invalido: {data}")
         return data
 
+    def listar_contratos_pre_cliente(self, client_id: int | str) -> list[dict[str, Any]]:
+        data = self.request(
+            "GET",
+            f"/comercial/pre-clientes/{client_id}/contracts",
+            timeout=60,
+        )
+        if isinstance(data, list):
+            return [x for x in data if isinstance(x, dict)]
+        if isinstance(data, dict):
+            for key in ("data", "contracts", "contratos", "items"):
+                raw = data.get(key)
+                if isinstance(raw, list):
+                    return [x for x in raw if isinstance(x, dict)]
+        return []
+
     def get_modelo(self, template_id: int | str) -> dict[str, Any]:
         data = self.request("GET", f"/contratual/modelos-contrato/{template_id}")
         if isinstance(data, dict) and "conteudo" not in data and isinstance(data.get("modelo"), dict):
@@ -1376,6 +1391,48 @@ def analisar_status_contrato(client: OnetyClient, contract_id: int | str) -> dic
         "totalSignatories": total,
         "signingUrl": signing_url,
     }
+
+
+def _extrair_id_contrato_item(item: dict[str, Any]) -> int | None:
+    for key in ("id", "contract_id", "contrato_id", "contratoId"):
+        val = item.get(key)
+        if val in (None, ""):
+            continue
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def resolver_contrato_id_por_lead(client: OnetyClient, lead_id: int | str) -> int | None:
+    """Último contrato do pré-cliente vinculado ao lead (fallback quando BD perdeu contrato_onety_id)."""
+    lead = client.get_lead(lead_id)
+    pre_id = (
+        lead.get("pre_cliente_id")
+        or lead.get("preClienteId")
+        or lead.get("client_id")
+        or lead.get("clientId")
+    )
+    if pre_id in (None, ""):
+        return None
+
+    contracts = client.listar_contratos_pre_cliente(pre_id)
+    if not contracts:
+        return None
+
+    def sort_key(item: dict[str, Any]) -> str:
+        for key in ("created_at", "createdAt", "updated_at", "updatedAt", "id"):
+            val = item.get(key)
+            if val not in (None, ""):
+                return str(val)
+        return ""
+
+    for item in sorted(contracts, key=sort_key, reverse=True):
+        cid = _extrair_id_contrato_item(item)
+        if cid is not None:
+            return cid
+    return _extrair_id_contrato_item(contracts[0])
 
 
 def extrair_contrato_id(resultado: dict[str, Any] | None) -> int | None:

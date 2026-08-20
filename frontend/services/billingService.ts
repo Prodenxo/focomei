@@ -57,6 +57,9 @@ export async function refreshMeiContractSignature (): Promise<{
   fullySigned?: boolean
   signingUrl?: string | null
   contratoOnetyId?: number | null
+  pollError?: string
+  reason?: string
+  recoveredFromLead?: boolean
 }> {
   return apiClient.post('/billing/mei/contrato/refresh-signature', {})
 }

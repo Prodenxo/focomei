@@ -16,6 +16,7 @@ import {
   resolveContratoSignatarioForEmpresa,
   parseContratoWebhookMeta,
   dispatchOnetyContratoStatusCheck,
+  dispatchOnetyContratoLinkFetch,
 } from "./stripe-contract-payload.service.js";
 import { getFunilById, getSelfServeFunil, ONETY_CRM_SELF_SERVE_FUNIL_ID } from "../config/onety-crm-funis.js";
 import { prepararPropostaCrmForEmpresaOrThrow } from "./onety-crm.service.js";
@@ -828,7 +829,38 @@ export const refreshMeiContractSignatureForRequester = async (accessToken) => {
   }
 
   const contratoId = Number(line.contrato_onety_id);
-  if (!Number.isFinite(contratoId) || contratoId <= 0) {
+  let resolvedContratoId =
+    Number.isFinite(contratoId) && contratoId > 0 ? contratoId : null;
+
+  if (!resolvedContratoId) {
+    const leadId = Number(line.onety_lead_id);
+    if (Number.isFinite(leadId) && leadId > 0) {
+      const linkFetch = await dispatchOnetyContratoLinkFetch({ leadId });
+      if (linkFetch.ok && linkFetch.contratoId) {
+        resolvedContratoId = Number(linkFetch.contratoId);
+        const recoveredUrl = linkFetch.signingUrl || null;
+        if (resolvedContratoId || recoveredUrl) {
+          await updateMeiSubscriptionLine(adminClient, line.id, {
+            contrato_onety_id: resolvedContratoId,
+            contrato_signing_url: recoveredUrl,
+            contrato_status: recoveredUrl ? "sent" : line.contrato_status || "awaiting_signature",
+          });
+        }
+        if (recoveredUrl) {
+          return {
+            ok: true,
+            activated: false,
+            clientSigned: Boolean(linkFetch.clientSigned),
+            signingUrl: recoveredUrl,
+            contratoOnetyId: resolvedContratoId,
+            recoveredFromLead: true,
+          };
+        }
+      }
+    }
+  }
+
+  if (!resolvedContratoId) {
     return {
       ok: false,
       reason: "missing_contrato_id",
@@ -836,14 +868,14 @@ export const refreshMeiContractSignatureForRequester = async (accessToken) => {
     };
   }
 
-  const check = await dispatchOnetyContratoStatusCheck(contratoId);
+  const check = await dispatchOnetyContratoStatusCheck(resolvedContratoId);
   if (!check.ok) {
     return {
       ok: true,
       activated: false,
       clientSigned: false,
       signingUrl: line.contrato_signing_url || check.signingUrl || null,
-      contratoOnetyId: contratoId,
+      contratoOnetyId: resolvedContratoId,
       pollError: check.reason || check.error,
     };
   }
@@ -871,7 +903,7 @@ export const refreshMeiContractSignatureForRequester = async (accessToken) => {
       clientSigned: true,
       fullySigned: Boolean(check.fullySigned),
       signingUrl,
-      contratoOnetyId: contratoId,
+      contratoOnetyId: resolvedContratoId,
     };
   }
 
@@ -885,7 +917,7 @@ export const refreshMeiContractSignatureForRequester = async (accessToken) => {
     clientSigned: Boolean(check.clientSigned),
     fullySigned: Boolean(check.fullySigned),
     signingUrl,
-    contratoOnetyId: contratoId,
+    contratoOnetyId: resolvedContratoId,
   };
 };
 

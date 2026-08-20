@@ -108,6 +108,14 @@ export default function AguardandoContratoScreen () {
         showToast('Link de assinatura encontrado!', 'success')
         return
       }
+      if (result.pollError === 'webhook_url_not_configured') {
+        showToast('Robô de contrato não configurado no servidor. Avise o suporte FocoMEI.', 'error')
+        return
+      }
+      if (result.reason === 'missing_contrato_id') {
+        showToast('Contrato ainda sendo registrado. Verifique o WhatsApp ou tente em instantes.', 'info')
+        return
+      }
       showToast('Link ainda não disponível — verifique o WhatsApp ou tente de novo em instantes.', 'info')
     } catch {
       showToast('Não foi possível buscar o link agora. Tente novamente.', 'error')

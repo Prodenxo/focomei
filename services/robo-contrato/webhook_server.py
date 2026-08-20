@@ -38,6 +38,7 @@ from gerar_contrato import (
     extrair_specs,
     processar_spec,
     resolver_client_id_via_lead,
+    resolver_contrato_id_por_lead,
     resolver_config,
 )
 from padrao_lote import carregar_padrao, expandir_lista
@@ -278,6 +279,23 @@ def processar_contrato_status(body: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": str(exc)}
 
 
+def processar_contrato_link(body: dict[str, Any]) -> dict[str, Any]:
+    contract_id = body.get("contratoId") or body.get("contract_id") or body.get("contrato_id")
+    lead_id = body.get("leadId") or body.get("lead_id")
+    client, _, _ = get_client()
+    try:
+        if contract_id in (None, ""):
+            if lead_id in (None, ""):
+                return {"ok": False, "error": "contratoId ou leadId é obrigatório"}
+            contract_id = resolver_contrato_id_por_lead(client, lead_id)
+            if contract_id is None:
+                return {"ok": False, "error": f"nenhum contrato encontrado para lead {lead_id}"}
+        status = analisar_status_contrato(client, int(contract_id))
+        return {"ok": True, **status}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 class WebhookHandler(BaseHTTPRequestHandler):
     server_version = "RoboContratoWebhook/1.1"
 
@@ -331,6 +349,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
             "/webhook/contrato",
             "/webhook/crm/preparar-proposta",
             "/webhook/contrato-status",
+            "/webhook/contrato-link",
         ):
             self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
             return
@@ -346,6 +365,8 @@ class WebhookHandler(BaseHTTPRequestHandler):
         handler_fn = (
             processar_crm_preparar_proposta
             if path == "/webhook/crm/preparar-proposta"
+            else processar_contrato_link
+            if path == "/webhook/contrato-link"
             else processar_contrato_status
             if path == "/webhook/contrato-status"
             else processar_payload_focomei
