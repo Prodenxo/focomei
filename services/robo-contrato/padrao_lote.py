@@ -54,6 +54,13 @@ def limpar_email(valor: Any) -> str:
     return s
 
 
+def _fmt_brl(value: float | int | str) -> str:
+    try:
+        return f"{float(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except (TypeError, ValueError):
+        return str(value or "")
+
+
 def carregar_padrao(entrada: Path, nome: str = "_padrao_focomei.json") -> dict[str, Any]:
     path = entrada / nome
     if not path.exists():
@@ -167,6 +174,7 @@ def expandir_com_padrao(spec: dict[str, Any], padrao: dict[str, Any]) -> dict[st
         "plano_contratado": plano,
         "quantidade_de_cnpjs": qtd,
         "meses_promocionais": meses_promo,
+        "mensalidade": _fmt_brl(valor_mensal),
     }
     # mantém outros custom do padrão, se existirem
     for k, v in (padrao.get("custom") or {}).items():

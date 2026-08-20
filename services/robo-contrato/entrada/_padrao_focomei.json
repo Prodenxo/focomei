@@ -38,7 +38,8 @@
   "custom": {
     "plano_contratado": "Start",
     "quantidade_de_cnpjs": "5",
-    "meses_promocionais": "0"
+    "meses_promocionais": "0",
+    "mensalidade": "100,00"
   },
   "plano_contratado": "Start",
   "meses_promocionais": "0",
@@ -97,6 +98,7 @@
     "contract.mrr",
     "custom.plano_contratado",
     "custom.quantidade_de_cnpjs",
-    "custom.meses_promocionais"
+    "custom.meses_promocionais",
+    "custom.mensalidade"
   ]
 }

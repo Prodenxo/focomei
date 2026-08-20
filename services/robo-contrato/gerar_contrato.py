@@ -692,6 +692,10 @@ def montar_variaveis(
             key = k if str(k).startswith("custom.") else f"custom.{k}"
             put(key, v)
 
+    if spec.get("valor_recorrente") is not None:
+        if not str(vars_map.get("custom.mensalidade") or "").strip():
+            put("custom.mensalidade", _fmt_brl(spec["valor_recorrente"]))
+
     if usuario:
         put("user.full_name", usuario.get("nome") or usuario.get("full_name") or "")
         put("user.email", usuario.get("email") or "")
