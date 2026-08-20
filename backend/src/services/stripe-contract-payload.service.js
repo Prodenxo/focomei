@@ -471,12 +471,62 @@ export const dispatchOnetyContratoPayload = async (payload) => {
 }
 
 /** Extrai metadados úteis da resposta do robô contrato. */
+const HTTP_URL_RE = /https?:\/\/[^\s"'<>]+/gi
+
+const pickSigningUrlFromUnknown = (value) => {
+  if (value == null) return ''
+  if (typeof value === 'string') {
+    const direct = value.trim()
+    if (/^https?:\/\//i.test(direct) && !/\/api\//i.test(direct)) return direct
+    const match = direct.match(HTTP_URL_RE)
+    return match?.[0]?.trim() || ''
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = pickSigningUrlFromUnknown(item)
+      if (found) return found
+    }
+    return ''
+  }
+  if (typeof value === 'object') {
+    const preferredKeys = [
+      'signingUrl',
+      'signing_url',
+      'link_assinatura',
+      'linkAssinatura',
+      'url_assinatura',
+      'urlAssinatura',
+      'public_url',
+      'publicUrl',
+      'link',
+      'url',
+      'href',
+    ]
+    for (const key of preferredKeys) {
+      const found = pickSigningUrlFromUnknown(value[key])
+      if (found) return found
+    }
+    for (const nested of Object.values(value)) {
+      const found = pickSigningUrlFromUnknown(nested)
+      if (found) return found
+    }
+  }
+  return ''
+}
+
 export const parseContratoWebhookMeta = (dispatch) => {
   const resultados = dispatch?.response?.resultados
   const first = Array.isArray(resultados) ? resultados[0] : null
-  const contratoIdRaw = first?.contratoId ?? first?.contrato_id
+  const contratoIdRaw =
+    first?.contratoId
+    ?? first?.contrato_id
+    ?? dispatch?.response?.contratoId
+    ?? dispatch?.response?.contrato_id
   const contratoId = Number(contratoIdRaw)
-  const signingUrl = str(first?.signingUrl || first?.signing_url || '')
+  const signingUrl =
+    pickSigningUrlFromUnknown(first)
+    || pickSigningUrlFromUnknown(dispatch?.response)
+    || pickSigningUrlFromUnknown(first?.mensagem)
   return {
     contratoId: Number.isFinite(contratoId) && contratoId > 0 ? contratoId : null,
     signingUrl: signingUrl || null,

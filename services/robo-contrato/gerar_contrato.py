@@ -381,6 +381,26 @@ class OnetyClient:
                     return [x for x in raw if isinstance(x, dict)]
         return []
 
+    def obter_contrato(self, contract_id: int | str) -> dict[str, Any]:
+        """Detalhe do contrato — fallback para achar link Autentique."""
+        paths = (
+            f"/contratual/contratos/{contract_id}",
+            f"/contratual/contratos-autentique/{contract_id}",
+            f"/contratual/contratos/{contract_id}/detalhe",
+        )
+        last_exc: Exception | None = None
+        for path in paths:
+            try:
+                data = self.request("GET", path, timeout=60)
+            except Exception as exc:
+                last_exc = exc
+                continue
+            if isinstance(data, dict):
+                return data
+        if last_exc:
+            raise last_exc
+        return {}
+
     def criar_contrato_pdf(
         self,
         *,
@@ -1197,7 +1217,32 @@ def resolver_client_id_via_lead(
 
 def _url_parece_assinatura(val: Any) -> bool:
     s = str(val or "").strip()
-    return s.startswith("http") and ("autentique" in s.lower() or "sign" in s.lower() or len(s) > 24)
+    if not s.startswith("http"):
+        return False
+    low = s.lower()
+    if any(x in low for x in ("/api/", "back.cfonety", "localhost", ".json")):
+        return False
+    if any(x in low for x in ("autentique", "sign", "assin", "doc", "contract", "contrato")):
+        return True
+    return len(s) >= 20
+
+
+def _deep_scan_http_urls(node: Any, *, depth: int = 0) -> list[str]:
+    if depth > 8:
+        return []
+    found: list[str] = []
+    if isinstance(node, str):
+        if _url_parece_assinatura(node):
+            found.append(str(node).strip())
+        return found
+    if isinstance(node, dict):
+        for val in node.values():
+            found.extend(_deep_scan_http_urls(val, depth=depth + 1))
+        return found
+    if isinstance(node, list):
+        for item in node:
+            found.extend(_deep_scan_http_urls(item, depth=depth + 1))
+    return found
 
 
 def extrair_link_assinatura(
@@ -1211,10 +1256,20 @@ def extrair_link_assinatura(
         "link",
         "signingUrl",
         "signing_url",
+        "signatureUrl",
+        "signature_url",
         "url_assinatura",
         "link_assinatura",
+        "linkAssinatura",
+        "urlAssinatura",
         "public_url",
+        "publicUrl",
+        "public_link",
+        "publicLink",
+        "short_link",
+        "shortLink",
         "url",
+        "href",
     )
 
     def scan_signatario(sig: dict[str, Any]) -> str | None:
@@ -1254,6 +1309,8 @@ def extrair_link_assinatura(
                     val = sig.get(key)
                     if _url_parece_assinatura(val):
                         return str(val).strip()
+        for url in _deep_scan_http_urls(resultado):
+            return url
 
     if client is not None and contract_id is not None:
         try:
@@ -1265,6 +1322,15 @@ def extrair_link_assinatura(
                     val = sig.get(key)
                     if _url_parece_assinatura(val):
                         return str(val).strip()
+                for url in _deep_scan_http_urls(sig):
+                    return url
+        except Exception:
+            pass
+
+        try:
+            detail = client.obter_contrato(contract_id)
+            for url in _deep_scan_http_urls(detail):
+                return url
         except Exception:
             pass
 

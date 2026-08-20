@@ -20,6 +20,7 @@ import {
   hasMeiContractPendingSession,
   readMeiContractPendingSession,
   clearMeiContractPendingSession,
+  stashMeiContractPendingSession,
 } from '@/lib/meiContractPendingSession'
 import { refreshMeiContractSignature } from '@/services/billingService'
 import { useAppToastStore } from '@/store/appToastStore'
@@ -37,8 +38,20 @@ export default function AguardandoContratoScreen () {
   const userEmail = useAuthStore((s) => s.user?.email?.trim() || '')
 
   const [loading, setLoading] = useState(true)
+  const [refreshingLink, setRefreshingLink] = useState(false)
   const [signingUrl, setSigningUrl] = useState<string | null>(null)
   const [contratoId, setContratoId] = useState<number | null>(null)
+
+  const persistSigningUrl = useCallback(async (url: string | null | undefined, id?: number | null) => {
+    if (!url) return
+    setSigningUrl(url)
+    const pending = await readMeiContractPendingSession()
+    await stashMeiContractPendingSession({
+      lineId: pending?.lineId,
+      signingUrl: url,
+      contratoOnetyId: id ?? pending?.contratoOnetyId ?? contratoId,
+    })
+  }, [contratoId])
 
   const isWide = width >= 720
   const styles = useMemo(() => createStyles(isWide), [isWide])
@@ -60,13 +73,20 @@ export default function AguardandoContratoScreen () {
     }
     setSigningUrl(status.contract?.signingUrl ?? pending?.signingUrl ?? null)
     setContratoId(status.contract?.contratoOnetyId ?? pending?.contratoOnetyId ?? null)
+    if (status.contract?.signingUrl) {
+      await stashMeiContractPendingSession({
+        lineId: status.contract?.lineId ?? pending?.lineId,
+        signingUrl: status.contract.signingUrl,
+        contratoOnetyId: status.contract?.contratoOnetyId ?? pending?.contratoOnetyId ?? null,
+      })
+    }
     return true
   }, [router])
 
   const checkSignature = useCallback(async () => {
     try {
       const result = await refreshMeiContractSignature()
-      if (result.signingUrl) setSigningUrl(result.signingUrl)
+      if (result.signingUrl) await persistSigningUrl(result.signingUrl, result.contratoOnetyId ?? null)
       if (result.contratoOnetyId) setContratoId(result.contratoOnetyId)
       if (result.activated) {
         await clearMeiContractPendingSession()
@@ -76,7 +96,25 @@ export default function AguardandoContratoScreen () {
     } catch {
       /* polling silencioso — próxima tentativa em 15s */
     }
-  }, [router, showToast])
+  }, [router, showToast, persistSigningUrl])
+
+  const handleRefreshLink = useCallback(async () => {
+    setRefreshingLink(true)
+    try {
+      const result = await refreshMeiContractSignature()
+      if (result.signingUrl) {
+        await persistSigningUrl(result.signingUrl, result.contratoOnetyId ?? null)
+        if (result.contratoOnetyId) setContratoId(result.contratoOnetyId)
+        showToast('Link de assinatura encontrado!', 'success')
+        return
+      }
+      showToast('Link ainda não disponível — verifique o WhatsApp ou tente de novo em instantes.', 'info')
+    } catch {
+      showToast('Não foi possível buscar o link agora. Tente novamente.', 'error')
+    } finally {
+      setRefreshingLink(false)
+    }
+  }, [persistSigningUrl, showToast])
 
   useEffect(() => {
     void (async () => {
@@ -91,11 +129,12 @@ export default function AguardandoContratoScreen () {
   }, [loadStatus, checkSignature])
 
   useEffect(() => {
+    const intervalMs = signingUrl ? 15000 : 4000
     const interval = setInterval(() => {
       void checkSignature()
-    }, 15000)
+    }, intervalMs)
     return () => clearInterval(interval)
-  }, [checkSignature])
+  }, [checkSignature, signingUrl])
 
   const handleCopy = async () => {
     if (!signingUrl) {
@@ -169,6 +208,23 @@ export default function AguardandoContratoScreen () {
               {signingUrl || 'Gerando link de assinatura…'}
             </Text>
           </View>
+
+          <Pressable
+            style={[styles.btn, styles.btnRefresh, refreshingLink && styles.btnDisabled]}
+            onPress={() => void handleRefreshLink()}
+            disabled={refreshingLink}
+            accessibilityRole="button"
+            accessibilityLabel="Atualizar link de assinatura"
+          >
+            {refreshingLink ? (
+              <ActivityIndicator size="small" color={NAVY} />
+            ) : (
+              <Ionicons name="refresh-outline" size={18} color={NAVY} />
+            )}
+            <Text style={styles.btnSecondaryText}>
+              {signingUrl ? 'Atualizar link' : 'Buscar link agora'}
+            </Text>
+          </Pressable>
 
           <Pressable
             style={[styles.btn, styles.btnPrimary, !signingUrl && styles.btnDisabled]}
@@ -278,6 +334,7 @@ function createStyles (isWide: boolean) {
     btnPrimary: { backgroundColor: GREEN },
     btnPrimaryText: { color: '#fff', fontWeight: '600', fontSize: 15 },
     btnSecondary: { backgroundColor: '#eef2ff', borderWidth: 1, borderColor: '#c7d2fe' },
+    btnRefresh: { backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#cbd5e1' },
     btnSecondaryText: { color: NAVY, fontWeight: '600', fontSize: 15 },
     btnDisabled: { opacity: 0.5 },
     autoHint: {

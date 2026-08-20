@@ -760,8 +760,13 @@ export const confirmMeiPlanContractFirstForRequester = async (
   }
 
   const meta = parseContratoWebhookMeta(contrato?.dispatch);
-  const signingUrl = meta.signingUrl;
+  let signingUrl = meta.signingUrl;
   const contratoOnetyId = meta.contratoId;
+
+  if (!signingUrl && contratoOnetyId) {
+    const check = await dispatchOnetyContratoStatusCheck(contratoOnetyId);
+    if (check?.signingUrl) signingUrl = check.signingUrl;
+  }
 
   await updateMeiSubscriptionLine(adminClient, line.id, {
     contrato_status: contratoOnetyId ? "sent" : "failed",
@@ -806,16 +811,7 @@ export const refreshMeiContractSignatureForRequester = async (accessToken) => {
   const empresaId = String(requester.empresaId);
   const adminClient = createSupabaseClient({ useServiceRole: true });
 
-  const { data: line } = await adminClient
-    .from("empresa_mei_subscription_lines")
-    .select(
-      "id, status, contrato_onety_id, contrato_signing_url, contrato_status, contrato_client_signed_at, mei_slots",
-    )
-    .eq("empresa_id", empresaId)
-    .eq("billing_type", "contract_first")
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const line = await fetchPendingContractFirstLine(adminClient, empresaId);
 
   if (!line?.id) {
     return { ok: false, reason: "no_contract_line" };
