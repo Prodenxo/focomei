@@ -34,7 +34,6 @@ export default function AguardandoContratoScreen () {
   const userEmail = useAuthStore((s) => s.user?.email?.trim() || '')
 
   const [loading, setLoading] = useState(true)
-  const [polling, setPolling] = useState(false)
   const [signingUrl, setSigningUrl] = useState<string | null>(null)
   const [contratoId, setContratoId] = useState<number | null>(null)
 
@@ -56,8 +55,7 @@ export default function AguardandoContratoScreen () {
     return true
   }, [router])
 
-  const checkSignature = useCallback(async (silent = false) => {
-    if (!silent) setPolling(true)
+  const checkSignature = useCallback(async () => {
     try {
       const result = await refreshMeiContractSignature()
       if (result.signingUrl) setSigningUrl(result.signingUrl)
@@ -65,17 +63,9 @@ export default function AguardandoContratoScreen () {
       if (result.activated) {
         showToast('Contrato assinado! Liberando sua conta…', 'success')
         router.replace('/(app)/' as never)
-        return
       }
-      if (!silent && result.clientSigned) {
-        showToast('Assinatura detectada — finalizando liberação…', 'info')
-      }
-    } catch (e) {
-      if (!silent) {
-        showToast(e instanceof Error ? e.message : 'Erro ao verificar assinatura', 'error')
-      }
-    } finally {
-      if (!silent) setPolling(false)
+    } catch {
+      /* polling silencioso — próxima tentativa em 15s */
     }
   }, [router, showToast])
 
@@ -84,7 +74,7 @@ export default function AguardandoContratoScreen () {
       setLoading(true)
       try {
         const stay = await loadStatus()
-        if (stay) await checkSignature(true)
+        if (stay) await checkSignature()
       } finally {
         setLoading(false)
       }
@@ -93,7 +83,7 @@ export default function AguardandoContratoScreen () {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      void checkSignature(true)
+      void checkSignature()
     }, 15000)
     return () => clearInterval(interval)
   }, [checkSignature])
@@ -193,22 +183,9 @@ export default function AguardandoContratoScreen () {
             <Text style={styles.btnSecondaryText}>Abrir link de assinatura</Text>
           </Pressable>
 
-          <Pressable
-            style={styles.refreshBtn}
-            onPress={() => void checkSignature(false)}
-            disabled={polling}
-            accessibilityRole="button"
-            accessibilityLabel="Verificar se já assinei"
-          >
-            {polling ? (
-              <ActivityIndicator size="small" color={GREEN} />
-            ) : (
-              <Ionicons name="refresh-outline" size={18} color={GREEN} />
-            )}
-            <Text style={styles.refreshText}>
-              {polling ? 'Verificando…' : 'Já assinei — verificar agora'}
-            </Text>
-          </Pressable>
+          <Text style={styles.autoHint}>
+            Assim que você assinar, liberamos sua conta automaticamente.
+          </Text>
         </View>
       </MfScrollView>
     </View>
@@ -294,13 +271,12 @@ function createStyles (isWide: boolean) {
     btnSecondary: { backgroundColor: '#eef2ff', borderWidth: 1, borderColor: '#c7d2fe' },
     btnSecondaryText: { color: NAVY, fontWeight: '600', fontSize: 15 },
     btnDisabled: { opacity: 0.5 },
-    refreshBtn: {
+    autoHint: {
       marginTop: 20,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 8,
+      fontSize: 13,
+      color: '#64748b',
+      textAlign: 'center',
+      lineHeight: 20,
     },
-    refreshText: { color: GREEN, fontWeight: '600', fontSize: 14 },
   })
 }
