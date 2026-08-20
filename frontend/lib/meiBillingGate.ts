@@ -34,10 +34,29 @@ function normalizeMeiBillingStatus (status: MeiBillingStatus): MeiBillingStatus 
   return { ...status, phase: inferMeiBillingPhase(status) }
 }
 
+function hasServerPendingContract (status: MeiBillingStatus): boolean {
+  return Boolean(
+    status.contract?.lineId
+    || status.contract?.contratoOnetyId
+    || status.contract?.signingUrl,
+  )
+}
+
 async function mergePendingContractSession (
   status: MeiBillingStatus,
 ): Promise<MeiBillingStatus> {
   const pending = await readMeiContractPendingSession()
+
+  // Reset no banco ou linha removida: não manter aguardando só por localStorage.
+  if (
+    status.phase === 'planos'
+    && !hasServerPendingContract(status)
+    && hasMeiContractPendingSession(pending)
+  ) {
+    await clearMeiContractPendingSession()
+    return status
+  }
+
   if (!hasMeiContractPendingSession(pending)) {
     if (status.phase === 'ok' || !status.required) {
       await clearMeiContractPendingSession()

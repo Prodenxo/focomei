@@ -3,6 +3,7 @@ import type { Session, User } from '@supabase/supabase-js';
 import { clearSupabaseAuthStorage, supabase } from '../lib/supabase';
 import { cleanPhone, normalizeRoleValue, resolveRoleAndEmpresa, type UserRole } from '../lib/auth-roles';
 import { resetSessionActivationSkip } from '../lib/activationSession';
+import { clearMeiContractPendingSession } from '../lib/meiContractPendingSession';
 import {
   getErrorMessage,
   isAuthBlockOrExpiryMessage,
@@ -469,6 +470,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ user: data.user, phone, displayName, userId, role, mei, empresaId });
   },
   signOut: async () => {
+    await clearMeiContractPendingSession();
     await clearBackedUpAdminSession();
     if (isLocalApiAuthMode()) {
       await clearLocalAuthSnapshot();

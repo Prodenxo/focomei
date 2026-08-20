@@ -109,13 +109,14 @@ describe('shouldRequireMeiBillingRoute', () => {
     await expect(resolveMeiBillingHref()).resolves.toBe('/(app)/aguardando-contrato')
   })
 
-  it('resolveMeiBillingHref infere aguardando pela sessão local', async () => {
+  it('resolveMeiBillingHref descarta sessão local obsoleta quando API não tem contrato', async () => {
     mockGetState.mockReturnValue({ role: 'admin', mei: false })
     mockFetchMeiBillingStatus.mockResolvedValue({
       required: true,
       phase: 'planos',
       maxMei: 0,
       hasActiveSubscription: false,
+      contract: null,
     })
     mockReadMeiContractPendingSession.mockResolvedValue({
       lineId: 'local-line',
@@ -123,7 +124,8 @@ describe('shouldRequireMeiBillingRoute', () => {
       savedAt: new Date().toISOString(),
     })
 
-    await expect(resolveMeiBillingHref()).resolves.toBe('/(app)/aguardando-contrato')
+    await expect(resolveMeiBillingHref()).resolves.toBe('/(app)/planos')
+    expect(mockClearMeiContractPendingSession).toHaveBeenCalled()
   })
 
   it('resolveMeiBillingHref retorna planos quando ainda sem contrato', async () => {
