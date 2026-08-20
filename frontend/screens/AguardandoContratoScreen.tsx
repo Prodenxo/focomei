@@ -15,10 +15,8 @@ import { Ionicons } from '@expo/vector-icons'
 import { AppBrandLogo } from '@/components/shell/AppBrandLogo'
 import { MfScrollView } from '@/components/ui/MfScrollView'
 import { brandColors } from '@/lib/brandTokens'
-import {
-  fetchMeiBillingStatus,
-  refreshMeiContractSignature,
-} from '@/services/billingService'
+import { fetchMeiBillingGateStatus } from '@/lib/meiBillingGate'
+import { refreshMeiContractSignature } from '@/services/billingService'
 import { useAppToastStore } from '@/store/appToastStore'
 import { useAuthStore } from '@/store/authStore'
 
@@ -41,12 +39,12 @@ export default function AguardandoContratoScreen () {
   const styles = useMemo(() => createStyles(isWide), [isWide])
 
   const loadStatus = useCallback(async () => {
-    const status = await fetchMeiBillingStatus()
+    const status = await fetchMeiBillingGateStatus()
     if (status.phase === 'ok' || status.hasActiveSubscription) {
       router.replace('/(app)/' as never)
       return false
     }
-    if (status.phase === 'planos' && !status.contract?.contratoOnetyId) {
+    if (status.phase === 'planos') {
       router.replace('/(app)/planos' as never)
       return false
     }

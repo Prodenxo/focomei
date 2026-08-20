@@ -279,9 +279,28 @@ export default function AppLayout() {
       return;
     }
     if (isPlanosRoute || isAguardandoContratoRoute) {
-      loginBillingGateDone.current = true;
-      setBillingGate('ready');
-      return;
+      let cancelled = false;
+      setBillingGate('checking');
+      void fetchMeiBillingGateStatus().then((status) => {
+        if (cancelled) return;
+        loginBillingGateDone.current = true;
+        if (status.phase === 'ok') {
+          router.replace('/(app)/' as never);
+          return;
+        }
+        if (status.phase === 'aguardando_contrato' && !isAguardandoContratoRoute) {
+          router.replace(MEI_AWAITING_CONTRACT_ROUTE as never);
+          return;
+        }
+        if (status.phase === 'planos' && !isPlanosRoute) {
+          router.replace(MEI_BILLING_PLANS_ROUTE as never);
+          return;
+        }
+        setBillingGate('ready');
+      });
+      return () => {
+        cancelled = true;
+      };
     }
     if (role !== 'admin') {
       loginBillingGateDone.current = true;
@@ -481,6 +500,7 @@ export default function AppLayout() {
     && accessStatus === 'ok'
     && billingGate === 'checking'
     && !isPlanosRoute
+    && !isAguardandoContratoRoute
     && role === 'admin';
 
   if (awaitingBillingGate) {
@@ -498,6 +518,7 @@ export default function AppLayout() {
     && !isActivationRoute
     && !isEmpresaCnpjRoute
     && !isPlanosRoute
+    && !isAguardandoContratoRoute
     && !isSessionActivationSkipped();
 
   if (awaitingActivationGate) {

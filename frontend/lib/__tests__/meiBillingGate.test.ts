@@ -1,4 +1,4 @@
-import { shouldRequireMeiBillingRoute } from '../meiBillingGate'
+import { resolveMeiBillingHref, shouldRequireMeiBillingRoute } from '../meiBillingGate'
 
 const mockFetchMeiBillingStatus = jest.fn()
 const mockGetState = jest.fn()
@@ -39,6 +39,18 @@ describe('shouldRequireMeiBillingRoute', () => {
     await expect(shouldRequireMeiBillingRoute()).resolves.toBe(false)
   })
 
+  it('admin aguardando contrato vai para aguardando-contrato', async () => {
+    mockGetState.mockReturnValue({ role: 'admin', mei: false })
+    mockFetchMeiBillingStatus.mockResolvedValue({
+      required: true,
+      phase: 'aguardando_contrato',
+      maxMei: 0,
+      hasActiveSubscription: false,
+      contract: { contratoOnetyId: 9413 },
+    })
+    await expect(shouldRequireMeiBillingRoute()).resolves.toBe(true)
+  })
+
   it('admin sem plano (required=true) precisa de /planos', async () => {
     mockGetState.mockReturnValue({ role: 'admin', mei: false })
     mockFetchMeiBillingStatus.mockResolvedValue({
@@ -59,5 +71,38 @@ describe('shouldRequireMeiBillingRoute', () => {
     mockGetState.mockReturnValue({ role: 'admin', mei: false })
     mockFetchMeiBillingStatus.mockRejectedValue(new Error('network'))
     await expect(shouldRequireMeiBillingRoute()).resolves.toBe(true)
+  })
+
+  it('resolveMeiBillingHref retorna aguardando-contrato quando phase aguardando', async () => {
+    mockGetState.mockReturnValue({ role: 'admin', mei: false })
+    mockFetchMeiBillingStatus.mockResolvedValue({
+      required: true,
+      phase: 'aguardando_contrato',
+      maxMei: 0,
+      hasActiveSubscription: false,
+    })
+    await expect(resolveMeiBillingHref()).resolves.toBe('/(app)/aguardando-contrato')
+  })
+
+  it('resolveMeiBillingHref infere aguardando pelo contrato pendente', async () => {
+    mockGetState.mockReturnValue({ role: 'admin', mei: false })
+    mockFetchMeiBillingStatus.mockResolvedValue({
+      required: true,
+      maxMei: 0,
+      hasActiveSubscription: false,
+      contract: { lineId: 'abc', contratoOnetyId: 99 },
+    })
+    await expect(resolveMeiBillingHref()).resolves.toBe('/(app)/aguardando-contrato')
+  })
+
+  it('resolveMeiBillingHref retorna planos quando ainda sem contrato', async () => {
+    mockGetState.mockReturnValue({ role: 'admin', mei: false })
+    mockFetchMeiBillingStatus.mockResolvedValue({
+      required: true,
+      phase: 'planos',
+      maxMei: 0,
+      hasActiveSubscription: false,
+    })
+    await expect(resolveMeiBillingHref()).resolves.toBe('/(app)/planos')
   })
 })

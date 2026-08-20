@@ -126,7 +126,7 @@ export function resolveAppScreenFromPath(pathname?: string | null): AppScreenNam
   if (suffix === '/configuracoes' || suffix.startsWith('/configuracoes/')) {
     return 'Configuracoes';
   }
-  if (suffix === '/solicitacoes' || suffix === '/planos') {
+  if (suffix === '/solicitacoes' || suffix === '/planos' || suffix === '/aguardando-contrato') {
     return 'Configuracoes';
   }
 
