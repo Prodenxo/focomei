@@ -1079,62 +1079,104 @@ def listar_arquivos_entrada() -> list[Path]:
     )
 
 
-def extrair_pre_cliente_id(dados: dict[str, Any] | None) -> int | None:
-    """ID de pre_clientes (client_id no POST contratos-autentique/html)."""
-    if not isinstance(dados, dict):
-        return None
-    for key in (
-        "preClienteId",
-        "pre_cliente_id",
-        "clientId",
-        "client_id",
-        "id",
-    ):
+_PRE_CLIENTE_KEYS = ("preClienteId", "pre_cliente_id", "clientId", "client_id")
+
+
+def _ler_int_em_chaves(dados: dict[str, Any], keys: tuple[str, ...]) -> int | None:
+    for key in keys:
         val = dados.get(key)
         if val is not None and str(val).strip() != "":
             try:
                 return int(val)
             except (TypeError, ValueError):
                 continue
-    for nest in ("preCliente", "pre_cliente", "cliente", "data"):
+    return None
+
+
+def extrair_pre_cliente_id_convert(dados: dict[str, Any] | None) -> int | None:
+    """Resposta de POST /comercial/leads/convert/{id} ou POST /pre-clientes."""
+    if not isinstance(dados, dict):
+        return None
+    found = _ler_int_em_chaves(dados, _PRE_CLIENTE_KEYS)
+    if found is not None:
+        return found
+    # Resposta de convert/criação pode usar id raiz como pre_clientes.id
+    root_id = _ler_int_em_chaves(dados, ("id",))
+    if root_id is not None:
+        return root_id
+    for nest in ("preCliente", "pre_cliente", "data"):
         nested = dados.get(nest)
         if isinstance(nested, dict):
-            found = extrair_pre_cliente_id(nested)
+            found = extrair_pre_cliente_id_convert(nested)
             if found is not None:
                 return found
     return None
 
 
-def resolver_client_id_via_lead(client: OnetyClient, lead_id: int | str) -> int:
+def extrair_pre_cliente_id_do_lead(lead: dict[str, Any] | None) -> int | None:
+    """GET /comercial/leads/{id} — nunca usar lead.id como pre_cliente_id."""
+    if not isinstance(lead, dict):
+        return None
+    found = _ler_int_em_chaves(lead, _PRE_CLIENTE_KEYS)
+    if found is not None:
+        return found
+    for nest in ("preCliente", "pre_cliente"):
+        nested = lead.get(nest)
+        if not isinstance(nested, dict):
+            continue
+        found = _ler_int_em_chaves(nested, _PRE_CLIENTE_KEYS)
+        if found is not None:
+            return found
+        nested_id = _ler_int_em_chaves(nested, ("id",))
+        if nested_id is not None:
+            return nested_id
+    return None
+
+
+def resolver_client_id_via_lead(
+    client: OnetyClient,
+    lead_id: int | str,
+    *,
+    spec: dict[str, Any] | None = None,
+    empresa_id: str | int | None = None,
+) -> int:
     """
     Garante pré-cliente ligado ao lead antes do contrato HTML.
-    Tenta convert; se falhar, lê pre_cliente_id do GET lead.
+    1) convert  2) GET lead (só campos de vínculo)  3) POST pre-clientes com lead_id
     """
     lid = int(lead_id)
+    convert_detail = ""
+
     try:
         convertido = client.converter_lead(lid)
-        pre_id = extrair_pre_cliente_id(convertido)
+        pre_id = extrair_pre_cliente_id_convert(convertido)
         if pre_id is not None:
             return pre_id
-    except Exception:
-        pass
+        convert_detail = f"convert sem pre_cliente_id: {convertido!r}"
+    except Exception as exc:
+        convert_detail = f"convert falhou: {exc}"
 
-    lead = client.get_lead(lid)
-    pre_id = extrair_pre_cliente_id(lead)
-    if pre_id is not None:
-        return pre_id
+    try:
+        lead = client.get_lead(lid)
+        pre_id = extrair_pre_cliente_id_do_lead(lead)
+        if pre_id is not None:
+            return pre_id
+    except Exception as exc:
+        convert_detail = f"{convert_detail}; GET lead falhou: {exc}".strip("; ")
 
-    for key in ("pre_cliente_id", "preClienteId", "client_id", "clientId"):
-        val = lead.get(key)
-        if val is not None and str(val).strip() != "":
-            try:
-                return int(val)
-            except (TypeError, ValueError):
-                continue
+    if spec is not None and empresa_id is not None:
+        body_cli = montar_payload_novo_cliente({**spec, "lead_id": lid, "onety_lead_id": lid}, empresa_id)
+        try:
+            criado = client.criar_cliente(body_cli)
+            pre_id = extrair_pre_cliente_id_convert(criado)
+            if pre_id is not None:
+                return pre_id
+            convert_detail = f"{convert_detail}; criar pre-cliente sem id: {criado!r}".strip("; ")
+        except Exception as exc:
+            convert_detail = f"{convert_detail}; criar pre-cliente falhou: {exc}".strip("; ")
 
     raise RuntimeError(
-        f"Não foi possível obter pre_cliente_id do lead {lid} "
-        f"(convert + GET /comercial/leads/{lid})"
+        f"Não foi possível obter pre_cliente_id válido do lead {lid} ({convert_detail})"
     )
 
 
@@ -1359,7 +1401,12 @@ def processar_spec(
 
     if lead_id not in (None, "") and not dry_run:
         try:
-            pre_id = resolver_client_id_via_lead(client, lead_id)
+            pre_id = resolver_client_id_via_lead(
+                client,
+                lead_id,
+                spec=spec,
+                empresa_id=cfg["empresa_id"],
+            )
             spec = {**spec, "client_id": pre_id, "criar_cliente": False}
             precisa_criar = False
         except Exception as exc:

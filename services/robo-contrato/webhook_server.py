@@ -236,16 +236,24 @@ def processar_crm_preparar_proposta(body: dict[str, Any]) -> dict[str, Any]:
     client.mover_lead_fase(lead_id, int(fase_proposta))
 
     pre_cliente_id = None
+    convert_warn = ""
     try:
         log.info("CRM: convertendo lead %s em pré-cliente", lead_id)
-        pre_cliente_id = resolver_client_id_via_lead(client, lead_id)
+        pre_cliente_id = resolver_client_id_via_lead(
+            client,
+            lead_id,
+            spec={"cliente": {"nome": nome, "email": email, "telefone": telefone}},
+            empresa_id=empresa_id,
+        )
     except Exception as exc:
+        convert_warn = str(exc)
         log.warning("CRM: convert lead %s falhou (contrato tentará de novo): %s", lead_id, exc)
 
     return {
         "ok": True,
         "leadId": int(lead_id),
         "preClienteId": pre_cliente_id,
+        "convertWarning": convert_warn or None,
         "fase_proposta_id": int(fase_proposta),
         "funil_id": int(funil_id),
         "message": "Lead criado e movido para Proposta",
