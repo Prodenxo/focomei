@@ -42,6 +42,7 @@ import {
 import { SettingsProfileField } from "../components/settings/SettingsProfileField";
 import { SettingsPhoneField } from "../components/settings/SettingsPhoneField";
 import { SettingsActionLink } from "../components/settings/SettingsActionLink";
+import { SupportTicketModal } from "../components/support/SupportTicketModal";
 import { SignOutHeaderButton } from "../components/settings/SignOutHeaderButton";
 import { MfAppHeader } from "../components/ui/MfAppHeader";
 import { useMfTheme } from "../components/ui/useMfTheme";
@@ -77,6 +78,7 @@ export default function SettingsScreen() {
   const [googleAgendaIntegrated, setGoogleAgendaIntegrated] =
     useState<boolean>(false);
   const [checkingIntegration, setCheckingIntegration] = useState<boolean>(true);
+  const [supportTicketOpen, setSupportTicketOpen] = useState<boolean>(false);
   const router = useRouter();
   const [resolvedRole, setResolvedRole] = useState<UserRole | null>(null);
   const [googleDialog, setGoogleDialog] = useState<GoogleDialogState>(null);
@@ -667,6 +669,12 @@ export default function SettingsScreen() {
             style={styles.sectionFull}
           >
             <SettingsActionLink
+              title="Abrir chamado"
+              description="Registre bug, dúvida ou solicitação"
+              icon="ticket-outline"
+              onPress={() => setSupportTicketOpen(true)}
+            />
+            <SettingsActionLink
               title="Fale com o Agente"
               description="WhatsApp do consultor pessoal"
               icon="logo-whatsapp"
@@ -709,6 +717,13 @@ export default function SettingsScreen() {
         >
           {settingsBody}
         </MfScrollView>
+
+      <SupportTicketModal
+        visible={supportTicketOpen}
+        onClose={() => setSupportTicketOpen(false)}
+        userEmail={user?.email}
+        userName={displayName || user?.email}
+      />
 
       <MfConfirmDialog
         visible={googleDialog !== null}
