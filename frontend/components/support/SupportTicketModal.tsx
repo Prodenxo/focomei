@@ -15,6 +15,7 @@ import * as DocumentPicker from 'expo-document-picker'
 import { Ionicons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { MfScrollView } from '@/components/ui/MfScrollView'
+import { MfSegmented } from '@/components/ui/MfSegmented'
 import { useMfTheme } from '@/components/ui/useMfTheme'
 import { getSiteTokens, mfSiteInput, mfSitePrimaryBtn, siteFieldLabelStyle } from '@/lib/siteDesign'
 import { mfTechPanelChrome } from '@/lib/techDesign'
@@ -23,6 +24,7 @@ import {
   createSupportTicket,
   fetchSupportTicketFormConfig,
   type SupportTicketAttachment,
+  type SupportTicketPriority,
 } from '@/services/supportService'
 import { useAppToastStore } from '@/store/appToastStore'
 
@@ -35,6 +37,68 @@ export type SupportTicketModalProps = {
 }
 
 const MODAL_MAX_WIDTH = 560
+
+const PRIORITY_OPTIONS: Array<{ key: SupportTicketPriority; label: string }> = [
+  { key: 'baixa', label: 'Baixa' },
+  { key: 'media', label: 'Média' },
+  { key: 'alta', label: 'Alta' },
+  { key: 'critica', label: 'Crítica' },
+]
+
+function defaultPrazoIso (daysAhead = 7): string {
+  const date = new Date()
+  date.setDate(date.getDate() + daysAhead)
+  return date.toISOString().slice(0, 10)
+}
+
+function SupportTicketDateField ({
+  value,
+  onChange,
+  isDarkMode,
+  textColor,
+  mutedColor,
+}: {
+  value: string
+  onChange: (value: string) => void
+  isDarkMode: boolean
+  textColor: string
+  mutedColor: string
+}) {
+  if (Platform.OS === 'web') {
+    return (
+      <input
+        type="date"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        style={{
+          width: '100%',
+          minHeight: 44,
+          padding: '10px 12px',
+          fontSize: 14,
+          borderRadius: 12,
+          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(15, 23, 42, 0.12)'}`,
+          backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.35)' : '#fff',
+          color: textColor,
+        }}
+      />
+    )
+  }
+
+  return (
+    <TextInput
+      value={value}
+      onChangeText={onChange}
+      placeholder="AAAA-MM-DD"
+      placeholderTextColor={mutedColor}
+      autoCapitalize="none"
+      style={[
+        styles.input,
+        mfSiteInput(isDarkMode),
+        { color: textColor },
+      ]}
+    />
+  )
+}
 const ALLOWED_DOC_TYPES = Platform.OS === 'web'
   ? '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.odt,.ods,.odp'
   : [
@@ -80,6 +144,8 @@ export function SupportTicketModal ({
 
   const [nome, setNome] = useState('')
   const [descricao, setDescricao] = useState('')
+  const [prioridade, setPrioridade] = useState<SupportTicketPriority>('media')
+  const [prazo, setPrazo] = useState(defaultPrazoIso())
   const [nomeSolicitante, setNomeSolicitante] = useState('')
   const [emailSolicitante, setEmailSolicitante] = useState('')
   const [contatoSolicitante, setContatoSolicitante] = useState('')
@@ -88,6 +154,8 @@ export function SupportTicketModal ({
   const resetForm = useCallback(() => {
     setNome('')
     setDescricao('')
+    setPrioridade('media')
+    setPrazo(defaultPrazoIso())
     setNomeSolicitante(userName?.trim() || '')
     setEmailSolicitante(userEmail?.trim() || '')
     setContatoSolicitante(userPhone?.trim() || '')
@@ -144,12 +212,18 @@ export function SupportTicketModal ({
       Alert.alert('Atenção', 'Informe o assunto do chamado.')
       return
     }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(prazo.trim())) {
+      Alert.alert('Atenção', 'Informe o prazo no formato AAAA-MM-DD.')
+      return
+    }
 
     setSubmitting(true)
     try {
       await createSupportTicket({
         nome: assunto,
         descricao: descricao.trim() || undefined,
+        prioridade,
+        prazo: prazo.trim(),
         nome_solicitante: nomeSolicitante.trim() || undefined,
         email_solicitante: emailSolicitante.trim() || undefined,
         contato_solicitante: contatoSolicitante.trim() || undefined,
@@ -206,6 +280,33 @@ export function SupportTicketModal ({
           placeholderTextColor={siteTokens.textMuted}
           style={[styles.input, mfSiteInput(isDarkMode), { color: siteTokens.textPrimary }]}
         />
+      </View>
+
+      <View style={styles.field}>
+        <Text style={[siteFieldLabelStyle, styles.label, { color: siteTokens.textSecondary }]}>
+          Prioridade *
+        </Text>
+        <MfSegmented
+          options={PRIORITY_OPTIONS}
+          value={prioridade}
+          onChange={setPrioridade}
+        />
+      </View>
+
+      <View style={styles.field}>
+        <Text style={[siteFieldLabelStyle, styles.label, { color: siteTokens.textSecondary }]}>
+          Prazo *
+        </Text>
+        <SupportTicketDateField
+          value={prazo}
+          onChange={setPrazo}
+          isDarkMode={isDarkMode}
+          textColor={siteTokens.textPrimary}
+          mutedColor={siteTokens.textMuted}
+        />
+        <Text style={[styles.fieldHint, { color: siteTokens.textMuted }]}>
+          Se precisar, você ajusta depois no ScrumHub.
+        </Text>
       </View>
 
       <View style={styles.field}>
@@ -481,6 +582,10 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 12,
+  },
+  fieldHint: {
+    fontSize: 11,
+    lineHeight: 15,
   },
   input: {
     minHeight: 44,

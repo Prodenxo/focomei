@@ -70,11 +70,30 @@ export async function fetchScrumHubTicketFormConfig () {
   }
 }
 
+const ALLOWED_PRIORITIES = new Set(['baixa', 'media', 'alta', 'critica'])
+
 function appendIfPresent (formData, key, value) {
   if (value === undefined || value === null) return
   const text = String(value).trim()
   if (!text) return
   formData.append(key, text)
+}
+
+function normalizePrioridade (value) {
+  const prioridade = String(value || 'media').trim().toLowerCase()
+  if (!ALLOWED_PRIORITIES.has(prioridade)) {
+    throw badRequest('Prioridade inválida.')
+  }
+  return prioridade
+}
+
+function normalizePrazo (value) {
+  const prazo = String(value || '').trim()
+  if (!prazo) throw badRequest('Informe o prazo do chamado.')
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(prazo)) {
+    throw badRequest('Prazo inválido. Use o formato AAAA-MM-DD.')
+  }
+  return prazo
 }
 
 export async function createScrumHubExternalTicket ({ fields, files = [] }) {
@@ -89,7 +108,8 @@ export async function createScrumHubExternalTicket ({ fields, files = [] }) {
   appendIfPresent(formData, 'nome_solicitante', fields?.nome_solicitante)
   appendIfPresent(formData, 'email_solicitante', fields?.email_solicitante)
   appendIfPresent(formData, 'contato_solicitante', fields?.contato_solicitante)
-  appendIfPresent(formData, 'prioridade', fields?.prioridade || 'media')
+  formData.append('prioridade', normalizePrioridade(fields?.prioridade))
+  formData.append('prazo', normalizePrazo(fields?.prazo))
 
   for (const file of files) {
     if (!file?.buffer?.length) continue

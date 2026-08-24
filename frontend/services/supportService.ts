@@ -16,9 +16,13 @@ export type SupportTicketAttachment = {
   size?: number | null
 }
 
+export type SupportTicketPriority = 'baixa' | 'media' | 'alta' | 'critica'
+
 export type CreateSupportTicketInput = {
   nome: string
   descricao?: string
+  prioridade: SupportTicketPriority
+  prazo: string
   nome_solicitante?: string
   email_solicitante?: string
   contato_solicitante?: string
@@ -56,6 +60,8 @@ export async function createSupportTicket (input: CreateSupportTicketInput): Pro
   if (input.contato_solicitante?.trim()) {
     formData.append('contato_solicitante', input.contato_solicitante.trim())
   }
+  formData.append('prioridade', input.prioridade)
+  formData.append('prazo', input.prazo.trim())
 
   for (const file of input.anexos || []) {
     await appendAttachment(formData, file)
