@@ -723,6 +723,7 @@ export default function SettingsScreen() {
         onClose={() => setSupportTicketOpen(false)}
         userEmail={user?.email}
         userName={displayName || user?.email}
+        userPhone={phone}
       />
 
       <MfConfirmDialog

@@ -1,60 +1,61 @@
-import React, { useMemo } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  ActivityIndicator,
+  Alert,
   Modal,
   Platform,
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native'
+import * as DocumentPicker from 'expo-document-picker'
 import { Ionicons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { WebView } from 'react-native-webview'
+import { MfScrollView } from '@/components/ui/MfScrollView'
 import { useMfTheme } from '@/components/ui/useMfTheme'
-import { buildScrumHubTicketUrl } from '@/lib/supportUrls'
-import { getSiteTokens } from '@/lib/siteDesign'
+import { getSiteTokens, mfSiteInput, mfSitePrimaryBtn, siteFieldLabelStyle } from '@/lib/siteDesign'
 import { mfTechPanelChrome } from '@/lib/techDesign'
-import { openLegalUrl } from '@/lib/legalUrls'
 import { mfRadius, mfSpacing } from '@/lib/theme'
+import {
+  createSupportTicket,
+  fetchSupportTicketFormConfig,
+  type SupportTicketAttachment,
+} from '@/services/supportService'
+import { useAppToastStore } from '@/store/appToastStore'
 
 export type SupportTicketModalProps = {
   visible: boolean
   onClose: () => void
   userEmail?: string | null
   userName?: string | null
+  userPhone?: string | null
 }
 
-const MODAL_MAX_WIDTH = 760
-const EMBED_MIN_HEIGHT = 560
+const MODAL_MAX_WIDTH = 560
+const ALLOWED_DOC_TYPES = Platform.OS === 'web'
+  ? '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.odt,.ods,.odp'
+  : [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'text/plain',
+    'text/csv',
+    'application/rtf',
+    'text/rtf',
+  ]
 
-function ScrumHubTicketFrame ({ url }: { url: string }) {
-  if (Platform.OS === 'web') {
-    return (
-      <iframe
-        src={url}
-        title="Formulário de suporte Foco MEI"
-        style={{
-          width: '100%',
-          height: '100%',
-          minHeight: EMBED_MIN_HEIGHT,
-          border: 'none',
-          display: 'block',
-          backgroundColor: 'transparent',
-        }}
-      />
-    )
-  }
-
-  return (
-    <WebView
-      source={{ uri: url }}
-      style={styles.webView}
-      startInLoadingState
-      setSupportMultipleWindows={false}
-      originWhitelist={['https://*']}
-    />
-  )
+function formatFileSize (bytes?: number | null): string {
+  if (!bytes || bytes <= 0) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 export function SupportTicketModal ({
@@ -62,21 +63,108 @@ export function SupportTicketModal ({
   onClose,
   userEmail,
   userName,
+  userPhone,
 }: SupportTicketModalProps) {
   const insets = useSafeAreaInsets()
   const { width } = useWindowDimensions()
   const { theme, isDarkMode } = useMfTheme()
   const siteTokens = getSiteTokens(isDarkMode)
+  const showToast = useAppToastStore((s) => s.show)
   const panelChrome = useMemo(() => mfTechPanelChrome(isDarkMode, 'surface'), [isDarkMode])
-  const ticketUrl = useMemo(
-    () => buildScrumHubTicketUrl({ email: userEmail, name: userName }),
-    [userEmail, userName],
-  )
-  const isWebDialog = Platform.OS === 'web'
   const dialogWidth = Math.min(width - mfSpacing.lg * 2, MODAL_MAX_WIDTH)
+  const primaryBtn = useMemo(() => mfSitePrimaryBtn(isDarkMode), [isDarkMode])
 
-  const handleOpenExternal = () => {
-    void openLegalUrl(ticketUrl)
+  const [loadingConfig, setLoadingConfig] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [projetoNome, setProjetoNome] = useState('Foco MEI')
+
+  const [nome, setNome] = useState('')
+  const [descricao, setDescricao] = useState('')
+  const [nomeSolicitante, setNomeSolicitante] = useState('')
+  const [emailSolicitante, setEmailSolicitante] = useState('')
+  const [contatoSolicitante, setContatoSolicitante] = useState('')
+  const [anexos, setAnexos] = useState<SupportTicketAttachment[]>([])
+
+  const resetForm = useCallback(() => {
+    setNome('')
+    setDescricao('')
+    setNomeSolicitante(userName?.trim() || '')
+    setEmailSolicitante(userEmail?.trim() || '')
+    setContatoSolicitante(userPhone?.trim() || '')
+    setAnexos([])
+  }, [userEmail, userName, userPhone])
+
+  useEffect(() => {
+    if (!visible) return
+    resetForm()
+    setLoadingConfig(true)
+    void fetchSupportTicketFormConfig()
+      .then((config) => {
+        const label = config.projeto?.nome || config.projeto?.empresa_nome
+        if (label) setProjetoNome(label)
+      })
+      .catch(() => {
+        /* mantém label padrão */
+      })
+      .finally(() => setLoadingConfig(false))
+  }, [visible, resetForm])
+
+  const handlePickAttachments = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ALLOWED_DOC_TYPES,
+        copyToCacheDirectory: true,
+        multiple: true,
+      })
+      if (result.canceled) return
+
+      const picked = result.assets.map((asset) => ({
+        uri: asset.uri,
+        name: asset.name || 'anexo',
+        type: asset.mimeType || 'application/octet-stream',
+        size: asset.size ?? null,
+      }))
+
+      setAnexos((prev) => {
+        const names = new Set(prev.map((f) => f.name))
+        return [...prev, ...picked.filter((f) => !names.has(f.name))]
+      })
+    } catch (error) {
+      Alert.alert('Erro', error instanceof Error ? error.message : 'Não foi possível selecionar o arquivo.')
+    }
+  }
+
+  const handleRemoveAttachment = (name: string) => {
+    setAnexos((prev) => prev.filter((file) => file.name !== name))
+  }
+
+  const handleSubmit = async () => {
+    const assunto = nome.trim()
+    if (!assunto) {
+      Alert.alert('Atenção', 'Informe o assunto do chamado.')
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      await createSupportTicket({
+        nome: assunto,
+        descricao: descricao.trim() || undefined,
+        nome_solicitante: nomeSolicitante.trim() || undefined,
+        email_solicitante: emailSolicitante.trim() || undefined,
+        contato_solicitante: contatoSolicitante.trim() || undefined,
+        anexos,
+      })
+      showToast('Chamado criado com sucesso!', 'success')
+      onClose()
+    } catch (error) {
+      Alert.alert(
+        'Erro',
+        error instanceof Error ? error.message : 'Não foi possível criar o chamado.',
+      )
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const header = (
@@ -84,11 +172,12 @@ export function SupportTicketModal ({
       <View style={styles.headerCopy}>
         <Text style={[styles.title, { color: siteTokens.textPrimary }]}>Abrir chamado</Text>
         <Text style={[styles.subtitle, { color: siteTokens.textSecondary }]}>
-          Descreva o problema e anexe arquivos se precisar.
+          {projetoNome} — descreva o problema e anexe arquivos se precisar.
         </Text>
       </View>
       <Pressable
         onPress={onClose}
+        disabled={submitting}
         style={({ pressed }) => [styles.closeBtn, pressed && styles.pressed]}
         accessibilityRole="button"
         accessibilityLabel="Fechar formulário de suporte"
@@ -98,29 +187,179 @@ export function SupportTicketModal ({
     </View>
   )
 
-  const footer = (
-    <View style={styles.footer}>
-      <Pressable
-        onPress={handleOpenExternal}
-        style={({ pressed }) => [styles.footerLink, pressed && styles.pressed]}
-        accessibilityRole="button"
-        accessibilityLabel="Abrir formulário de suporte em nova aba"
-      >
-        <Ionicons name="open-outline" size={16} color={siteTokens.neon} />
-        <Text style={[styles.footerLinkText, { color: siteTokens.neon }]}>
-          Abrir em nova aba
+  const formBody = (
+    <MfScrollView style={styles.formScroll} contentContainerStyle={styles.formContent}>
+      {loadingConfig ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator color={siteTokens.neon} />
+        </View>
+      ) : null}
+
+      <View style={styles.field}>
+        <Text style={[siteFieldLabelStyle, styles.label, { color: siteTokens.textSecondary }]}>
+          Assunto *
         </Text>
+        <TextInput
+          value={nome}
+          onChangeText={setNome}
+          placeholder="Ex.: erro ao emitir nota fiscal"
+          placeholderTextColor={siteTokens.textMuted}
+          style={[styles.input, mfSiteInput(isDarkMode), { color: siteTokens.textPrimary }]}
+        />
+      </View>
+
+      <View style={styles.field}>
+        <Text style={[siteFieldLabelStyle, styles.label, { color: siteTokens.textSecondary }]}>
+          Descrição
+        </Text>
+        <TextInput
+          value={descricao}
+          onChangeText={setDescricao}
+          placeholder="Conte o que aconteceu, passos para reproduzir, mensagens de erro…"
+          placeholderTextColor={siteTokens.textMuted}
+          multiline
+          textAlignVertical="top"
+          style={[
+            styles.input,
+            styles.textarea,
+            mfSiteInput(isDarkMode),
+            { color: siteTokens.textPrimary },
+          ]}
+        />
+      </View>
+
+      <View style={styles.field}>
+        <Text style={[siteFieldLabelStyle, styles.label, { color: siteTokens.textSecondary }]}>
+          Seu nome
+        </Text>
+        <TextInput
+          value={nomeSolicitante}
+          onChangeText={setNomeSolicitante}
+          placeholder="Como podemos te chamar"
+          placeholderTextColor={siteTokens.textMuted}
+          style={[styles.input, mfSiteInput(isDarkMode), { color: siteTokens.textPrimary }]}
+        />
+      </View>
+
+      <View style={styles.field}>
+        <Text style={[siteFieldLabelStyle, styles.label, { color: siteTokens.textSecondary }]}>
+          E-mail
+        </Text>
+        <TextInput
+          value={emailSolicitante}
+          onChangeText={setEmailSolicitante}
+          placeholder="seu@email.com"
+          placeholderTextColor={siteTokens.textMuted}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          style={[styles.input, mfSiteInput(isDarkMode), { color: siteTokens.textPrimary }]}
+        />
+      </View>
+
+      <View style={styles.field}>
+        <Text style={[siteFieldLabelStyle, styles.label, { color: siteTokens.textSecondary }]}>
+          WhatsApp / telefone
+        </Text>
+        <TextInput
+          value={contatoSolicitante}
+          onChangeText={setContatoSolicitante}
+          placeholder="(21) 99999-9999"
+          placeholderTextColor={siteTokens.textMuted}
+          keyboardType="phone-pad"
+          style={[styles.input, mfSiteInput(isDarkMode), { color: siteTokens.textPrimary }]}
+        />
+      </View>
+
+      <View style={styles.field}>
+        <Text style={[siteFieldLabelStyle, styles.label, { color: siteTokens.textSecondary }]}>
+          Anexos (PDFs, documentos, etc.)
+        </Text>
+        <Pressable
+          onPress={() => void handlePickAttachments()}
+          style={({ pressed }) => [
+            styles.dropzone,
+            { borderColor: siteTokens.neonBorder, backgroundColor: siteTokens.neonDim },
+            pressed && styles.pressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Selecionar arquivos para anexar"
+        >
+          <Ionicons name="cloud-upload-outline" size={22} color={siteTokens.neon} />
+          <Text style={[styles.dropzoneText, { color: siteTokens.textSecondary }]}>
+            Toque para selecionar arquivos
+          </Text>
+          <Text style={[styles.dropzoneHint, { color: siteTokens.textMuted }]}>
+            Máx. 50MB por arquivo. PDF, Word, Excel, PowerPoint, TXT, CSV, RTF ou OpenDocument.
+          </Text>
+        </Pressable>
+
+        {anexos.length > 0 ? (
+          <View style={styles.attachList}>
+            <Text style={[styles.attachCount, { color: siteTokens.textSecondary }]}>
+              {anexos.length} arquivo(s) selecionado(s)
+            </Text>
+            {anexos.map((file) => (
+              <View
+                key={file.name}
+                style={[styles.attachRow, { borderColor: siteTokens.divider }]}
+              >
+                <View style={styles.attachCopy}>
+                  <Text style={[styles.attachName, { color: siteTokens.textPrimary }]} numberOfLines={1}>
+                    {file.name}
+                  </Text>
+                  {file.size ? (
+                    <Text style={[styles.attachSize, { color: siteTokens.textMuted }]}>
+                      {formatFileSize(file.size)}
+                    </Text>
+                  ) : null}
+                </View>
+                <Pressable
+                  onPress={() => handleRemoveAttachment(file.name)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remover ${file.name}`}
+                  style={({ pressed }) => [styles.removeBtn, pressed && styles.pressed]}
+                >
+                  <Ionicons name="close-circle" size={20} color="#ef4444" />
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        ) : null}
+      </View>
+    </MfScrollView>
+  )
+
+  const footer = (
+    <View style={[styles.footer, { borderTopColor: siteTokens.divider }]}>
+      <Pressable
+        onPress={onClose}
+        disabled={submitting}
+        style={({ pressed }) => [styles.secondaryBtn, pressed && styles.pressed]}
+        accessibilityRole="button"
+      >
+        <Text style={[styles.secondaryBtnText, { color: siteTokens.textSecondary }]}>Cancelar</Text>
+      </Pressable>
+      <Pressable
+        onPress={() => void handleSubmit()}
+        disabled={submitting}
+        style={({ pressed }) => [
+          styles.primaryBtn,
+          primaryBtn,
+          (submitting || pressed) && styles.pressed,
+        ]}
+        accessibilityRole="button"
+        accessibilityLabel="Criar chamado de suporte"
+      >
+        {submitting ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.primaryBtnText}>Criar chamado</Text>
+        )}
       </Pressable>
     </View>
   )
 
-  const embed = (
-    <View style={styles.embedWrap}>
-      <ScrumHubTicketFrame url={ticketUrl} />
-    </View>
-  )
-
-  if (isWebDialog) {
+  if (Platform.OS === 'web') {
     return (
       <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
         <View style={styles.dialogOverlay}>
@@ -128,7 +367,7 @@ export function SupportTicketModal ({
           <View style={[styles.dialogShell, { width: dialogWidth }]} pointerEvents="box-none">
             <View style={[styles.dialogCard, panelChrome]} pointerEvents="auto">
               {header}
-              {embed}
+              {formBody}
               {footer}
             </View>
           </View>
@@ -142,7 +381,7 @@ export function SupportTicketModal ({
       <View style={[styles.nativeRoot, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <View style={[styles.nativeCard, panelChrome]}>
           {header}
-          {embed}
+          {formBody}
           {footer}
         </View>
       </View>
@@ -173,14 +412,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15, 23, 42, 0.55)',
   },
   dialogShell: {
-    maxHeight: '90vh' as unknown as number,
+    maxHeight: '92vh' as unknown as number,
     zIndex: 1,
   },
   dialogCard: {
     width: '100%',
-    maxHeight: '90vh' as unknown as number,
+    maxHeight: '92vh' as unknown as number,
     overflow: 'hidden',
     borderRadius: mfRadius.xl,
+    flexDirection: 'column',
     ...(Platform.OS === 'web'
       ? ({ boxShadow: '0 24px 48px rgba(0, 0, 0, 0.35)' } as object)
       : {}),
@@ -223,34 +463,115 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  embedWrap: {
+  formScroll: {
     flex: 1,
-    minHeight: EMBED_MIN_HEIGHT,
-    ...(Platform.OS === 'web'
-      ? ({ height: 'min(72vh, 720px)' } as object)
-      : {}),
+    ...(Platform.OS === 'web' ? ({ maxHeight: 'min(68vh, 640px)' } as object) : {}),
   },
-  webView: {
-    flex: 1,
-    backgroundColor: 'transparent',
-  },
-  footer: {
+  formContent: {
     paddingHorizontal: mfSpacing.lg,
-    paddingVertical: mfSpacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(148, 163, 184, 0.25)',
+    paddingBottom: mfSpacing.lg,
+    gap: mfSpacing.md,
   },
-  footerLink: {
-    flexDirection: 'row',
+  loadingWrap: {
+    paddingVertical: mfSpacing.sm,
+    alignItems: 'center',
+  },
+  field: {
+    gap: 6,
+  },
+  label: {
+    fontSize: 12,
+  },
+  input: {
+    minHeight: 44,
+    paddingHorizontal: mfSpacing.md,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  textarea: {
+    minHeight: 112,
+    paddingTop: 12,
+  },
+  dropzone: {
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderRadius: mfRadius.lg,
+    padding: mfSpacing.lg,
     alignItems: 'center',
     gap: 6,
-    alignSelf: 'flex-start',
   },
-  footerLinkText: {
+  dropzoneText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  dropzoneHint: {
+    fontSize: 12,
+    lineHeight: 16,
+    textAlign: 'center',
+  },
+  attachList: {
+    gap: mfSpacing.sm,
+    marginTop: mfSpacing.sm,
+  },
+  attachCount: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  attachRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: mfSpacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: mfRadius.md,
+    paddingHorizontal: mfSpacing.md,
+    paddingVertical: 10,
+  },
+  attachCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  attachName: {
     fontSize: 13,
     fontWeight: '500',
   },
+  attachSize: {
+    fontSize: 11,
+  },
+  removeBtn: {
+    padding: 4,
+  },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: mfSpacing.sm,
+    paddingHorizontal: mfSpacing.lg,
+    paddingVertical: mfSpacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  secondaryBtn: {
+    paddingHorizontal: mfSpacing.md,
+    paddingVertical: 10,
+    borderRadius: mfRadius.lg,
+  },
+  secondaryBtnText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  primaryBtn: {
+    minWidth: 140,
+    minHeight: 42,
+    borderRadius: mfRadius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: mfSpacing.lg,
+  },
+  primaryBtnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   pressed: {
-    opacity: 0.75,
+    opacity: 0.78,
   },
 })

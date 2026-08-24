@@ -393,4 +393,9 @@ export const env = {
   MEI_SELF_SERVE_BILLING_MODE: (
     process.env.MEI_SELF_SERVE_BILLING_MODE || "contract_first"
   ).trim().toLowerCase(),
+  /** ScrumHub — formulário de suporte (API key só no servidor). */
+  SCRUMHUB_API_BASE_URL: (process.env.SCRUMHUB_API_BASE_URL || "").trim(),
+  SCRUMHUB_PUBLIC_ORIGIN: (process.env.SCRUMHUB_PUBLIC_ORIGIN || "").trim(),
+  SCRUMHUB_TICKET_SLUG: (process.env.SCRUMHUB_TICKET_SLUG || "foco-mei").trim(),
+  SCRUMHUB_API_KEY: normalizeEnvSecret(process.env.SCRUMHUB_API_KEY || ""),
 };

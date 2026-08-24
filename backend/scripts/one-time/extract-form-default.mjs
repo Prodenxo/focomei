@@ -1,0 +1,5 @@
+const t = await fetch('https://scrumhub.com.br/_next/static/chunks/2b441f5f4566a41c.js').then((r) => r.text())
+const m = t.match(/let p=\{[^}]+\}/)
+console.log(m?.[0])
+const idx = t.indexOf('let p=')
+console.log(t.slice(idx, idx + 200))
