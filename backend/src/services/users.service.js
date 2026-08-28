@@ -2103,6 +2103,37 @@ const USER_DATA_TABLES_BY_USER_ID = [
   'user_mei_certificates',
 ];
 
+/** Tabelas com FK para `empresas` — ordem: dependentes antes da exclusão da empresa. */
+const EMPRESA_DEPENDENT_TABLES = [
+  { table: 'das_mensal_status', column: 'empresa_id' },
+  { table: 'fiscal_certificate_audit', column: 'empresa_id' },
+  { table: 'user_mei_certificates', column: 'empresa_id' },
+  { table: 'empresa_mei_subscription_lines', column: 'empresa_id' },
+  { table: 'empresa_invites', column: 'empresas_id' },
+  { table: 'role_x_user_x_empresa', column: 'empresas_id' },
+];
+
+const purgeEmpresaDataSupabase = async (adminClient, empresaId) => {
+  for (const { table, column } of EMPRESA_DEPENDENT_TABLES) {
+    const { error } = await adminClient.from(table).delete().eq(column, empresaId);
+    if (error && error.code !== '42P01') {
+      throw badRequest(`Erro ao limpar ${table}: ${error.message}`);
+    }
+  }
+};
+
+const purgeEmpresaDataLocal = async (empresaId) => {
+  for (const { table, column } of EMPRESA_DEPENDENT_TABLES) {
+    try {
+      await query(`DELETE FROM public.${table} WHERE ${column} = $1`, [empresaId]);
+    } catch (err) {
+      if (err?.code !== '42P01') {
+        throw badRequest(`Erro ao limpar ${table}: ${err.message}`);
+      }
+    }
+  }
+};
+
 /** Remove dados do utilizador nas tabelas da app (não remove auth.users). */
 export const purgeUserData = async (adminClient, userId) => {
   if (!userId) throw badRequest('userId é obrigatório');
@@ -2208,7 +2239,7 @@ export const deleteEmpresa = async (accessToken, empresaId) => {
   if (requester.role !== 'superadmin') throw forbidden();
 
   if (isLocalAuthMode()) {
-    await query(`DELETE FROM public.role_x_user_x_empresa WHERE empresas_id = $1`, [empresaId]);
+    await purgeEmpresaDataLocal(empresaId);
     const { rowCount } = await query(`DELETE FROM public.empresas WHERE id = $1`, [empresaId]);
     if (!rowCount) throw badRequest('Empresa não encontrada');
     return { empresaId };
@@ -2216,15 +2247,8 @@ export const deleteEmpresa = async (accessToken, empresaId) => {
 
   const adminClient = createSupabaseClient({ useServiceRole: true });
 
-  // 1. Remover todos os vínculos de usuários com esta empresa
-  const { error: linksError } = await adminClient
-    .from('role_x_user_x_empresa')
-    .delete()
-    .eq('empresas_id', empresaId);
-  
-  if (linksError) throw badRequest(`Erro ao remover vínculos: ${linksError.message}`);
+  await purgeEmpresaDataSupabase(adminClient, empresaId);
 
-  // 2. Remover a empresa propriamente dita
   const { error: empresaError } = await adminClient
     .from('empresas')
     .delete()
