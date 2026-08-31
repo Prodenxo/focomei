@@ -12,6 +12,7 @@ test('persistDocumentosAtivosMirrorAfterEmpresa chama save com userId e seleçã
     'user-1',
     { documentosAtivos: { nfse: true, nfe: false, nfce: false } },
     {
+      getDocumentosAtivosMirror: async () => null,
       saveDocumentosAtivosMirror: async (uid, sel, saveDeps) => {
         calls.push({ uid, sel, saveDeps });
       }
@@ -23,12 +24,28 @@ test('persistDocumentosAtivosMirrorAfterEmpresa chama save com userId e seleçã
   assert.deepStrictEqual(calls[0].saveDeps, {});
 });
 
+test('persistDocumentosAtivosMirrorAfterEmpresa não sobrescreve espelho admin existente', async () => {
+  let called = false;
+  await persistDocumentosAtivosMirrorAfterEmpresa(
+    'user-1',
+    { documentosAtivos: { nfse: true, nfe: false, nfce: false } },
+    {
+      getDocumentosAtivosMirror: async () => ({ nfse: true, nfe: true, nfce: false }),
+      saveDocumentosAtivosMirror: async () => {
+        called = true;
+      }
+    }
+  );
+  assert.equal(called, false);
+});
+
 test('persistDocumentosAtivosMirrorAfterEmpresa repassa mirrorSaveDeps ao save', async () => {
   const calls = [];
   await persistDocumentosAtivosMirrorAfterEmpresa(
     'user-1',
     { documentosAtivos: { nfse: true, nfe: false, nfce: false } },
     {
+      getDocumentosAtivosMirror: async () => null,
       mirrorSaveDeps: { logWarn: () => {} },
       saveDocumentosAtivosMirror: async (uid, sel, saveDeps) => {
         calls.push({ uid, saveDeps });
@@ -59,6 +76,7 @@ test('persistDocumentosAtivosMirrorAfterEmpresa engole erro de validação (todo
     'user-1',
     { documentosAtivos: { nfse: false, nfe: false, nfce: false } },
     {
+      getDocumentosAtivosMirror: async () => null,
       saveDocumentosAtivosMirror: async () => {
         called = true;
       }
@@ -67,8 +85,9 @@ test('persistDocumentosAtivosMirrorAfterEmpresa engole erro de validação (todo
   assert.equal(called, false);
 });
 
-test('reconcileMirrorFromEmpresaJson chama save com selecção extraída do GET', async () => {
-  const calls = [];
+test('reconcileMirrorFromEmpresaJson não grava documentos_ativos (só emitente)', async () => {
+  let saveCalled = false;
+  let emitenteCalled = false;
   await reconcileMirrorFromEmpresaJson(
     'user-1',
     {
@@ -77,51 +96,26 @@ test('reconcileMirrorFromEmpresaJson chama save com selecção extraída do GET'
       nfce: { ativo: false }
     },
     {
-      saveDocumentosAtivosMirror: async (uid, sel, saveDeps) => {
-        calls.push({ uid, sel, saveDeps });
+      saveDocumentosAtivosMirror: async () => {
+        saveCalled = true;
+      },
+      reconcileEmitenteMirrorFromEmpresaJson: async () => {
+        emitenteCalled = true;
       }
     }
   );
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].uid, 'user-1');
-  assert.deepStrictEqual(calls[0].sel, { nfse: true, nfe: false, nfce: false });
-  assert.deepStrictEqual(calls[0].saveDeps, {});
+  assert.equal(saveCalled, false);
+  assert.equal(emitenteCalled, true);
 });
 
-test('reconcileMirrorFromEmpresaJson sem userId não chama save', async () => {
+test('reconcileMirrorFromEmpresaJson sem userId não chama sync', async () => {
   let called = false;
   await reconcileMirrorFromEmpresaJson(undefined, { nfse: { ativo: true } }, {
-    saveDocumentosAtivosMirror: async () => {
+    reconcileEmitenteMirrorFromEmpresaJson: async () => {
       called = true;
     }
   });
   assert.equal(called, false);
-});
-
-test('reconcileMirrorFromEmpresaJson com todos inactivos não chama save', async () => {
-  let called = false;
-  await reconcileMirrorFromEmpresaJson(
-    'user-1',
-    { nfse: { ativo: false }, nfe: { ativo: false }, nfce: { ativo: false } },
-    {
-      saveDocumentosAtivosMirror: async () => {
-        called = true;
-      }
-    }
-  );
-  assert.equal(called, false);
-});
-
-test('reconcileMirrorFromEmpresaJson engole erro de save', async () => {
-  await reconcileMirrorFromEmpresaJson(
-    'user-1',
-    { nfse: { ativo: true } },
-    {
-      saveDocumentosAtivosMirror: async () => {
-        throw new Error('supabase down');
-      }
-    }
-  );
 });
 
 test('consultarEmpresaAndReconcileMirror: após consulta bem-sucedida chama reconcile uma vez', async () => {

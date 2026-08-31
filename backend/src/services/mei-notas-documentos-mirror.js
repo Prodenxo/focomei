@@ -1,9 +1,8 @@
-import { saveDocumentosAtivosMirror } from './mei-certificate-store.js';
+import { getDocumentosAtivosMirror, saveDocumentosAtivosMirror } from './mei-certificate-store.js';
 import { reconcileEmitenteMirrorFromEmpresaJson } from './mei-emitente-empresa-sync.js';
 import { consultarEmpresaPlugNotas } from './plugnotas/empresa.service.js';
 import {
   assertAtLeastOneDocumentoAtivo,
-  extractDocumentosAtivosFromEmpresaResponse,
   normalizeDocumentosAtivosShape
 } from './plugnotas/plugnotas-empresa-documentos-ativos.js';
 
@@ -25,6 +24,10 @@ export async function persistDocumentosAtivosMirrorAfterEmpresa(userId, payload,
 
   if (!Object.prototype.hasOwnProperty.call(payload, 'documentosAtivos')) return;
   try {
+    const getMirror = deps.getDocumentosAtivosMirror ?? getDocumentosAtivosMirror;
+    const existingMirror = await getMirror(userId);
+    if (existingMirror) return;
+
     const selection = normalize(payload.documentosAtivos);
     assertOne(selection);
     await save(userId, selection, deps.mirrorSaveDeps ?? {});
@@ -34,30 +37,18 @@ export async function persistDocumentosAtivosMirrorAfterEmpresa(userId, payload,
 }
 
 /**
- * Após GET empresa bem-sucedido: extrair documentos ativos e gravar espelho Supabase (FR-UPD-DOC P0).
- * Falhas engolidas — não afectam a resposta HTTP da consulta.
+ * Após GET empresa bem-sucedido: sincroniza espelho do emitente (razão social, endereço, etc.).
+ * Não grava `documentos_ativos` — permissões NF-e/NFC-e/NFS-e vêm do admin (`upsertDocumentosAtivosMirrorForAdmin`).
  *
  * @param {string|undefined} userId
  * @param {unknown} empresaJson — resposta Plugnotas de GET /empresa
  * @param {object} [deps] — injeção para testes
- * @param {object} [deps.mirrorSaveDeps] — repassado a `saveDocumentosAtivosMirror`
  */
 export async function reconcileMirrorFromEmpresaJson(userId, empresaJson, deps = {}) {
-  const save = deps.saveDocumentosAtivosMirror ?? saveDocumentosAtivosMirror;
-  const extract = deps.extractDocumentosAtivosFromEmpresaResponse
-    ?? extractDocumentosAtivosFromEmpresaResponse;
   const syncEmitente = deps.reconcileEmitenteMirrorFromEmpresaJson ?? reconcileEmitenteMirrorFromEmpresaJson;
   if (!userId) return;
 
   await syncEmitente(userId, empresaJson).catch(() => {});
-
-  try {
-    const selection = extract(empresaJson);
-    if (!selection) return;
-    await save(userId, selection, deps.mirrorSaveDeps ?? {});
-  } catch {
-    // rede / coluna ausente / sem linha UMC — não bloquear consulta
-  }
 }
 
 /**

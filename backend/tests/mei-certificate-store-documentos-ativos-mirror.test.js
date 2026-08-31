@@ -13,9 +13,11 @@ function mockSupabaseChain({ selectError, existingId, updateError }) {
     from: () => ({
       select: () => ({
         eq: () => ({
-          maybeSingle: async () => ({
-            data: existingId ? { id: existingId } : null,
-            error: selectError ?? null
+          order: () => ({
+            limit: async () => ({
+              data: existingId ? [{ id: existingId }] : [],
+              error: selectError ?? null
+            })
           })
         })
       }),

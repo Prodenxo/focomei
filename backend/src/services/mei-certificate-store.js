@@ -601,11 +601,12 @@ export const saveDocumentosAtivosMirror = async (userId, selection, deps = {}) =
   if (!json.nfse && !json.nfe && !json.nfce) return;
   try {
     const supabase = resolveSupabase();
-    const { data: existing, error: selErr } = await supabase
+    const { data: rows, error: selErr } = await supabase
       .from(TABLE)
       .select('id')
       .eq('user_id', userId)
-      .maybeSingle();
+      .order('updated_at', { ascending: false })
+      .limit(1);
     if (selErr) {
       logWarn({
         userId,
@@ -614,6 +615,7 @@ export const saveDocumentosAtivosMirror = async (userId, selection, deps = {}) =
       });
       return;
     }
+    const existing = rows?.[0] ?? null;
     if (!existing?.id) {
       logWarn({
         userId,
@@ -628,7 +630,7 @@ export const saveDocumentosAtivosMirror = async (userId, selection, deps = {}) =
         documentos_ativos: json,
         updated_at: new Date().toISOString()
       })
-      .eq('user_id', userId);
+      .eq('id', existing.id);
     if (error) {
       logWarn({
         userId,
@@ -693,7 +695,7 @@ export const upsertDocumentosAtivosMirrorForAdmin = async (userId, selection, de
       const { error } = await supabase
         .from(TABLE)
         .update({ documentos_ativos: json, updated_at: now })
-        .eq('user_id', userId);
+        .eq('id', existing.id);
       if (error) {
         logWarn({
           userId,
@@ -733,13 +735,14 @@ export const getDocumentosAtivosMirror = async (userId) => {
   if (!userId) return null;
   try {
     const supabase = getSupabase();
-    const { data, error } = await supabase
+    const { data: rows, error } = await supabase
       .from(TABLE)
       .select('documentos_ativos')
       .eq('user_id', userId)
-      .maybeSingle();
-    if (error || !data) return null;
-    return parseDocumentosAtivosMirrorValue(data.documentos_ativos);
+      .order('updated_at', { ascending: false })
+      .limit(1);
+    if (error || !rows?.length) return null;
+    return parseDocumentosAtivosMirrorValue(rows[0].documentos_ativos);
   } catch {
     return null;
   }
