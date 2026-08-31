@@ -42,6 +42,22 @@ test('buildNfConfirmRequestUserMessage — NF-e produto', () => {
   assert.match(msg, /Produto: Água 20L/);
 });
 
+test('buildNfConfirmRequestUserMessage — NF-e com vários produtos', () => {
+  const msg = buildNfConfirmRequestUserMessage({
+    documentType: 'NFE',
+    destinatarioRazaoSocial: 'Cliente XYZ',
+    valorTotal: 37,
+    itens: [
+      { produtoDescricao: 'Camisa branca', quantidade: 2, valorTotal: 10 },
+      { produtoDescricao: 'Água 20L', quantidade: 1, valorTotal: 27 },
+    ],
+  });
+  assert.match(msg, /Produtos:/);
+  assert.match(msg, /1\. Camisa branca/);
+  assert.match(msg, /2\. Água 20L/);
+  assert.match(msg, /Valor total: R\$\s*37,00/);
+});
+
 test('buildNfEmittedUserMessage — PDF enviado', () => {
   const msg = buildNfEmittedUserMessage(
     {

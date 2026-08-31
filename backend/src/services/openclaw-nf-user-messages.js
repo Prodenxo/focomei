@@ -17,22 +17,39 @@ const tipoNotaLabel = (documentType) => {
  * Pedido de confirmação antes de emitir.
  * @param {{ documentType?: string, tomadorRazaoSocial?: string, destinatarioRazaoSocial?: string, discriminacao?: string, produtoDescricao?: string, valorServico?: number, valorTotal?: number }} preview
  */
+const formatNfPreviewItensBlock = (preview = {}) => {
+  const dt = String(preview.documentType || '').toUpperCase();
+  const label = dt === 'NFE' || dt === 'NFCE' ? 'Produtos' : 'Serviço';
+  const itens = Array.isArray(preview.itens) ? preview.itens : [];
+  if (itens.length > 1) {
+    const lines = itens.map((row, index) => {
+      const nome = String(row.produtoDescricao || row.descricao || row.discriminacao || 'Item').trim();
+      const qtd = row.quantidade != null ? ` × ${row.quantidade}` : '';
+      const valor = formatValorBr(row.valorTotal ?? row.valor ?? row.valorUnitario);
+      return `  ${index + 1}. ${nome}${qtd} — ${valor}`;
+    });
+    return [`• ${label}:`, ...lines].join('\n');
+  }
+  const item = String(
+    preview.discriminacao || preview.produtoDescricao || preview.codigoServico || 'Item',
+  ).trim();
+  return `• ${label === 'Produtos' ? 'Produto' : label}: ${item}`;
+};
+
 export const buildNfConfirmRequestUserMessage = (preview = {}) => {
   const cliente = String(
     preview.tomadorRazaoSocial || preview.destinatarioRazaoSocial || 'Cliente',
   ).trim();
-  const item = String(
-    preview.discriminacao || preview.produtoDescricao || preview.codigoServico || 'Item',
-  ).trim();
   const valor = formatValorBr(preview.valorServico ?? preview.valorTotal);
   const tipo = tipoNotaLabel(preview.documentType);
+  const itensBlock = formatNfPreviewItensBlock(preview);
 
   return [
     'Resumo da nota fiscal:',
     `• Tipo: ${tipo}`,
     `• Cliente: ${cliente}`,
-    `• ${preview.documentType === 'NFE' || preview.documentType === 'NFCE' ? 'Produto' : 'Serviço'}: ${item}`,
-    `• Valor: ${valor}`,
+    itensBlock,
+    `• Valor total: ${valor}`,
     '',
     'Posso emitir? Responda *sim* ou *confirmo* que eu envio a nota.',
   ].join('\n');
@@ -69,11 +86,9 @@ export const buildNfEmittedUserMessage = (preview = {}, opts = {}) => {
   const cliente = String(
     preview.tomadorRazaoSocial || preview.destinatarioRazaoSocial || 'Cliente',
   ).trim();
-  const item = String(
-    preview.discriminacao || preview.produtoDescricao || preview.codigoServico || 'Item',
-  ).trim();
   const valor = formatValorBr(preview.valorServico ?? preview.valorTotal);
   const tipo = tipoNotaLabel(preview.documentType);
+  const itensBlock = formatNfPreviewItensBlock(preview);
   const statusKey = normalizeNfStatusKey(opts.status);
   const pdfPending = opts.pdfPending !== false && statusKey !== 'concluido';
   const statusLabel = formatNfStatusLabelForUser(opts.status, { pdfPending });
@@ -95,8 +110,8 @@ export const buildNfEmittedUserMessage = (preview = {}, opts = {}) => {
     'Nota fiscal enviada para emissão.',
     `• Tipo: ${tipo}`,
     `• Cliente: ${cliente}`,
-    `• ${preview.documentType === 'NFE' || preview.documentType === 'NFCE' ? 'Produto' : 'Serviço'}: ${item}`,
-    `• Valor: ${valor}`,
+    itensBlock,
+    `• Valor total: ${valor}`,
     `• Situação: ${statusLabel}`,
   ];
   if (footer) lines.push('', footer);

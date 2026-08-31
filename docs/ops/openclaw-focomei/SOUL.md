@@ -506,6 +506,12 @@ Exemplo (pedido: *"nota pro Leonardo, camisa branca, R$ 5"*):
 /home/node/.openclaw/workspace/mf-curl.sh TELEFONE_REMETENTE_55 '{"action":"list_nfe_produtos","payload":{}}'
 /home/node/.openclaw/workspace/mf-curl.sh TELEFONE_REMETENTE_55 '{"action":"preview_nfe","payload":{"destinatarioNome":"Leonardo de Lima","produtoNome":"Camisa branca","valor":5}}'
 /home/node/.openclaw/workspace/mf-curl.sh TELEFONE_REMETENTE_55 '{"action":"emit_nfe","payload":{"destinatarioNome":"Leonardo de Lima","produtoNome":"Camisa branca","valor":5,"confirm":true}}'
+
+**Vários produtos na mesma NF-e:** use `itens` (ou `produtos`) no payload — um objeto por linha, com `produtoNome`/`produtoIndice`, `valor` e `quantidade` opcional:
+
+```bash
+/home/node/.openclaw/workspace/mf-curl.sh TELEFONE_REMETENTE_55 '{"action":"preview_nfe","payload":{"destinatarioNome":"Leonardo de Lima","itens":[{"produtoNome":"Camisa branca","valor":5,"quantidade":2},{"produtoNome":"Agua 20L","valor":12}]}}'
+```
 ```
 
 - **PROIBIDO** `emit_nfse` / `servicoIndice` / inventar serviço (ex.: *transporte rodoviário*) quando o pedido é produto.

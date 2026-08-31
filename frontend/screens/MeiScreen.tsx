@@ -2401,12 +2401,14 @@ function MeiScreenContent() {
         return;
       }
       const row = mapCatalogProdutoToNfeItem(item);
-      setNfeLikeForm((f) => ({
-        ...f,
-        itens: f.itens.length > 0
-          ? f.itens.map((it, i) => (i === 0 ? row : it))
-          : [row],
-      }));
+      const isEmptyNfeItem = (rowForm: NfeItemForm) =>
+        !rowForm.descricao.trim() && !rowForm.codigo.trim() && !rowForm.valorUnitario.trim();
+      setNfeLikeForm((f) => {
+        if (f.itens.length === 1 && isEmptyNfeItem(f.itens[0]!)) {
+          return { ...f, itens: [row] };
+        }
+        return { ...f, itens: [...f.itens, row] };
+      });
     }
     setCatalogProdutoVisible(false);
   };
@@ -4785,18 +4787,51 @@ function MeiScreenContent() {
                     </>
                   ) : null}
                   <MeiLinkButton
-                    label="Selecionar produto do catálogo"
+                    label="Adicionar produto do catálogo"
                     onPress={() => {
                       setCatalogProdutoVisible(true);
                       void loadCatalogProdutos();
                     }}
                   />
-                  {nfeLikeForm.itens.length > 0 && (() => {
-                    const item = nfeLikeForm.itens[0];
+                  <MeiLinkButton
+                    label="Adicionar linha em branco"
+                    onPress={() =>
+                      setNfeLikeForm((f) => ({ ...f, itens: [...f.itens, getDefaultNfeItem()] }))
+                    }
+                  />
+                  {nfeLikeForm.itens.map((item, itemIndex) => {
                     const setItem = (up: Partial<NfeItemForm>) =>
-                      setNfeLikeForm((f) => ({ ...f, itens: f.itens.map((it, i) => (i === 0 ? { ...it, ...up } : it)) }));
+                      setNfeLikeForm((f) => ({
+                        ...f,
+                        itens: f.itens.map((it, i) => (i === itemIndex ? { ...it, ...up } : it)),
+                      }));
+                    const lineTotal = getNfeItemLineTotal(item);
                     return (
-                      <>
+                      <View
+                        key={`nfe-item-${itemIndex}`}
+                        style={{
+                          marginBottom: mfSpacing.md,
+                          paddingBottom: mfSpacing.md,
+                          borderBottomWidth: itemIndex < nfeLikeForm.itens.length - 1 ? 1 : 0,
+                          borderBottomColor: theme.border,
+                        }}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: mfSpacing.sm }}>
+                          <Text style={{ fontSize: 14, fontWeight: '700', color: theme.text }}>
+                            Item {itemIndex + 1}
+                          </Text>
+                          {nfeLikeForm.itens.length > 1 ? (
+                            <MeiLinkButton
+                              label="Remover item"
+                              onPress={() =>
+                                setNfeLikeForm((f) => ({
+                                  ...f,
+                                  itens: f.itens.filter((_, i) => i !== itemIndex),
+                                }))
+                              }
+                            />
+                          ) : null}
+                        </View>
                         <MeiFormField label="Código item" required placeholder="Código" value={item.codigo} onChangeText={(t) => setItem({ codigo: t })} />
                         <MeiFormField label="Descrição" required placeholder="Descrição" value={item.descricao} onChangeText={(t) => setItem({ descricao: t })} />
                         <MeiFormField
@@ -4812,22 +4847,14 @@ function MeiScreenContent() {
                         <MeiFormField label="Unidade" required placeholder="UN" value={item.unidade} onChangeText={(t) => setItem({ unidade: t })} />
                         <MeiFormField label="Quantidade" required placeholder="1" value={item.quantidade} onChangeText={(t) => setItem({ quantidade: t })} keyboardType="decimal-pad" />
                         <MeiFormField label="Valor unitário" required placeholder="0,00" value={item.valorUnitario} onChangeText={(t) => setItem({ valorUnitario: t })} keyboardType="decimal-pad" />
-                        {(() => {
-                          const lineTotal = getNfeItemLineTotal(item);
-                          return (
-                            <View style={{ marginBottom: mfSpacing.sm, gap: 2 }}>
-                              <Text style={{ fontSize: 13, fontWeight: '600', color: theme.text }}>
-                                Valor total do item:{' '}
-                                {lineTotal !== null ? formatCurrencyBR(lineTotal) : '—'}
-                              </Text>
-                              <Text style={{ fontSize: 12, color: theme.textSecondary, lineHeight: 16 }}>
-                                Calculado automaticamente (quantidade × unitário). Não precisa informar o total à parte.
-                              </Text>
-                            </View>
-                          );
-                        })()}
+                        <View style={{ marginBottom: mfSpacing.sm, gap: 2 }}>
+                          <Text style={{ fontSize: 13, fontWeight: '600', color: theme.text }}>
+                            Valor total do item:{' '}
+                            {lineTotal !== null ? formatCurrencyBR(lineTotal) : '—'}
+                          </Text>
+                        </View>
                         <Text style={{ fontSize: 12, color: theme.textSecondary, marginBottom: mfSpacing.sm, lineHeight: 16 }}>
-                          Tributos vêm do cadastro do produto (catálogo). Use &quot;Selecionar produto&quot; ou edite aqui se necessário.
+                          Tributos vêm do cadastro do produto (catálogo). Use &quot;Adicionar produto&quot; ou edite aqui.
                         </Text>
                         <MeiFormField
                           label="CSOSN ICMS (MEI)"
@@ -4878,7 +4905,23 @@ function MeiScreenContent() {
                           keyboardType="numeric"
                           maxLength={2}
                         />
-                      </>
+                      </View>
+                    );
+                  })}
+                  {(() => {
+                    const notaTotal = nfeLikeForm.itens.reduce(
+                      (acc, it) => acc + (getNfeItemLineTotal(it) ?? 0),
+                      0,
+                    );
+                    return (
+                      <View style={{ marginBottom: mfSpacing.sm }}>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: theme.text }}>
+                          Total da nota: {formatCurrencyBR(notaTotal)}
+                        </Text>
+                        <Text style={{ fontSize: 12, color: theme.textSecondary, marginTop: 4 }}>
+                          {nfeLikeForm.itens.length} item(ns) na NF-e.
+                        </Text>
+                      </View>
                     );
                   })()}
                 </>

@@ -68,7 +68,6 @@ export const buildOpenclawNfseEmitFingerprint = (payload = {}, input = {}) => {
  * @param {object} input
  */
 export const buildOpenclawNfeEmitFingerprint = (payload = {}, input = {}) => {
-  const item = input.itens?.[0] || {};
   const doc = normalizeDoc(
     input.destinatario?.cpfCnpj
       || payload.destinatarioCpfCnpj
@@ -81,14 +80,19 @@ export const buildOpenclawNfeEmitFingerprint = (payload = {}, input = {}) => {
       || payload.cliente
       || payload.clienteNome,
   );
-  const valor = roundMoney(item.valor ?? payload.valor ?? payload.valorTotal);
-  const produto = normalizeName(
-    payload.produtoNome
-      || item.descricao
-      || payload.produto
-      || payload.item,
+  const itens = Array.isArray(input.itens) && input.itens.length
+    ? input.itens
+    : [{ descricao: payload.produtoNome || payload.produto, valor: payload.valor }];
+  const total = roundMoney(
+    itens.reduce((acc, item) => acc + Number(item?.valor || 0), 0)
+      || payload.valor
+      || payload.valorTotal,
   );
-  return `NFE|${doc || nome}|${valor}|${produto}`;
+  const itemsKey = itens
+    .map((item) => `${normalizeName(item?.descricao || item?.codigo || '')}|${roundMoney(item?.valor)}`)
+    .sort()
+    .join(';');
+  return `NFE|${doc || nome}|${total}|${itemsKey}`;
 };
 
 const isReplayableEmitStatus = (status) => {

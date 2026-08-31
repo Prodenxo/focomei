@@ -536,6 +536,85 @@ const parseQuantidade = (raw) => {
   return Number.isFinite(n) && n > 0 ? n : 1;
 };
 
+const extractNfeItemSpecsFromPayload = (payload = {}) => {
+  const rawList = payload?.itens || payload?.produtos || payload?.items;
+  if (Array.isArray(rawList) && rawList.length > 0) {
+    return rawList.map((entry) => ({
+      ...(entry && typeof entry === 'object' ? entry : {}),
+      produtoNome: pickProdutoNomeFromPayload(entry),
+      produtoId: entry?.produtoId || entry?.catalogoProdutoId,
+      produtoIndice: entry?.produtoIndice ?? entry?.indice,
+      valorUnitario: entry?.valorUnitario ?? entry?.valor ?? entry?.valorReais,
+      quantidade: entry?.quantidade ?? entry?.qtd,
+    }));
+  }
+  return [payload];
+};
+
+const resolveProdutoNfeByIndice = async (userId, indiceRaw) => {
+  const indice = Number(indiceRaw);
+  if (!Number.isFinite(indice) || indice < 1) return null;
+  const catalogNfe = await listOpenclawNfeProdutos(userId, { limit: 50 });
+  return catalogNfe[indice - 1] || null;
+};
+
+const resolveProdutoNfeFromSpec = async (userId, payload, spec = {}) => {
+  const merged = { ...payload, ...spec };
+  if (spec?.produtoIndice != null || spec?.indice != null) {
+    const byIndex = await resolveProdutoNfeByIndice(
+      userId,
+      spec?.produtoIndice ?? spec?.indice,
+    );
+    if (byIndex) return byIndex;
+    throw badRequest('Índice de produto inválido no catálogo NF-e.', {
+      code: 'NFE_PRODUTO_INDEX_INVALID',
+      botHint: 'Use list_nfe_produtos e informe produtoNome ou produtoIndice válido.',
+    });
+  }
+  return resolveProdutoNfe(userId, merged);
+};
+
+const buildNfeItemFromCatalog = async (userId, payload, spec, interestadualCtx) => {
+  const produto = await resolveProdutoNfeFromSpec(userId, payload, spec);
+  const valorUnitario = parseValorReais(
+    spec?.valorUnitario ?? spec?.valor ?? spec?.valorReais ?? payload?.valorUnitario ?? payload?.valor,
+  );
+  const quantidade = parseQuantidade(spec?.quantidade ?? spec?.qtd ?? payload?.quantidade ?? payload?.qtd);
+  let item = mapCatalogProdutoToNfeItem(produto, {
+    quantidade,
+    valorUnitario: (valorUnitario ?? Number(produto.valor_sugerido)) || 0,
+  });
+
+  if (interestadual.interestadual) {
+    item = applyInterestadualTaxasToItem(item, interestadualCtx.taxas);
+  } else if (item.cfop && String(item.cfop).startsWith('6')) {
+    /* catálogo legado CFOP 6xxx em venda interna */
+  } else if (!item.cfop || String(item.cfop).startsWith('5')) {
+    item = { ...item, cfop: onlyDigits(item.cfop || '5102', 4) || '5102' };
+  }
+
+  return { item, produto };
+};
+
+const resolveNfeItensFromPayload = async (userId, payload, interestadualCtx) => {
+  const specs = extractNfeItemSpecsFromPayload(payload);
+  const built = [];
+  for (const spec of specs) {
+    built.push(await buildNfeItemFromCatalog(userId, payload, spec, interestadualCtx));
+  }
+  return built;
+};
+
+const formatNfePreviewItem = (item) => ({
+  produtoDescricao: item.descricao,
+  produtoCodigo: item.codigo,
+  ncm: item.ncm,
+  cfop: item.cfop,
+  quantidade: item.quantidade?.comercial,
+  valorUnitario: item.valorUnitario?.comercial,
+  valorTotal: item.valor,
+});
+
 /**
  * Monta input de emissão NF-e para o bot.
  */
@@ -555,16 +634,6 @@ export const buildOpenclawNfeEmitInput = async (userId, payload = {}) => {
 
   const prestador = emitenteToPrestadorInput(emitente);
   const destinatario = await resolveDestinatarioNfe(userId, payload);
-  const produto = await resolveProdutoNfe(userId, payload);
-
-  const valorUnitario = parseValorReais(
-    payload?.valorUnitario ?? payload?.valor ?? payload?.valorReais ?? payload?.valorServico,
-  );
-  const quantidade = parseQuantidade(payload?.quantidade ?? payload?.qtd);
-  let item = mapCatalogProdutoToNfeItem(produto, {
-    quantidade,
-    valorUnitario: (valorUnitario ?? Number(produto.valor_sugerido)) || 0,
-  });
 
   const emitenteUf = String(emitente.estado || emitente.uf || '').trim();
   const destinatarioUf = String(
@@ -574,20 +643,15 @@ export const buildOpenclawNfeEmitInput = async (userId, payload = {}) => {
     emitenteUf,
     destinatarioUf,
   });
-  if (interestadual.interestadual) {
-    item = applyInterestadualTaxasToItem(item, interestadual.taxas);
-  } else if (item.cfop && String(item.cfop).startsWith('6')) {
-    // Catálogo legado com CFOP 6xxx em venda interna: mantém o que veio do produto.
-  } else if (!item.cfop || String(item.cfop).startsWith('5')) {
-    item = { ...item, cfop: onlyDigits(item.cfop || '5102', 4) || '5102' };
-  }
 
-  const total = item.valor;
+  const builtItems = await resolveNfeItensFromPayload(userId, payload, interestadual);
+  const itens = builtItems.map((entry) => entry.item);
+  const catalogoProdutoIds = builtItems.map((entry) => entry.produto.id);
+  const total = itens.reduce((acc, item) => acc + Number(item.valor || 0), 0);
   const natureza = String(payload?.natureza || payload?.naturezaOperacao || 'VENDA').trim() || 'VENDA';
 
   return {
     documentType: 'NFE',
-    // PlugNotas exige natureza no documento; sem isto: fields.documento[0].natureza
     natureza,
     emitente: {
       cpfCnpj: prestador.prestadorCpfCnpj,
@@ -604,13 +668,13 @@ export const buildOpenclawNfeEmitInput = async (userId, payload = {}) => {
       endereco: destinatario.endereco,
     },
     consumidorFinal: destinatario.consumidorFinal,
-    itens: [item],
+    itens,
     pagamentos: [{ meio: '99', valor: total, descricaoMeio: 'Outros' }],
-    // Mesmo padrão do app (buildNfeLikePayloadFromForm).
     config: { producao: true },
     metadata: {
       source: 'openclaw_whatsapp',
-      catalogoProdutoId: produto.id,
+      catalogoProdutoId: catalogoProdutoIds[0],
+      catalogoProdutoIds,
       catalogoClienteId: destinatario.catalogoClienteId,
       ...(interestadual.interestadual
         ? {
@@ -625,18 +689,21 @@ export const buildOpenclawNfeEmitInput = async (userId, payload = {}) => {
 
 export const previewOpenclawNfeEmit = async (userId, payload = {}) => {
   const input = await buildOpenclawNfeEmitInput(userId, payload);
-  const item = input.itens[0];
+  const previewItens = input.itens.map(formatNfePreviewItem);
+  const valorTotal = input.itens.reduce((acc, item) => acc + Number(item.valor || 0), 0);
+  const first = previewItens[0] || {};
   return {
     documentType: 'NFE',
     destinatarioCpfCnpj: input.destinatario.cpfCnpj,
     destinatarioRazaoSocial: input.destinatario.razaoSocial,
-    produtoDescricao: item.descricao,
-    produtoCodigo: item.codigo,
-    ncm: item.ncm,
-    cfop: item.cfop,
-    quantidade: item.quantidade?.comercial,
-    valorUnitario: item.valorUnitario?.comercial,
-    valorTotal: item.valor,
+    itens: previewItens,
+    produtoDescricao: previewItens.map((row) => row.produtoDescricao).join('; '),
+    produtoCodigo: first.produtoCodigo,
+    ncm: first.ncm,
+    cfop: first.cfop,
+    quantidade: first.quantidade,
+    valorUnitario: first.valorUnitario,
+    valorTotal,
     emitenteCnpj: input.emitente.cpfCnpj,
   };
 };
@@ -653,21 +720,24 @@ export const emitOpenclawNfe = async (userId, payload = {}) => {
   }
 
   const fingerprint = buildOpenclawNfeEmitFingerprint(payload, input);
-  const item = input.itens[0];
+  const valorTotal = input.itens.reduce((acc, item) => acc + Number(item.valor || 0), 0);
+  const previewItens = input.itens.map(formatNfePreviewItem);
+  const first = previewItens[0] || {};
   const previewBase = {
     documentType: 'NFE',
     destinatarioCpfCnpj: input.destinatario.cpfCnpj,
     destinatarioRazaoSocial: input.destinatario.razaoSocial,
-    produtoDescricao: item.descricao,
-    produtoCodigo: item.codigo,
-    valorTotal: item.valor,
+    itens: previewItens,
+    produtoDescricao: previewItens.map((row) => row.produtoDescricao).join('; '),
+    produtoCodigo: first.produtoCodigo,
+    valorTotal,
   };
 
   const emitTask = async () => {
     const existing = await findRecentOpenclawEmitNota(userId, fingerprint, 'NFE', {
       forceRetry: payload.forceRetry === true,
       tomadorDoc: input.destinatario.cpfCnpj,
-      valor: item.valor,
+      valor: valorTotal,
     });
     if (existing?.id) {
       return {
@@ -699,7 +769,7 @@ export const emitOpenclawNfe = async (userId, payload = {}) => {
 
   const existingAfterWait = await findRecentOpenclawEmitNota(userId, fingerprint, 'NFE', {
     tomadorDoc: input.destinatario.cpfCnpj,
-    valor: item.valor,
+    valor: valorTotal,
   });
   if (existingAfterWait?.id) {
     return {
