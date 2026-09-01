@@ -1,9 +1,9 @@
 {
   "expo": {
     "name": "FocoMEI",
-    "slug": "financas-pessoais-mobile",
+    "slug": "focomei-web",
     "version": "2.2.7",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/brand-mark.jpg",
     "userInterfaceStyle": "light",
     "splash": {
@@ -14,34 +14,16 @@
     "assetBundlePatterns": [
       "**/*"
     ],
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "financasPessoaisIOS",
-      "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
-      }
-    },
-    "android": {
-      "versionCode": 73,
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/brand-mark.jpg",
-        "backgroundColor": "#0D2B5E"
-      },
-      "package": "com.leonardo25.financaspessoaismobile"
-    },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
     },
     "scheme": "financas-pessoais",
     "extra": {
       "supabaseUrl": "",
       "supabaseAnonKey": "",
-      "meiApiUrl": "",
-      "eas": {
-        "projectId": "4479cb0b-2661-4ff1-a9ee-b623193aa503"
-      }
+      "meiApiUrl": ""
     },
-    "owner": "contabhub",
     "plugins": [
       "expo-web-browser",
       [
