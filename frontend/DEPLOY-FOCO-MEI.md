@@ -1,6 +1,6 @@
 # Deploy — FOCO MEI (Easypanel)
 
-Serviço web **FOCO MEI**: frontend Expo (`App/frontend`) — notas fiscais, DAS, certificado e parcelamentos MEI.
+Serviço web **FOCO MEI**: frontend Expo (`frontend/`) — notas fiscais, DAS, certificado e parcelamentos MEI.
 
 Compartilha **backend** (`Site/backend`) e **Supabase** com meiinfinito; só o serviço de frontend é novo.
 
@@ -13,8 +13,8 @@ Compartilha **backend** (`Site/backend`) e **Supabase** com meiinfinito; só o s
 3. **Source:** GitHub — mesmo repo do app (`financas-pessoais-mobile` ou monorepo com subpasta)
 4. **Build**
    - Type: **Dockerfile**
-   - Dockerfile path: `Dockerfile` (raiz do repo mobile) **ou** `App/frontend/Dockerfile` (monorepo)
-   - Build context: pasta do `App/frontend`
+   - Dockerfile path: `Dockerfile` (raiz do repo mobile) **ou** `frontend//Dockerfile` (monorepo)
+   - Build context: pasta do `frontend/`
 5. **Port:** `80`
 6. **Domains:** ex. `focomei.com.br` ou subdomínio Easypanel — ative HTTPS
 
@@ -57,10 +57,10 @@ Mesmos valores do backend/Site (copie do serviço que já funciona):
 
 ## 5. Repositório Git
 
-Se usar monorepo local, publique só `App/frontend` no repo do app:
+Se usar monorepo local, publique só `frontend/` no repo do app:
 
 ```bash
-cd App/frontend
+cd frontend/
 git add .
 git commit -m "feat: deploy FOCO MEI no Easypanel"
 git push origin main
@@ -75,6 +75,6 @@ No Easypanel do **FOCO MEI**, conecte esse repo e redeploy após cada push relev
 | | meiinfinito (legado) | FOCO MEI (novo) |
 |--|---------------------|-----------------|
 | Serviço Easypanel | App web anterior | **FOCO MEI** (novo) |
-| Código | Mesma base `App/frontend` | Branch/commit com branding FOCO MEI |
+| Código | Mesma base `frontend/` | Branch/commit com branding FOCO MEI |
 | Backend | Compartilhado | Compartilhado |
 | Domínio | Próprio | Próprio (configurar no passo 1) |

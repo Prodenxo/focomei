@@ -20,9 +20,7 @@ shared/
 !.cursor/rules/
 !.cursor/rules/**
 
-# Pastas legadas (cùpia local do financeiro ? n?o versionar)
-# ùncora na raiz: sem a barra, no Windows (ignorecase) o Git tambùm ignora frontend/app/
-/App/
+# Pastas legadas (cùpia local ù nùo versionar)
 /Site/
 ~/
 
@@ -65,10 +63,3 @@ backend/scripts/one-time/import-focomei-migration-20260727/reports/
 
 # Supabase local
 supabase/.temp/
-
-# C?pia Meu Financeiro (apps/meiinfinito) ? nunca commitar secrets locais
-apps/meiinfinito/**/.env
-apps/meiinfinito/**/.env.*
-!apps/meiinfinito/**/.env.example
-apps/meiinfinito/**/node_modules/
-apps/meiinfinito/**/dist/

@@ -16,12 +16,12 @@
 Cadastro manual de contas/cartões sem Open Finance. Saldo = saldo inicial + lançamentos realizados vinculados.
 
 ## Checklist QA
-- [ ] `npm run lint` (App/frontend)
+- [ ] `npm run lint` (`frontend/`)
 - [ ] `npm run typecheck`
 - [ ] `npm test`
 
 ## Arquivos principais
 - `Site/supabase/migrations/20260521120000_create_contas_financeiras.sql`
-- `App/frontend/screens/ContasScreen.tsx`
-- `App/frontend/store/contaFinanceiraStore.ts`
-- `App/frontend/lib/contaSaldo.ts`
+- `frontend/screens/ContasScreen.tsx`
+- `frontend/store/contaFinanceiraStore.ts`
+- `frontend/lib/contaSaldo.ts`

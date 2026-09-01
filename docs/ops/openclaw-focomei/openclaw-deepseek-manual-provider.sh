@@ -1,6 +1,6 @@
 #!/bin/sh
 # DeepSeek no OpenClaw 2026.4.x — FocoMEI (copia de meiinfinito/docs/ops/openclaw-deepseek-manual-provider.sh)
-# Ver apps/meiinfinito/docs/ops/openclaw-deepseek-manual-provider.sh
+# Ver docs/ops/openclaw-deepseek-manual-provider.sh (repo focomei)
 
 set -e
 CFG="${OPENCLAW_STATE_DIR:-/home/node/.openclaw}/openclaw.json"

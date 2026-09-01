@@ -5,7 +5,7 @@
 Deploy: ver `README.md` nesta pasta (`OPENCLAW_SOUL_RAW_URL` / curl Git Raw).
 Destino: `/home/node/.openclaw/workspace/SOUL.md`
 
-Portado de `apps/meiinfinito/docs/ops/openclaw-midas-SOUL.md` (paridade de fluxo).
+Robô WhatsApp FocoMEI (OpenClaw). Paridade de fluxo com MeiInfinito/Midas (repo separado).
 
 ---
 

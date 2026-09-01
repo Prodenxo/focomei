@@ -1,9 +1,9 @@
-# MF Luxury — Design Tokens (`App/frontend`)
+# MF Luxury — Design Tokens (`frontend/`)
 
 Referência visual: hierarquia tipo **Assessor** (bento, semântica financeira, micro-UI).  
 Marca: **Meu Financeiro** — primary azul (`#2563EB` / `#60a5fa`), sem roxo/rosa do concorrente.
 
-Escopo: **`App/frontend` apenas** — não altera `Site/frontend`.
+Escopo: **`frontend/`** apenas — não altera `Site/frontend`.
 
 ---
 

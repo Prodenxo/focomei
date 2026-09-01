@@ -66,7 +66,7 @@ async function loadXlsx(): Promise<XlsxModule> {
     xlsxLoadPromise = import('xlsx').catch((err: unknown) => {
       xlsxLoadPromise = null
       const hint =
-        'Instale a dependência na pasta App/frontend: npm install — depois reinicie o Expo (npm start).'
+        'Instale a dependência na pasta frontend: npm install — depois reinicie o Expo (npm start).'
       throw new Error(`Exportação Excel indisponível. ${hint}`, { cause: err })
     })
   }

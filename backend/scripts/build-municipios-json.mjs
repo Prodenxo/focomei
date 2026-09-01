@@ -50,9 +50,4 @@ const payload = JSON.stringify({ version: 1, source: 'plugnotas-tom-ibge', munic
 mkdirSync(path.dirname(outPath), { recursive: true });
 writeFileSync(outPath, payload, 'utf8');
 
-const meiinfinitoOut = path.join(repoRoot, 'apps/meiinfinito/backend/data/municipios.json');
-mkdirSync(path.dirname(meiinfinitoOut), { recursive: true });
-writeFileSync(meiinfinitoOut, payload, 'utf8');
-
 console.log(`OK: ${municipios.length} municípios → ${outPath}`);
-console.log(`OK: cópia MeiInfinito → ${meiinfinitoOut}`);

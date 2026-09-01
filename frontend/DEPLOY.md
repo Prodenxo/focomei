@@ -8,7 +8,7 @@
 |-------|---------|--------|
 | **`frontend/`** | **Frontend de produção** (Expo web + mobile, `focomei.com.br`) | Easypanel com `frontend/Dockerfile` |
 | **`backend/`** / **`site/backend/`** | API Express | Easypanel backend |
-| **`App/frontend/`** | Cópia local de trabalho (gitignored) — **não** sobe no deploy | Só uso local |
+| **`frontend//`** | Cópia local de trabalho (gitignored) — **não** sobe no deploy | Só uso local |
 
 Toda alteração de UI que precisa ir ao site deve ficar em **`frontend/`**. Push do monorepo + **Redeploy** do serviço web no Easypanel.
 
@@ -17,20 +17,20 @@ Toda alteração de UI que precisa ir ao site deve ficar em **`frontend/`**. Pus
 | Repositório | Conteúdo |
 |-------------|----------|
 | `financas-pessoais-app` / `Meu-financeiro` | Em geral `Site/` (backend + docs) |
-| `financas-pessoais-mobile` | Raiz = conteúdo de **`App/frontend`** (Expo) |
+| `financas-pessoais-mobile` | Raiz = conteúdo de **`frontend/`** (Expo) |
 
 O App **não** usa rotas Expo para `/privacidade` — serve `public/privacidade.html` e `public/termos.html` via nginx (Google OAuth).
 
 ### Atualizar só o repo do App (sem commits do Site)
 
-No monorepo local, após mudanças em `App/frontend`:
+No monorepo local, após mudanças em `frontend/`:
 
 ```bash
 # Exemplo: remote do app mobile
 git remote add app-mobile git@github.com:contabhub/financas-pessoais-mobile.git
 
 # Enviar só a pasta do app (subtree ou cópia manual)
-cd App/frontend
+cd frontend/
 git init -b main   # só se for cópia nova
 git add .
 git commit -m "feat: deploy web Expo + env Docker"
@@ -39,14 +39,14 @@ git push app-mobile main
 
 No Easypanel do **frontend (meiinfinito.com.br)**:
 
-- **Dockerfile:** `Dockerfile` na raiz do repo mobile (= `App/frontend` local)
+- **Dockerfile:** `Dockerfile` na raiz do repo mobile (= `frontend/` local)
 - **Não** usar `Site/Dockerfile.frontend` nem `Site/frontend/`
 
 ## Testar páginas legais no localhost
 
 | O que você roda | URL | Resultado |
 |-----------------|-----|-----------|
-| `cd App/frontend` → `npx expo start` | `http://localhost:8081/privacidade` | Redireciona para `/privacidade.html` (HTML estático em `public/`) |
+| `cd frontend/` → `npx expo start` | `http://localhost:8081/privacidade` | Redireciona para `/privacidade.html` (HTML estático em `public/`) |
 | Mesmo Expo | `http://localhost:8081/privacidade.html` | Abre direto o HTML (igual produção) |
 | `cd Site/frontend` → `npm run dev` | `http://localhost:3000/privacidade` | Site Vite antigo (se ainda usar o repo Site) |
 | Produção | `https://meiinfinito.com.br/privacidade` | nginx serve o HTML estático (sem Expo Router) |
@@ -55,7 +55,7 @@ No Easypanel do **frontend (meiinfinito.com.br)**:
 
 ## Pré-requisitos
 
-- Repositório Git com o código do `App/frontend`
+- Repositório Git com o código do `frontend/`
 - Conta no EasyPanel com acesso ao servidor
 
 ## Passo a passo
@@ -66,8 +66,8 @@ No Easypanel do **frontend (meiinfinito.com.br)**:
 2. Escolha a fonte **"GitHub"** (ou GitLab) e selecione o repositório
 3. Em **"Build"**, defina:
    - **Build Type:** `Dockerfile`
-   - **Dockerfile Path:** `App/frontend/Dockerfile`
-   - **Build Context:** `App/frontend`
+   - **Dockerfile Path:** `frontend//Dockerfile`
+   - **Build Context:** `frontend/`
 
 ### 2. Variáveis de ambiente (Easypanel)
 
@@ -115,9 +115,9 @@ Após deploy, o `index.html` novo referencia chunks `entry-*.js` com hash novo. 
 
 ### Alteração no código não aparece após deploy
 
-1. **Arquivos no lugar certo?** Devem estar em `App/frontend/` (ex.: `screens/Orcamentos/BudgetCategoryRow.tsx`). `Site/frontend/` não conta.
+1. **Arquivos no lugar certo?** Devem estar em `frontend//` (ex.: `screens/Orcamentos/BudgetCategoryRow.tsx`). `Site/frontend/` não conta.
 
-2. **Push no repo certo?** Commit em `Site/` → só sobe **backend**. O frontend precisa de push no repo **`financas-pessoais-mobile`** (raiz = `App/frontend`).
+2. **Push no repo certo?** Commit em `Site/` → só sobe **backend**. O frontend precisa de push no repo **`financas-pessoais-mobile`** (raiz = `frontend/`).
 
 3. **Easypanel:** redeploy do serviço **app/web** (build com `expo export --web`), não do Vite em `Site/`.
 
