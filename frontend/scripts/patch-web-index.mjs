@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Injeta shell web (splash, portal, anti-tradutor) no index.html do export SPA.
- * O Expo Router em modo `single` ignora web/index.html e app/+html.tsx.
+ * O Expo Router em modo `single` ignora app/+html.tsx no export; o patch usa lib/webShellDocument.ts.
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'

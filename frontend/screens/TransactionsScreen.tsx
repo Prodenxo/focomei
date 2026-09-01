@@ -68,7 +68,7 @@ import {
 } from '../lib/webScrollbar';
 
 /**
- * Inter (carregada em web/index.html) — contornos suaves em UI; itálico incluído.
+ * Inter (via shell web / app/+html.tsx) — contornos suaves em UI; itálico incluído.
  * ui-sans-serif / system-ui como fallback se a fonte ainda não tiver carregado.
  */
 const WEB_UI_FONT_STACK =
