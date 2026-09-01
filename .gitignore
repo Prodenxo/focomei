@@ -20,11 +20,14 @@ shared/
 !.cursor/rules/
 !.cursor/rules/**
 
-# Pastas legadas (cÛpia local do financeiro ? n?o versionar)
-# ¬ncora na raiz: sem a barra, no Windows (ignorecase) o Git tambÈm ignora frontend/app/
+# Pastas legadas (cùpia local do financeiro ? n?o versionar)
+# ùncora na raiz: sem a barra, no Windows (ignorecase) o Git tambùm ignora frontend/app/
 /App/
 /Site/
 ~/
+
+# Staging local das landings (repos separados na Vercel)
+landing-exports/
 
 # Depend?ncias e build
 **/node_modules/
@@ -48,9 +51,8 @@ Thumbs.db
 *.swp
 
 # Assets locais / marca (fora do app)
-# ¬ncora na raiz: sem a barra, o Git tambÈm ignora frontend/assets/ (Ìcones do Expo)
-marcaa/
-municipios.csv
+# ùncora na raiz: sem a barra, o Git tambùm ignora frontend/assets/ (ùcones do Expo)
+frontend/public/marcaa/
 /assets/
 
 # Sync tempor?rio

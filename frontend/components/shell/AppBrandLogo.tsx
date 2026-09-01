@@ -8,7 +8,7 @@ const WORDMARK_LIGHT_BG = require('../../assets/brand-wordmark-horizontal-light.
 const LOGO_DARK_BG = require('../../assets/brand-logo-full-dark.jpg');
 const LOGO_LIGHT_BG = require('../../assets/brand-logo-full-light.jpg');
 
-/** Proporções reais dos assets oficiais (marcaa). */
+/** Proporções reais dos assets oficiais (frontend/public/marcaa). */
 const WORDMARK_ASPECT = {
   dark: 1584 / 396,
   light: 1600 / 640,

@@ -1,6 +1,6 @@
 /**
  * Manual da Marca FocoMEI v1.0 — tokens para UI.
- * @see marcaa/Manual da Marca FocoMEI_v1.0.pdf
+ * @see frontend/public/marcaa/Manual da Marca FocoMEI_v1.0.pdf
  */
 
 export const brandColors = {

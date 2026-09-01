@@ -5,8 +5,7 @@ import { normalizeIbgeMunicipioCodigo } from '../utils/ibge-municipio-codigo.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const DEFAULT_CSV_PATH = path.resolve(__dirname, '../../data/municipios.csv');
-const REPO_ROOT_CSV_PATH = path.resolve(__dirname, '../../../../municipios.csv');
+const DEFAULT_JSON_PATH = path.resolve(__dirname, '../../data/municipios.json');
 
 /** @type {Map<string, string>|null} */
 let municipioIndex = null;
@@ -36,52 +35,44 @@ const padIbge7 = (value) => {
   return digits.padStart(7, '0').slice(-7);
 };
 
-const readCsvText = (filePath) => {
-  const buf = readFileSync(filePath);
-  let text = buf.toString('utf8');
-  if (text.includes('\uFFFD')) {
-    text = buf.toString('latin1');
-  }
-  return text;
+const indexFromEntry = (index, nome, uf, ibgeCode) => {
+  const key = normalizeMunicipioLookupKey(nome, uf);
+  if (key) index.set(key, ibgeCode);
 };
 
-const resolveCsvPath = () => {
-  const fromEnv = String(process.env.MUNICIPIOS_CSV_PATH || '').trim();
-  if (fromEnv && existsSync(fromEnv)) return fromEnv;
-  if (existsSync(DEFAULT_CSV_PATH)) return DEFAULT_CSV_PATH;
-  if (existsSync(REPO_ROOT_CSV_PATH)) return REPO_ROOT_CSV_PATH;
-  return DEFAULT_CSV_PATH;
+const buildIndexFromJson = (filePath) => {
+  const raw = JSON.parse(readFileSync(filePath, 'utf8'));
+  const rows = Array.isArray(raw?.municipios) ? raw.municipios : [];
+  const index = new Map();
+
+  for (const row of rows) {
+    const ibgeCode = padIbge7(row?.ibge);
+    const uf = String(row?.uf || '').trim().toUpperCase().slice(0, 2);
+    if (!ibgeCode || uf.length !== 2) continue;
+
+    indexFromEntry(index, row?.nomeIbge, uf, ibgeCode);
+    indexFromEntry(index, row?.nomeTom, uf, ibgeCode);
+  }
+
+  return index;
+};
+
+const resolveJsonPath = () => {
+  const fromEnv = String(process.env.MUNICIPIOS_JSON_PATH || '').trim();
+  if (fromEnv) return fromEnv;
+  return DEFAULT_JSON_PATH;
 };
 
 const loadMunicipioIndex = () => {
   if (municipioIndex) return municipioIndex;
 
-  const csvPath = resolveCsvPath();
-  if (!existsSync(csvPath)) {
+  const jsonPath = resolveJsonPath();
+  if (!existsSync(jsonPath)) {
     municipioIndex = new Map();
     return municipioIndex;
   }
 
-  const index = new Map();
-  const lines = readCsvText(csvPath).split(/\r?\n/).filter((line) => line.trim());
-
-  for (let i = 1; i < lines.length; i += 1) {
-    const cols = lines[i].split(';');
-    if (cols.length < 5) continue;
-
-    const ibgeCode = padIbge7(cols[1]);
-    const municipioTom = String(cols[2] || '').trim();
-    const municipioIbge = String(cols[3] || '').trim();
-    const uf = String(cols[4] || '').trim().toUpperCase().slice(0, 2);
-    if (!ibgeCode || uf.length !== 2) continue;
-
-    const keyIbge = normalizeMunicipioLookupKey(municipioIbge, uf);
-    const keyTom = normalizeMunicipioLookupKey(municipioTom, uf);
-    if (keyIbge) index.set(keyIbge, ibgeCode);
-    if (keyTom && keyTom !== keyIbge) index.set(keyTom, ibgeCode);
-  }
-
-  municipioIndex = index;
+  municipioIndex = buildIndexFromJson(jsonPath);
   return municipioIndex;
 };
 
@@ -92,7 +83,7 @@ export const resetIbgeMunicipiosLookupCache = () => {
 
 /**
  * Resolve código IBGE (7 dígitos) a partir do nome do município e UF.
- * Usa tabela local `data/municipios.csv` (código TOM/IBGE PlugNotas).
+ * Fonte: `backend/data/municipios.json` (TOM/IBGE Plugnotas).
  * @param {unknown} cidade
  * @param {unknown} uf
  * @returns {string|null}

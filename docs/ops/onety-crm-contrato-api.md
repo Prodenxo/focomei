@@ -27,7 +27,7 @@ O FocoMEI **não** duplica a tela de contrato do Onety; prepara o card no CRM an
 | Header empresa | `x-empresa-id: 785` |
 | `empresa_id` (payload) | `785` |
 
-Credenciais: mesmo `config.env` do serviço `services/robo-contrato/` (`EMAIL`, `SENHA`, `EMPRESA_ID`).
+Credenciais: mesmo `.env` do serviço **[focomei-robo-contrato](https://github.com/Prodenxo/focomei-robo-contrato)** (`EMAIL`, `SENHA`, `EMPRESA_ID`).
 
 ## Mapa de funis (`funil_id`)
 
@@ -134,7 +134,7 @@ O robô FocoMEI chama `convert` automaticamente quando recebe `onety_lead_id` no
 - `GET /comercial/leads/{leadId}` — refresh do card
 - `GET /comercial/funil-fases/{funil_id}/metas` — KPIs do funil
 
-## Webhooks do robô (`services/robo-contrato`)
+## Webhooks do robô ([`Prodenxo/focomei-robo-contrato`](https://github.com/Prodenxo/focomei-robo-contrato))
 
 | Rota | Uso |
 |------|-----|

@@ -1,8 +1,0 @@
-config.env
-.env
-saida/
-__pycache__/
-*.pyc
-*.pdf
-.git
-.gitignore
