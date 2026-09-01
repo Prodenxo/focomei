@@ -20,13 +20,13 @@ shared/
 !.cursor/rules/
 !.cursor/rules/**
 
-# Pastas legadas (cÃ³pia local do financeiro â€” nÃ£o versionar)
-# Ã‚ncora na raiz: sem a barra, no Windows (ignorecase) o Git tambÃ©m ignora frontend/app/
+# Pastas legadas (cópia local do financeiro ? n?o versionar)
+# Âncora na raiz: sem a barra, no Windows (ignorecase) o Git também ignora frontend/app/
 /App/
 /Site/
 ~/
 
-# DependÃªncias e build
+# Depend?ncias e build
 **/node_modules/
 **/.expo/
 **/dist/
@@ -48,19 +48,23 @@ Thumbs.db
 *.swp
 
 # Assets locais / marca (fora do app)
-# Ã‚ncora na raiz: sem a barra, o Git tambÃ©m ignora frontend/assets/ (Ã­cones do Expo)
+# Âncora na raiz: sem a barra, o Git também ignora frontend/assets/ (ícones do Expo)
 marcaa/
 municipios.csv
 /assets/
 
-# Sync temporÃ¡rio
+# Sync tempor?rio
 .focomei-sync/
 final_review_gate.mjs
+
+# Export/import MeiInfinito -> FocoMEI (dados sensiveis ? nunca commitar)
+backend/scripts/one-time/exports/
+backend/scripts/one-time/import-focomei-migration-20260727/reports/
 
 # Supabase local
 supabase/.temp/
 
-# Cópia Meu Financeiro (apps/meiinfinito) — nunca commitar secrets locais
+# C?pia Meu Financeiro (apps/meiinfinito) ? nunca commitar secrets locais
 apps/meiinfinito/**/.env
 apps/meiinfinito/**/.env.*
 !apps/meiinfinito/**/.env.example

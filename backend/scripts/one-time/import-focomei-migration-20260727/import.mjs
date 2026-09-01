@@ -11,6 +11,9 @@
  * Re-sync (atualiza linhas existentes — transações, contas, NFS-e, etc.):
  *   node scripts/one-time/import-focomei-migration-20260727/import.mjs --apply --sync
  *
+ * Só uma empresa (pacote completo ou export filtrado):
+ *   node scripts/one-time/import-focomei-migration-20260727/import.mjs --apply --sync --empresa-id=UUID
+ *
  * Opções:
  *   --package=<path>   (default: path fixo do export MeiInfinito)
  *   --dry-run          (explícito; padrão)
@@ -31,6 +34,7 @@ const DEFAULT_PACKAGE =
 const args = parseArgs(process.argv.slice(2))
 const APPLY = Boolean(args.apply)
 const SYNC = Boolean(args.sync)
+const SCOPED_EMPRESA_ID = String(args['empresa-id'] || '').trim()
 const PACKAGE_DIR = path.resolve(
   String(args.package || process.env.FOCOMEI_MIGRATION_PACKAGE || DEFAULT_PACKAGE),
 )
@@ -74,8 +78,11 @@ async function main () {
     console.warn('⚠ --sync só faz efeito junto com --apply')
   }
   console.log(`Package: ${PACKAGE_DIR}`)
+  if (SCOPED_EMPRESA_ID) {
+    console.log(`Escopo import: empresa ${SCOPED_EMPRESA_ID}`)
+  }
 
-  const report = validatePackage(PACKAGE_DIR)
+  const report = validatePackage(PACKAGE_DIR, { scopedEmpresaId: SCOPED_EMPRESA_ID })
   printDryRunReport(report)
 
   if (!APPLY) {
@@ -104,7 +111,10 @@ async function main () {
   })
   await client.connect()
   try {
-    const applyReport = await applyImport(client, PACKAGE_DIR, report, { sync: SYNC })
+    const applyReport = await applyImport(client, PACKAGE_DIR, report, {
+      sync: SYNC,
+      scopedEmpresaId: SCOPED_EMPRESA_ID,
+    })
     printApplyReport(applyReport)
     writeReportFile(PACKAGE_DIR, { ...report, apply: applyReport }, { applied: true })
   } finally {
@@ -112,7 +122,21 @@ async function main () {
   }
 }
 
-function validatePackage (root) {
+function resolveScopedUserIds (root, empresaId) {
+  const userIdsPath = path.join(root, 'empresas', empresaId, 'user_ids.json')
+  if (fs.existsSync(userIdsPath)) {
+    const ids = readJson(userIdsPath)
+    return new Set(Array.isArray(ids) ? ids.filter(Boolean) : [])
+  }
+  const linksPath = path.join(root, 'empresas', empresaId, 'memberships.json')
+  if (fs.existsSync(linksPath)) {
+    const links = readJson(linksPath)
+    return new Set((links || []).map((l) => l.user_id).filter(Boolean))
+  }
+  return new Set()
+}
+
+function validatePackage (root, { scopedEmpresaId = '' } = {}) {
   const errors = []
   const warnings = []
   const required = [
@@ -135,8 +159,20 @@ function validatePackage (root) {
   const usersFile = readJson(path.join(root, '02_users_and_memberships.json'))
   const certMeta = readJson(path.join(root, '03_certificates_meta.json'))
 
-  const empresaDirs = listDirs(path.join(root, 'empresas'))
-  const userDirs = listDirs(path.join(root, 'users'))
+  const empresaDirsAll = listDirs(path.join(root, 'empresas'))
+  const userDirsAll = listDirs(path.join(root, 'users'))
+  const scopedUserIds = scopedEmpresaId
+    ? resolveScopedUserIds(root, scopedEmpresaId)
+    : null
+  if (scopedEmpresaId && !empresaDirsAll.includes(scopedEmpresaId)) {
+    errors.push(`empresa ${scopedEmpresaId} ausente em empresas/`)
+  }
+  const empresaDirs = scopedEmpresaId
+    ? empresaDirsAll.filter((id) => id === scopedEmpresaId)
+    : empresaDirsAll
+  const userDirs = scopedUserIds
+    ? userDirsAll.filter((id) => scopedUserIds.has(id))
+    : userDirsAll
   const secretFiles = fs.existsSync(path.join(root, 'secrets', 'certificates'))
     ? fs.readdirSync(path.join(root, 'secrets', 'certificates')).filter((f) => f.endsWith('.json'))
     : []
@@ -284,9 +320,15 @@ function validatePackage (root) {
   }
 }
 
-async function applyImport (client, root, dryReport, { sync = false } = {}) {
+async function applyImport (client, root, dryReport, { sync = false, scopedEmpresaId = '' } = {}) {
   const manifest = readJson(path.join(root, '00_manifest.json'))
   const usersFile = readJson(path.join(root, '02_users_and_memberships.json'))
+  const scopedUserIds = scopedEmpresaId
+    ? resolveScopedUserIds(root, scopedEmpresaId)
+    : null
+  const scopedUsers = scopedUserIds
+    ? (usersFile.users || []).filter((u) => scopedUserIds.has(u.id))
+    : (usersFile.users || [])
   const failures = []
   const inserted = {}
   // Senha descartável única — todos precisam reset; evita 223× scrypt (~2min).
@@ -333,9 +375,9 @@ async function applyImport (client, root, dryReport, { sync = false } = {}) {
       }
     }
 
-    const totalUsers = (usersFile.users || []).length
+    const totalUsers = scopedUsers.length
     let userIdx = 0
-    for (const u of usersFile.users || []) {
+    for (const u of scopedUsers) {
       userIdx += 1
       if (userIdx === 1 || userIdx % 50 === 0 || userIdx === totalUsers) {
         console.log(`[import] users ${userIdx}/${totalUsers}`)
@@ -386,7 +428,7 @@ async function applyImport (client, root, dryReport, { sync = false } = {}) {
       if (ok) bump('users')
     }
 
-    for (const u of usersFile.users || []) {
+    for (const u of scopedUsers) {
       let role = 'usuario'
       if (u.profile && !u.profile_missing) {
         role = mapProfileRole(u.profile.role)
@@ -407,7 +449,9 @@ async function applyImport (client, root, dryReport, { sync = false } = {}) {
       if (ok) bump('profiles')
     }
 
-    const empresaDirs = listDirs(path.join(root, 'empresas'))
+    const empresaDirs = scopedEmpresaId
+      ? listDirs(path.join(root, 'empresas')).filter((id) => id === scopedEmpresaId)
+      : listDirs(path.join(root, 'empresas'))
     for (const eid of empresaDirs) {
       const e = readJson(path.join(root, 'empresas', eid, 'empresa.json'))
       const ok = await runSafe('empresas', e.id, async () => {
@@ -535,7 +579,9 @@ async function applyImport (client, root, dryReport, { sync = false } = {}) {
   }
 
   // ---- Fase B: dados por usuário (1 txn cada) ----
-  const userDirs = listDirs(path.join(root, 'users'))
+  const userDirs = scopedUserIds
+    ? listDirs(path.join(root, 'users')).filter((id) => scopedUserIds.has(id))
+    : listDirs(path.join(root, 'users'))
   console.log(`[import] fase B: ${userDirs.length} pastas de usuário…`)
   let dirIdx = 0
   for (const uid of userDirs) {
@@ -567,6 +613,7 @@ async function applyImport (client, root, dryReport, { sync = false } = {}) {
     'mei_nfse',
     'user_mei_certificates',
   ]) {
+    if (scopedEmpresaId) continue
     const exp = expected[key] ?? expected[key === 'users' ? 'users' : key]
     const got = destCounts[key]
     if (exp != null && got != null && exp !== got) {

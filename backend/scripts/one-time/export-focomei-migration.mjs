@@ -4,6 +4,8 @@
  *
  * Uso (FOCOMEI/backend ou Site/backend MeiInfinito):
  *   node scripts/one-time/export-focomei-migration.mjs
+ *   node scripts/one-time/export-focomei-migration.mjs --empresa-id=UUID
+ *   node scripts/one-time/export-focomei-migration.mjs --empresa-name=Catalisa
  *
  * Requer no .env:
  *   SUPABASE_URL
@@ -18,8 +20,17 @@ import { createClient } from '@supabase/supabase-js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.join(__dirname, '../../.env') })
 
+const args = parseArgs(process.argv.slice(2))
+const EMPRESA_ID_FILTER = String(args['empresa-id'] || '').trim()
+const EMPRESA_NAME_FILTER = String(args['empresa-name'] || '').trim()
+
 const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-const outRoot = path.join(__dirname, 'exports', `focomei-migration-${stamp}`)
+const scopeSuffix = EMPRESA_ID_FILTER
+  ? `-empresa-${EMPRESA_ID_FILTER.slice(0, 8)}`
+  : EMPRESA_NAME_FILTER
+    ? `-empresa-${EMPRESA_NAME_FILTER.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 24)}`
+    : ''
+const outRoot = path.join(__dirname, 'exports', `focomei-migration-${stamp}${scopeSuffix}`)
 
 const admin = createClient(
   process.env.SUPABASE_URL,
@@ -92,6 +103,34 @@ async function main () {
     if (reasons.length) included.push({ ...e, _reasons: reasons })
   }
   included.sort((a, b) => String(a.empresa || '').localeCompare(String(b.empresa || ''), 'pt-BR'))
+
+  if (EMPRESA_ID_FILTER || EMPRESA_NAME_FILTER) {
+    let scoped = included
+    if (EMPRESA_ID_FILTER) {
+      scoped = scoped.filter((e) => e.id === EMPRESA_ID_FILTER)
+    }
+    if (EMPRESA_NAME_FILTER) {
+      const needle = EMPRESA_NAME_FILTER.toLowerCase()
+      scoped = scoped.filter((e) =>
+        [e.empresa, e.razao_social, e.nome_fantasia].some((v) =>
+          String(v || '').toLowerCase().includes(needle),
+        ),
+      )
+    }
+    if (!scoped.length) {
+      console.error('Nenhuma empresa encontrada para o filtro informado.')
+      process.exit(1)
+    }
+    if (!EMPRESA_ID_FILTER && scoped.length > 1) {
+      console.error('Filtro por nome ambíguo — use --empresa-id:')
+      for (const e of scoped) console.error(`  ${e.id}  ${e.empresa}`)
+      process.exit(1)
+    }
+    included.length = 0
+    included.push(...scoped)
+    console.log(`Escopo: ${included[0].empresa} (${included[0].id})`)
+  }
+
   const empresaIds = included.map((e) => e.id)
   console.log(`Empresas: ${included.length}`)
 
@@ -602,4 +641,18 @@ Rodar \`90_validation.sql\` no Postgres/Supabase de origem e comparar com \`00_m
 ${JSON.stringify(manifest.counts, null, 2)}
 \`\`\`
 `
+}
+
+function parseArgs (argv) {
+  const out = {}
+  for (const raw of argv) {
+    if (!raw.startsWith('--')) continue
+    const eq = raw.indexOf('=')
+    if (eq === -1) {
+      out[raw.slice(2)] = true
+      continue
+    }
+    out[raw.slice(2, eq)] = raw.slice(eq + 1)
+  }
+  return out
 }
