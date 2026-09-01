@@ -56,9 +56,6 @@ export function AuthLayoutWeb ({
   illustrationSubheadline = AUTH_ILLUSTRATION_SUBHEADLINE,
   formMaxWidth,
 }: AuthLayoutWebProps) {
-  if (Platform.OS !== 'web') {
-    return <>{children}</>
-  }
   return (
     <WebLayoutContent
       title={title}

@@ -5,7 +5,6 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Platform,
   ActivityIndicator,
 } from 'react-native';
 import { useAuthStore } from '../../store/authStore';
@@ -26,7 +25,6 @@ import {
 import { inviteStatusUserMessage } from '../../utils/registerInviteQuery';
 import { useInviteTokenFromDeepLink } from '../../lib/registerInviteDeepLink';
 import { AuthLayoutWeb } from '../../components/auth/AuthLayoutWeb';
-import { AuthLayoutMobile } from '../../components/auth/AuthLayoutMobile';
 import {
   AuthAlert,
   AuthButton,
@@ -362,18 +360,10 @@ export function RegisterAuthForm({ onGoToLogin }: RegisterAuthFormProps) {
     ? 'Use o link enviado pelo administrador da empresa'
     : 'Esta plataforma é exclusiva para convidados';
 
-  if (Platform.OS === 'web') {
-    return (
-      <AuthLayoutWeb title={title} subtitle={subtitle} showIllustration>
-        {content}
-      </AuthLayoutWeb>
-    );
-  }
-
   return (
-    <AuthLayoutMobile title={title} subtitle={subtitle}>
-      <View style={{ gap: 16 }}>{content}</View>
-    </AuthLayoutMobile>
+    <AuthLayoutWeb title={title} subtitle={subtitle} showIllustration>
+      {content}
+    </AuthLayoutWeb>
   );
 }
 

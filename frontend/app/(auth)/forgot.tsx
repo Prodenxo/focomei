@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
-import { Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/store/authStore';
 import { AuthLayoutWeb } from '@/components/auth/AuthLayoutWeb';
-import { AuthLayoutMobile } from '@/components/auth/AuthLayoutMobile';
 import {
   AuthAlert,
   AuthButton,
@@ -48,50 +46,11 @@ export default function ForgotScreen() {
     }
   };
 
-  if (Platform.OS === 'web') {
-    return (
-      <AuthLayoutWeb
-        title="Recuperar Senha"
-        subtitle="Digite seu e-mail para receber o link de recuperação"
-        showIllustration
-      >
-        <AuthInput
-          label="E-mail"
-          palette={palette}
-          placeholder="seu@email.com"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          autoComplete="email"
-          leftIcon="mail-outline"
-          onSubmitEditing={handleResetPassword}
-          returnKeyType="go"
-        />
-        {error ? <AuthAlert kind="error" message={error} palette={palette} /> : null}
-        {successMessage ? <AuthAlert kind="success" message={successMessage} palette={palette} /> : null}
-        <AuthButton
-          label="Enviar Link de Recuperação"
-          loadingLabel="Enviando..."
-          loading={loading}
-          onPress={handleResetPassword}
-          palette={palette}
-        />
-        <AuthLink
-          label="Voltar ao login"
-          align="center"
-          palette={palette}
-          onPress={goToLogin}
-        />
-      </AuthLayoutWeb>
-    );
-  }
-
   return (
-    <AuthLayoutMobile
+    <AuthLayoutWeb
       title="Recuperar Senha"
       subtitle="Digite seu e-mail para receber o link de recuperação"
-      eyebrowLabel="RECUPERAÇÃO"
+      showIllustration
     >
       <AuthInput
         label="E-mail"
@@ -121,6 +80,6 @@ export default function ForgotScreen() {
         palette={palette}
         onPress={goToLogin}
       />
-    </AuthLayoutMobile>
+    </AuthLayoutWeb>
   );
 }

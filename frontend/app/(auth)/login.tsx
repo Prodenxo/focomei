@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Platform } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/store/authStore';
 import { AuthLayoutWeb } from '@/components/auth/AuthLayoutWeb';
-import { AuthLayoutMobile } from '@/components/auth/AuthLayoutMobile';
 import {
   AuthAlert,
   AuthButton,
@@ -51,80 +50,11 @@ export default function LoginScreen() {
     }
   };
 
-  if (Platform.OS === 'web') {
-    return (
-      <AuthLayoutWeb
-        title="Bem-vindo de volta"
-        subtitle="Faça login para acessar sua conta"
-        showIllustration
-      >
-        <AuthInput
-          label="E-mail"
-          palette={palette}
-          placeholder="seu@email.com"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          autoComplete="email"
-          leftIcon="mail-outline"
-        />
-        <View>
-          <AuthInput
-            label="Senha"
-            palette={palette}
-            placeholder="••••••••"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry={!showPassword}
-            autoCapitalize="none"
-            onSubmitEditing={handleLogin}
-            returnKeyType="go"
-            rightIconToggle={{
-              iconWhenSecure: 'eye-off-outline',
-              iconWhenVisible: 'eye-outline',
-              isVisible: showPassword,
-              onToggle: () => setShowPassword(!showPassword),
-              accessibilityLabelShow: 'Mostrar senha',
-              accessibilityLabelHide: 'Ocultar senha',
-            }}
-          />
-          <View style={{ marginTop: 8, alignItems: 'flex-end' }}>
-            <AuthLink
-              label="Esqueci minha senha"
-              palette={palette}
-              align="right"
-              onPress={() => router.push('/forgot')}
-            />
-          </View>
-        </View>
-        {error ? <AuthAlert kind="error" message={error} palette={palette} /> : null}
-        <AuthButton
-          label="Entrar"
-          loadingLabel="Entrando..."
-          loading={loading}
-          onPress={handleLogin}
-          palette={palette}
-        />
-        <AuthLegalFooter />
-        {hasInvite ? (
-          <View style={webStyles.bottomRow}>
-            <Text style={{ color: palette.subtitleText, fontSize: 14 }}>Tem um convite? </Text>
-            <AuthLink
-              label="Cadastre-se"
-              palette={palette}
-              onPress={() => router.push('/register')}
-            />
-          </View>
-        ) : null}
-      </AuthLayoutWeb>
-    );
-  }
-
   return (
-    <AuthLayoutMobile
+    <AuthLayoutWeb
       title="Bem-vindo de volta"
       subtitle="Faça login para acessar sua conta"
+      showIllustration
     >
       <AuthInput
         label="E-mail"
@@ -141,7 +71,7 @@ export default function LoginScreen() {
         <AuthInput
           label="Senha"
           palette={palette}
-          placeholder="Sua senha"
+          placeholder="••••••••"
           value={password}
           onChangeText={setPassword}
           secureTextEntry={!showPassword}
@@ -176,7 +106,7 @@ export default function LoginScreen() {
       />
       <AuthLegalFooter />
       {hasInvite ? (
-        <View style={webStyles.bottomRow}>
+        <View style={styles.bottomRow}>
           <Text style={{ color: palette.subtitleText, fontSize: 14 }}>Tem um convite? </Text>
           <AuthLink
             label="Cadastre-se"
@@ -185,11 +115,11 @@ export default function LoginScreen() {
           />
         </View>
       ) : null}
-    </AuthLayoutMobile>
+    </AuthLayoutWeb>
   );
 }
 
-const webStyles = StyleSheet.create({
+const styles = StyleSheet.create({
   bottomRow: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -198,4 +128,3 @@ const webStyles = StyleSheet.create({
     marginTop: 4,
   },
 });
-

@@ -3,13 +3,11 @@ import {
   View,
   Text,
   StyleSheet,
-  Platform,
   ActivityIndicator,
   useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthLayoutWeb } from '../../components/auth/AuthLayoutWeb';
-import { AuthLayoutMobile } from '../../components/auth/AuthLayoutMobile';
 import { AuthSectionHeader } from '../../components/auth/AuthSectionHeader';
 import {
   AuthAlert,
@@ -596,23 +594,15 @@ export function AccessRequestForm({
       : 'Preencha seus dados e os da sua empresa. A CF Contabilidade analisa e libera o acesso.');
   const content = submitted ? successContent : formContent;
 
-  if (Platform.OS === 'web') {
-    return (
-      <AuthLayoutWeb
-        title={title}
-        subtitle={subtitle}
-        showIllustration={false}
-        formMaxWidth={AUTH_FORM_WIDE_PANEL_MAX_WIDTH}
-      >
-        {content}
-      </AuthLayoutWeb>
-    );
-  }
-
   return (
-    <AuthLayoutMobile title={title} subtitle={subtitle}>
+    <AuthLayoutWeb
+      title={title}
+      subtitle={subtitle}
+      showIllustration={false}
+      formMaxWidth={AUTH_FORM_WIDE_PANEL_MAX_WIDTH}
+    >
       {content}
-    </AuthLayoutMobile>
+    </AuthLayoutWeb>
   );
 }
 
