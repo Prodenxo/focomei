@@ -226,27 +226,43 @@ const parseApiErrorPayload = (payload: unknown): { message: string; code?: strin
   return { message: row.message || 'Falha no download', code: code || undefined };
 };
 
-const assertPdfBytes = (bytes: Uint8Array) => {
-  if (!bytes?.length) {
-    throw buildDownloadError('O servidor retornou um arquivo vazio.');
-  }
-  const isPdf =
-    bytes.length >= 4
-    && bytes[0] === 0x25
-    && bytes[1] === 0x50
-    && bytes[2] === 0x44
-    && bytes[3] === 0x46;
-  if (isPdf) return;
-  const snippet = new TextDecoder().decode(bytes.slice(0, 400));
+type DownloadBinaryKind = 'pdf' | 'xml';
+
+const throwIfJsonErrorBody = (bytes: Uint8Array) => {
+  const snippet = new TextDecoder().decode(bytes.slice(0, 400)).trim();
+  if (!snippet.startsWith('{') && !snippet.startsWith('[')) return;
   try {
     const json = JSON.parse(snippet) as { message?: string; errors?: { code?: string } };
     const parsed = parseApiErrorPayload(json);
     throw buildDownloadError(parsed.message, parsed.code);
   } catch (parseErr) {
     if (parseErr instanceof Error && 'code' in parseErr) throw parseErr;
-    throw buildDownloadError('A resposta não é um PDF válido. Tente novamente ou abra o PGMEI.');
   }
 };
+
+const assertDownloadBytes = (bytes: Uint8Array, kind: DownloadBinaryKind) => {
+  if (!bytes?.length) {
+    throw buildDownloadError('O servidor retornou um arquivo vazio.');
+  }
+  if (kind === 'pdf') {
+    const isPdf =
+      bytes.length >= 4
+      && bytes[0] === 0x25
+      && bytes[1] === 0x50
+      && bytes[2] === 0x44
+      && bytes[3] === 0x46;
+    if (isPdf) return;
+    throwIfJsonErrorBody(bytes);
+    throw buildDownloadError('A resposta não é um PDF válido. Tente novamente ou abra o PGMEI.');
+  }
+  const head = new TextDecoder().decode(bytes.slice(0, 256)).trimStart();
+  if (head.startsWith('<?xml') || head.startsWith('<')) return;
+  throwIfJsonErrorBody(bytes);
+  throw buildDownloadError('A resposta não é um XML válido. Tente novamente.');
+};
+
+const downloadKindFromFilename = (filename: string): DownloadBinaryKind =>
+  filename.toLowerCase().endsWith('.xml') ? 'xml' : 'pdf';
 
 /** Download a GET endpoint to a local file (e.g. PDF/XML). Returns localUri and filename. */
 export async function downloadToFile(
@@ -279,7 +295,7 @@ export async function downloadToFile(
     throw buildDownloadError(parsed.message, parsed.code);
   }
 
-  assertPdfBytes(bytes);
+  assertDownloadBytes(bytes, downloadKindFromFilename(filename));
 
   return persistBinaryDownload(bytes, filename, mimeFromFilename(filename));
 }

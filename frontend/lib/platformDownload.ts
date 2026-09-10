@@ -49,8 +49,15 @@ function deliverOnWeb(data: Uint8Array, filename: string, mimeType: string): voi
   if (typeof document === 'undefined' || typeof window === 'undefined') {
     throw new Error('Download no browser indisponível neste ambiente.');
   }
-  const safeName = filename.toLowerCase().endsWith('.pdf') ? filename : `${filename}.pdf`;
-  const blob = new Blob([data.slice()], { type: mimeType === 'application/pdf' ? 'application/pdf' : mimeType });
+  const lower = filename.toLowerCase();
+  let safeName = filename;
+  if (!lower.endsWith('.pdf') && !lower.endsWith('.xml')) {
+    if (mimeType === 'application/xml') safeName = `${filename}.xml`;
+    else if (mimeType === 'application/pdf') safeName = `${filename}.pdf`;
+  }
+  const blob = new Blob([data.slice()], {
+    type: mimeType === 'application/pdf' ? 'application/pdf' : mimeType,
+  });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
