@@ -5,7 +5,11 @@ import { badRequest, serviceUnavailable, unauthorized } from '../utils/errors.js
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const GOOGLE_EVENTS_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary/events'
+const GOOGLE_EVENTS_PROBE_URL =
+  'https://www.googleapis.com/calendar/v3/calendars/primary/events?maxResults=1&singleEvents=true'
 const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events'
+/** Renova o access token alguns minutos antes de expirar (evita “desconectou” na virada da hora). */
+const REFRESH_BUFFER_MS = 5 * 60 * 1000
 
 const ensureGoogleConfigured = () => {
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.GOOGLE_REDIRECT_URI) {
@@ -91,6 +95,42 @@ const getStoredTokens = async (userId) => {
   return rows[0] || null
 }
 
+const probeGoogleCalendarAccess = async (accessToken) => {
+  if (!accessToken) return false
+  try {
+    const res = await fetch(GOOGLE_EVENTS_PROBE_URL, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    return res.ok
+  } catch (err) {
+    console.warn('[google-calendar/local] probe failed', err?.message || err)
+    return false
+  }
+}
+
+const parseGoogleOAuthError = async (response) => {
+  try {
+    const json = await response.json()
+    return {
+      error: String(json?.error || ''),
+      description: String(json?.error_description || ''),
+    }
+  } catch {
+    return { error: 'unknown', description: '' }
+  }
+}
+
+const isAccessTokenStale = (expiresAt) => {
+  if (!expiresAt) return false
+  const expiresMs = new Date(expiresAt).getTime()
+  if (!Number.isFinite(expiresMs)) return false
+  return expiresMs <= Date.now() + REFRESH_BUFFER_MS
+}
+
+const clearStoredTokens = async (userId) => {
+  await query(`DELETE FROM public.google_tokens_id WHERE user_id = $1`, [userId])
+}
+
 const upsertTokens = async (userId, tokens) => {
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString()
   const existing = await getStoredTokens(userId)
@@ -113,7 +153,7 @@ const upsertTokens = async (userId, tokens) => {
   )
 }
 
-const refreshAccessToken = async (userId, refreshToken) => {
+const refreshAccessToken = async (userId, refreshToken, fallbackAccessToken) => {
   ensureGoogleConfigured()
   const response = await fetch(GOOGLE_TOKEN_URL, {
     method: 'POST',
@@ -125,7 +165,22 @@ const refreshAccessToken = async (userId, refreshToken) => {
       grant_type: 'refresh_token',
     }),
   })
-  if (!response.ok) return null
+  if (!response.ok) {
+    const oauthErr = await parseGoogleOAuthError(response)
+    console.warn('[google-calendar/local] refresh failed', {
+      userId,
+      status: response.status,
+      oauthError: oauthErr.error,
+    })
+    if (oauthErr.error === 'invalid_grant') {
+      await clearStoredTokens(userId)
+      return null
+    }
+    if (fallbackAccessToken && (await probeGoogleCalendarAccess(fallbackAccessToken))) {
+      return fallbackAccessToken
+    }
+    return null
+  }
   const refreshed = await response.json()
   await upsertTokens(userId, {
     access_token: refreshed.access_token,
@@ -135,31 +190,52 @@ const refreshAccessToken = async (userId, refreshToken) => {
   return refreshed.access_token
 }
 
-const hasValidSession = async (userId) => {
+/**
+ * Garante access token utilizável (renovação + probe). Usado por check-auth e APIs de eventos.
+ * @returns {Promise<{ ok: true, accessToken: string } | { ok: false }>}
+ */
+const ensureValidAccessToken = async (userId) => {
   const tokenData = await getStoredTokens(userId)
-  if (!tokenData?.access_token) return false
-  const expired = tokenData.expires_at && new Date(tokenData.expires_at) <= new Date()
-  if (!expired) return true
-  if (!tokenData.refresh_token) return false
-  const renewed = await refreshAccessToken(userId, tokenData.refresh_token)
-  return Boolean(renewed)
+  if (!tokenData?.access_token) return { ok: false }
+
+  const stale = isAccessTokenStale(tokenData.expires_at)
+  if (!stale) {
+    if (await probeGoogleCalendarAccess(tokenData.access_token)) {
+      return { ok: true, accessToken: tokenData.access_token }
+    }
+  }
+
+  if (!tokenData.refresh_token) {
+    if (await probeGoogleCalendarAccess(tokenData.access_token)) {
+      return { ok: true, accessToken: tokenData.access_token }
+    }
+    return { ok: false }
+  }
+
+  const renewed = await refreshAccessToken(
+    userId,
+    tokenData.refresh_token,
+    tokenData.access_token,
+  )
+  if (renewed) return { ok: true, accessToken: renewed }
+  return { ok: false }
+}
+
+const hasValidSession = async (userId) => {
+  const result = await ensureValidAccessToken(userId)
+  return result.ok
 }
 
 const resolveAccessToken = async (userId) => {
+  const result = await ensureValidAccessToken(userId)
+  if (result.ok) return result.accessToken
   const tokenData = await getStoredTokens(userId)
   if (!tokenData?.access_token) {
-    throw unauthorized('Tokens não encontrados. Autorize o Google Calendar primeiro.')
+    throw unauthorized('Tokens não encontrados. Autorize o Google Calendar em Configurações.')
   }
-  const expired = tokenData.expires_at && new Date(tokenData.expires_at) <= new Date()
-  if (!expired) return tokenData.access_token
-  if (!tokenData.refresh_token) {
-    throw unauthorized('Token expirado. Reconecte o Google Calendar em Configurações.')
-  }
-  const renewed = await refreshAccessToken(userId, tokenData.refresh_token)
-  if (!renewed) {
-    throw unauthorized('Não foi possível renovar o token do Google. Reconecte em Configurações.')
-  }
-  return renewed
+  throw unauthorized(
+    'Sessão Google expirou. Abra Configurações → Google Agenda e conecte de novo.',
+  )
 }
 
 const exchangeCodeForTokens = async (code) => {
