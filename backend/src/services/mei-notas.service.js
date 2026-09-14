@@ -25,6 +25,18 @@ import {
   resolveNfseRpsLocalMaxFromHistory,
 } from './plugnotas/plugnotas-empresa-rps-heal.js';
 import {
+  advancePlugnotasNfeNumeracaoAfterEmit,
+  ensurePlugnotasNfeNumeracaoBeforeEmit,
+  extractDuplicidadeNfeNumeroFromResponse,
+  isMeiNfeNumeracaoHealEnabled,
+  isPlugnotasNfeDuplicidadeFromResponse,
+  queryAuthoritativeNfeMaxUsed,
+  readNfeNumeroFromHistoryRow,
+  readNfeNumeroFromPlugnotasBody,
+  resolveNextNfeNumeroFromSources,
+  syncPlugnotasNfeNumeracaoBeforeEmit,
+} from './plugnotas/plugnotas-empresa-nfe-heal.js';
+import {
   allocateNfseRpsForEmit,
   applyAllocatedNfseRpsToEmitPayload,
   forceNfseRpsCounterFloor,
@@ -1201,6 +1213,9 @@ const NFSE_EMIT_TERMINAL_POLL_MAX_MS = 8000;
 const NFSE_EMIT_PROCESSING_POLL_MAX_MS = 28000;
 const NFSE_EMIT_TERMINAL_POLL_INTERVAL_MS = 1000;
 const NFSE_EMIT_E0014_RETRY_MAX = 5;
+const NFE_EMIT_DUPLICIDADE_RETRY_MAX = 6;
+const NFE_EMIT_TERMINAL_POLL_MAX_MS = 28000;
+const NFE_EMIT_TERMINAL_POLL_INTERVAL_MS = 1000;
 const NFSE_PERIODO_FAST_PAGES = 6;
 const NFSE_PROCESSING_FOLLOWUP_MS = 95000;
 /** Tempo mínimo na lista principal antes de arquivar E0014 automaticamente. */
@@ -1208,6 +1223,32 @@ const NFSE_E0014_VISIBLE_BEFORE_ARCHIVE_MS = 20000;
 
 /** Serializa emissões NFS-e por CNPJ prestador — evita duas requisições paralelas queimando DPS seguidos. */
 const nfseEmitLockTailByCnpj = new Map();
+
+/** Serializa emissões NF-e por CNPJ emitente — evita duas requisições paralelas no mesmo contador. */
+const nfeEmitLockTailByCnpj = new Map();
+
+const withNfeEmitLock = async (cnpjEmitente, task) => {
+  const cnpj = normalizeDoc(cnpjEmitente);
+  if (cnpj.length !== 14) return await task();
+
+  const previous = nfeEmitLockTailByCnpj.get(cnpj) || Promise.resolve();
+  let release = () => {};
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const current = previous.then(() => gate);
+  nfeEmitLockTailByCnpj.set(cnpj, current);
+
+  await previous;
+  try {
+    return await task();
+  } finally {
+    release();
+    if (nfeEmitLockTailByCnpj.get(cnpj) === current) {
+      nfeEmitLockTailByCnpj.delete(cnpj);
+    }
+  }
+};
 
 const withNfseEmitLock = async (cnpjPrestador, task) => {
   const cnpj = normalizeDoc(cnpjPrestador);
@@ -1548,6 +1589,169 @@ const emitNfseWithAutoRpsRecovery = async (
   });
 
   return { response, emitPayload };
+};
+
+const awaitNfeEmitTerminalResponse = async (
+  adapter,
+  {
+    initialResponse,
+    idIntegracao,
+    cnpjEmitente,
+    maxWaitMs = NFE_EMIT_TERMINAL_POLL_MAX_MS,
+    intervalMs = NFE_EMIT_TERMINAL_POLL_INTERVAL_MS,
+  },
+) => {
+  let response = initialResponse;
+  let status = extractPlugNotasStatus(response);
+  if (isNfseEmitStatusTerminal(status)) return response;
+
+  const integracao = idIntegracao || extractIntegracaoId(response);
+  const cnpj = normalizeDoc(cnpjEmitente);
+  if (!integracao || cnpj.length !== 14 || !adapter.consultarPorIntegracao) {
+    return response;
+  }
+
+  const started = Date.now();
+  while (Date.now() - started < maxWaitMs) {
+    await sleep(intervalMs);
+    try {
+      response = await adapter.consultarPorIntegracao(integracao, cnpj);
+      status = extractPlugNotasStatus(response);
+      if (isNfseEmitStatusTerminal(status)) return response;
+    } catch {
+      // continua até timeout
+    }
+  }
+
+  return response;
+};
+
+const emitNfeWithAutoNumeracaoRecovery = async (
+  adapter,
+  userId,
+  cnpjEmitente,
+  basePayload,
+  prep = {},
+) => {
+  const emitStartedAt = Date.now();
+  let localMax = parsePositiveIntLocal(prep.initialLocalMax, 0)
+    || parsePositiveIntLocal(await queryMaxNfeNumeroEmitted(userId, cnpjEmitente), 0);
+  const empresaJsonCache = prep.empresaJson ?? null;
+  let emitPayload = { ...basePayload };
+  let response;
+  let emitSerie = 1;
+
+  for (let attempt = 0; attempt < NFE_EMIT_DUPLICIDADE_RETRY_MAX; attempt += 1) {
+    emitPayload = { ...basePayload };
+    const numeracao = await ensurePlugnotasNfeNumeracaoBeforeEmit(cnpjEmitente, {
+      localMaxNumero: localMax,
+      relatorioMaxNumero: prep.relatorioMax ?? 0,
+      empresaJson: empresaJsonCache,
+      userId,
+    });
+    if (numeracao?.serie !== undefined && numeracao?.serie !== null) {
+      emitSerie = numeracao.serie;
+    }
+
+    emitPayload.idIntegracao = buildMeiIdIntegracao(userId);
+    response = await adapter.emitir(emitPayload);
+
+    const integracaoPoll = extractIntegracaoId(response) || emitPayload.idIntegracao;
+    let status = extractPlugNotasStatus(response);
+    let normalized = normalizeStatus(status);
+
+    if (normalized !== 'concluido' && integracaoPoll && cnpjEmitente.length === 14) {
+      response = await awaitNfeEmitTerminalResponse(adapter, {
+        initialResponse: response,
+        idIntegracao: integracaoPoll,
+        cnpjEmitente,
+        maxWaitMs: NFE_EMIT_TERMINAL_POLL_MAX_MS,
+        intervalMs: NFE_EMIT_TERMINAL_POLL_INTERVAL_MS,
+      });
+      status = extractPlugNotasStatus(response);
+      normalized = normalizeStatus(status);
+    }
+
+    const duplicidade = normalized === 'rejeitado' && isPlugnotasNfeDuplicidadeFromResponse(response);
+    if (!duplicidade) {
+      const usedNumero = readNfeNumeroFromPlugnotasBody(response);
+      if (normalized === 'concluido' && usedNumero) {
+        await advancePlugnotasNfeNumeracaoAfterEmit(cnpjEmitente, {
+          serie: emitSerie,
+          numero: usedNumero,
+        }).catch(() => {});
+      }
+      break;
+    }
+
+    const blockedNumero = extractDuplicidadeNfeNumeroFromResponse(response)
+      ?? readNfeNumeroFromPlugnotasBody(response);
+    if (blockedNumero) {
+      localMax = Math.max(localMax, blockedNumero);
+      const next = resolveNextNfeNumeroFromSources({
+        empresaNumero: null,
+        localMaxNumero: localMax,
+        periodoMaxNumero: prep.relatorioMax ?? 0,
+      });
+      await syncPlugnotasNfeNumeracaoBeforeEmit(
+        cnpjEmitente,
+        { serie: emitSerie, numero: next },
+        empresaJsonCache,
+        { strict: false, userId },
+      ).catch(() => {});
+    }
+
+    console.warn('[plugnotas-nfe] duplicidade na emissão — novo número no mesmo clique', {
+      attempt: attempt + 1,
+      blockedAt: blockedNumero,
+      nextLocalMax: localMax,
+    });
+
+    if (attempt + 1 >= NFE_EMIT_DUPLICIDADE_RETRY_MAX) {
+      throw new Error(
+        'Numeração NF-e em conflito na SEFAZ/PlugNotas (duplicidade). '
+        + 'Confira no painel PlugNotas o próximo número da série e notas pendentes; '
+        + 'tente de novo em instantes.',
+      );
+    }
+  }
+
+  console.info('[plugnotas-nfe] emit response', {
+    status: normalizeStatus(extractPlugNotasStatus(response)),
+    nNF: readNfeNumeroFromPlugnotasBody(response),
+    elapsedMs: Date.now() - emitStartedAt,
+  });
+
+  return { response, emitPayload };
+};
+
+const queryMaxNfeNumeroEmitted = async (userId, cnpjEmitente) => {
+  const cnpj = normalizeDoc(cnpjEmitente);
+  if (!userId || cnpj.length !== 14) return null;
+
+  const dbClient = getDb();
+  const { data, error } = await dbClient
+    .from(TABLE)
+    .select('payload_json, response_json, document_type, cnpj_prestador')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(2000);
+  if (error) throw badRequest(error.message);
+
+  let maxKnown = 0;
+  for (const row of data || []) {
+    const docType = row.document_type;
+    if (docType && docType !== DOCUMENT_TYPE_NFE) continue;
+
+    const rowCnpj = normalizeDoc(row.cnpj_prestador)
+      || normalizeDoc(row.payload_json?.emitente?.cpfCnpj)
+      || normalizeDoc(row.payload_json?.prestador?.cpfCnpj);
+    if (rowCnpj && rowCnpj !== cnpj) continue;
+
+    const numero = readNfeNumeroFromHistoryRow(row);
+    if (numero > maxKnown) maxKnown = numero;
+  }
+  return maxKnown > 0 ? maxKnown : null;
 };
 
 const queryMaxRpsNumeroEmitted = async (userId, cnpjPrestador) => {
@@ -2048,13 +2252,17 @@ export const emitirNota = async (userId, input) => {
     if (documentType === DOCUMENT_TYPE_NFSE) {
       assertNfsePrestadorEmailOrThrow(emitPayload);
     }
+    let cnpjEmitenteNfe = '';
+    let empresaPlugnotasNfeForNumeracao = null;
     if (documentType === DOCUMENT_TYPE_NFE || documentType === DOCUMENT_TYPE_NFCE) {
       emitPayload = normalizePlugnotasNfePayload(payload);
       const cnpjEmitente = prestadorDoc
         || String(payload?.emitente?.cpfCnpj || payload?.prestador?.cpfCnpj || '').replace(/\D/g, '');
+      cnpjEmitenteNfe = cnpjEmitente;
       let empresaPlugnotasNfe = null;
       if (cnpjEmitente.length === 14) {
         empresaPlugnotasNfe = await ensureMeiNfePlugnotasCadastroBeforeEmit(cnpjEmitente);
+        empresaPlugnotasNfeForNumeracao = empresaPlugnotasNfe;
         emitPayload = hydrateMeiNfeEmitenteIeFromEmpresa(emitPayload, empresaPlugnotasNfe);
       }
       if (documentType === DOCUMENT_TYPE_NFE) {
@@ -2089,6 +2297,22 @@ export const emitirNota = async (userId, input) => {
     phase = 'plugnotas_emit';
     let cnpjPrestadorNfse = '';
     let nfseEmitPrep = null;
+    let nfeEmitPrep = null;
+    if (
+      documentType === DOCUMENT_TYPE_NFE
+      && cnpjEmitenteNfe.length === 14
+      && isMeiNfeNumeracaoHealEnabled()
+    ) {
+      const [initialLocalMax, authoritativeMax] = await Promise.all([
+        queryMaxNfeNumeroEmitted(userId, cnpjEmitenteNfe),
+        queryAuthoritativeNfeMaxUsed(cnpjEmitenteNfe, 0),
+      ]);
+      nfeEmitPrep = {
+        empresaJson: empresaPlugnotasNfeForNumeracao,
+        initialLocalMax: Math.max(initialLocalMax ?? 0, authoritativeMax),
+        relatorioMax: authoritativeMax,
+      };
+    }
     if (documentType === DOCUMENT_TYPE_NFSE) {
       cnpjPrestadorNfse = prestadorDoc
         || String(payload?.prestador?.cpfCnpj || payload?.emitente?.cpfCnpj || '').replace(/\D/g, '');
@@ -2115,6 +2339,20 @@ export const emitirNota = async (userId, input) => {
           cnpjPrestadorNfse,
           emitPayload,
           nfseEmitPrep ?? {},
+        ));
+        response = auto.response;
+        emitPayload = auto.emitPayload;
+      } else if (
+        documentType === DOCUMENT_TYPE_NFE
+        && cnpjEmitenteNfe.length === 14
+        && isMeiNfeNumeracaoHealEnabled()
+      ) {
+        const auto = await withNfeEmitLock(cnpjEmitenteNfe, () => emitNfeWithAutoNumeracaoRecovery(
+          adapter,
+          userId,
+          cnpjEmitenteNfe,
+          emitPayload,
+          nfeEmitPrep ?? {},
         ));
         response = auto.response;
         emitPayload = auto.emitPayload;
