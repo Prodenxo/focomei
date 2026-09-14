@@ -4,6 +4,8 @@ import {
   consultarEmpresaAndReconcileMirror,
   persistDocumentosAtivosMirrorAfterEmpresa
 } from '../services/mei-notas-documentos-mirror.js';
+import { normalizeEmpresaFiscalForClient } from '../services/mei-emitente-empresa-sync.js';
+import { sanitizePlugnotasEmpresaJsonForClientResponse } from '../services/plugnotas/prefeituraPortalCredentials.js';
 
 /** @type {typeof persistDocumentosAtivosMirrorAfterEmpresa} */
 let persistDocumentosAtivosMirrorAfterEmitenteComposite = persistDocumentosAtivosMirrorAfterEmpresa;
@@ -331,8 +333,13 @@ export const cadastrarPlugNotasEmitenteComposite = async (req, res, next) => {
 export const consultarPlugNotasEmpresa = async (req, res, next) => {
   try {
     const cpfCnpj = String(req.query?.cpfCnpj || req.query?.cnpj || '').trim();
-    const data = await consultarEmpresaAndReconcileMirror(req.user?.id, cpfCnpj);
-    return sendSuccess(res, data, 'Empresa consultada no serviço de emissão fiscal');
+    const raw = await consultarEmpresaAndReconcileMirror(req.user?.id, cpfCnpj);
+    const data = normalizeEmpresaFiscalForClient(raw);
+    return sendSuccess(
+      res,
+      data ? sanitizePlugnotasEmpresaJsonForClientResponse(data) : data,
+      'Empresa consultada no serviço de emissão fiscal',
+    );
   } catch (error) {
     if (error?.errors?.plugnotasCode === 'empresa_nao_cadastrada') {
       return sendSuccess(res, null, 'Empresa ainda não cadastrada no emissor fiscal');

@@ -2512,13 +2512,13 @@ function MeiScreenContent() {
       reportEmitError(msg);
       return;
     }
-    if (docType === 'NFE' && empresaFiscal && !empresaFiscal.nfe?.ativo) {
+    if (docType === 'NFE' && !documentosPermitidos.nfe) {
       reportEmitError(
         'NF-e não está activa para sua empresa no Plugnotas. Active em Certificado → Empresa ou contacte o suporte Plugnotas.',
       );
       return;
     }
-    if (docType === 'NFCE' && empresaFiscal && !empresaFiscal.nfce?.ativo) {
+    if (docType === 'NFCE' && !documentosPermitidos.nfce) {
       reportEmitError(
         'NFC-e não está activa para sua empresa no Plugnotas. Active em Certificado → Empresa ou contacte o suporte Plugnotas.',
       );

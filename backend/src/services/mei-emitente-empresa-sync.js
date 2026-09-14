@@ -5,6 +5,7 @@ import {
   patchEmitenteNfseFields,
   saveCertificateDocument,
 } from './mei-certificate-store.js';
+import { extractDocumentosAtivosFromEmpresaResponse } from './plugnotas/plugnotas-empresa-documentos-ativos.js';
 
 const applyCnpjLookupToPartial = (partial, lookup) => {
   if (!lookup || typeof lookup !== 'object') return partial;
@@ -163,6 +164,71 @@ export function unwrapPlugnotasEmpresaRecord(empresaJson) {
   }
 
   return root;
+}
+
+const toPlugnotasDocAtivoFlag = (value) => {
+  if (typeof value === 'boolean') return value;
+  if (value === 1 || value === '1') return true;
+  if (value === 0 || value === '0') return false;
+  const t = String(value ?? '').trim().toLowerCase();
+  if (['true', 'yes', 'sim'].includes(t)) return true;
+  if (['false', 'no', 'nao', 'não'].includes(t)) return false;
+  return false;
+};
+
+const resolveDocBlockAtivo = (empresa, key, fallbackWhenMissing = false) => {
+  const block = empresa?.[key];
+  if (!block || typeof block !== 'object' || Array.isArray(block)) {
+    return { ativo: fallbackWhenMissing };
+  }
+  return { ativo: toPlugnotasDocAtivoFlag(block.ativo) };
+};
+
+/**
+ * Resposta plana para o frontend (desembrulha GET `{ data: { ... } }` e normaliza NFSe/NFe/NFCe).
+ * @param {unknown} empresaJson
+ * @returns {Record<string, unknown>|null}
+ */
+export function normalizeEmpresaFiscalForClient(empresaJson) {
+  const empresa = unwrapPlugnotasEmpresaRecord(empresaJson);
+  if (!empresa) return null;
+
+  const docFlags = extractDocumentosAtivosFromEmpresaResponse(empresaJson)
+    ?? extractDocumentosAtivosFromEmpresaResponse(empresa);
+
+  const end = resolveEmpresaEnderecoRecord(empresa);
+  const telefoneRaw = empresa.telefone;
+
+  return {
+    cpfCnpj: firstNonEmpty(empresa.cpfCnpj, empresa.cpf_cnpj, empresa.cnpj) || null,
+    razaoSocial: firstNonEmpty(empresa.razaoSocial, empresa.razao_social) || null,
+    nomeFantasia: firstNonEmpty(empresa.nomeFantasia, empresa.nome_fantasia) || null,
+    email: firstNonEmpty(empresa.email, empresa.fiscal_email) || null,
+    telefone: telefoneRaw ?? null,
+    inscricaoMunicipal: firstNonEmpty(empresa.inscricaoMunicipal, empresa.inscricao_municipal) || null,
+    inscricaoEstadual: firstNonEmpty(empresa.inscricaoEstadual, empresa.inscricao_estadual) || null,
+    endereco: end
+      ? {
+        logradouro: firstNonEmpty(end.logradouro) || null,
+        numero: firstNonEmpty(end.numero) || null,
+        complemento: firstNonEmpty(end.complemento) || null,
+        bairro: firstNonEmpty(end.bairro) || null,
+        codigoCidade: firstNonEmpty(end.codigoCidade, end.codigo_cidade) || null,
+        descricaoCidade: firstNonEmpty(end.descricaoCidade, end.descricao_cidade, end.cidade) || null,
+        estado: firstNonEmpty(end.estado, end.uf) || null,
+        cep: firstNonEmpty(end.cep) || null,
+      }
+      : null,
+    nfse: docFlags
+      ? { ativo: Boolean(docFlags.nfse) }
+      : resolveDocBlockAtivo(empresa, 'nfse', true),
+    nfe: docFlags
+      ? { ativo: Boolean(docFlags.nfe) }
+      : resolveDocBlockAtivo(empresa, 'nfe', false),
+    nfce: docFlags
+      ? { ativo: Boolean(docFlags.nfce) }
+      : resolveDocBlockAtivo(empresa, 'nfce', false),
+  };
 }
 
 const resolveEmpresaEnderecoRecord = (empresa) => {
