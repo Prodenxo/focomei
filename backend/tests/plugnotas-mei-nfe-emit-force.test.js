@@ -31,3 +31,12 @@ test('applyMeiNfeEmitConfigFromEmpresa copia producao false do cadastro NF-e', (
   );
   assert.equal(out.config.producao, false);
 });
+
+test('applyMeiNfeEmitConfigFromEmpresa copia versaoEsquema pl_010e do cadastro', () => {
+  const out = applyMeiNfeEmitConfigFromEmpresa(
+    { config: { producao: true, versaoEsquema: 'pl_010c' } },
+    { nfe: { config: { producao: false, versaoEsquema: 'pl_010e' } } },
+  );
+  assert.equal(out.config.versaoEsquema, 'pl_010e');
+  assert.equal(out.config.producao, false);
+});

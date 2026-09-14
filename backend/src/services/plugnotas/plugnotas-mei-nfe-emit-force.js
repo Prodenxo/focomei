@@ -61,8 +61,14 @@ export const isPlugnotasNfeSchemaRejectionMissingEmitenteIe = (message) => {
 /** CRT MEI na NF-e (NT 2024.001). */
 export const PLUGNOTAS_CRT_MEI = 4;
 
-/** Esquema XML com suporte a CRT 4. */
+/** Esquema XML mínimo com CRT 4 (legado). */
 export const PLUGNOTAS_NFE_VERSAO_ESQUEMA_MEI = 'pl_010c';
+
+/** Versões aceitas no cadastro Plugnotas — não fazer downgrade. */
+export const PLUGNOTAS_NFE_VERSAO_ESQUEMA_ACCEPTED = new Set([
+  PLUGNOTAS_NFE_VERSAO_ESQUEMA_MEI,
+  'pl_010e',
+]);
 
 const toObject = (value) => (
   value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -91,7 +97,8 @@ export const empresaPrecisaRegimeMeiPlugnotas = (empresa) => {
 
 const empresaPrecisaVersaoEsquemaMei = (empresa) => {
   const versao = String(empresa?.nfe?.config?.versaoEsquema || '').trim();
-  return versao !== PLUGNOTAS_NFE_VERSAO_ESQUEMA_MEI;
+  if (!versao) return true;
+  return !PLUGNOTAS_NFE_VERSAO_ESQUEMA_ACCEPTED.has(versao);
 };
 
 /**
@@ -309,15 +316,20 @@ export const syncNumericIeToPlugnotasCadastroIfNeeded = async (cnpjInput, ieNume
 export const applyMeiNfeEmitConfigFromEmpresa = (payload, empresa) => {
   if (!payload || typeof payload !== 'object') return payload;
   const nfeConfig = toObject(empresa?.nfe?.config);
-  if (typeof nfeConfig.producao !== 'boolean') return payload;
   const config = toObject(payload.config);
-  return {
-    ...payload,
-    config: {
-      ...config,
-      producao: nfeConfig.producao,
-    },
-  };
+  const nextConfig = { ...config };
+  let changed = false;
+  if (typeof nfeConfig.producao === 'boolean' && nextConfig.producao !== nfeConfig.producao) {
+    nextConfig.producao = nfeConfig.producao;
+    changed = true;
+  }
+  const versaoCadastro = String(nfeConfig.versaoEsquema || '').trim();
+  if (versaoCadastro && nextConfig.versaoEsquema !== versaoCadastro) {
+    nextConfig.versaoEsquema = versaoCadastro;
+    changed = true;
+  }
+  if (!changed) return payload;
+  return { ...payload, config: nextConfig };
 };
 
 /**
@@ -344,7 +356,8 @@ export const applyMeiNfeEmitForcePolicy = (payload) => {
     emitente: emitenteClean,
     config: {
       ...config,
-      versaoEsquema: String(config.versaoEsquema || '').trim() || PLUGNOTAS_NFE_VERSAO_ESQUEMA_MEI,
+      versaoEsquema: String(config.versaoEsquema || '').trim()
+        || PLUGNOTAS_NFE_VERSAO_ESQUEMA_MEI,
     },
   };
 };
