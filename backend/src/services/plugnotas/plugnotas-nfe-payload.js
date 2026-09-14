@@ -206,6 +206,23 @@ export const normalizePlugnotasNfeIdeForEmit = (payload) => {
   return next;
 };
 
+/**
+ * Força série/número no JSON de emissão (além do cadastro empresa).
+ * @param {Record<string, unknown>} payload
+ * @param {{ serie?: number|string, numero?: number|null }} numeracao
+ */
+export const applyExplicitNfeNumeracaoToPlugnotasEmitPayload = (payload, numeracao) => {
+  if (!payload || typeof payload !== 'object') return payload;
+  const numero = numeracao?.numero;
+  if (numero === undefined || numero === null || numero === '') return payload;
+  const serie = numeracao?.serie ?? 1;
+  return {
+    ...payload,
+    serie,
+    numero,
+  };
+};
+
 export const normalizePlugnotasNfePayload = (payload) => {
   if (!payload || typeof payload !== 'object') return payload;
   const itens = Array.isArray(payload.itens)

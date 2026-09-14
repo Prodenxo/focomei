@@ -28,13 +28,17 @@ test('isPlugnotasNfeDuplicidadeMessage', () => {
   assert.equal(isPlugnotasNfeDuplicidadeMessage('Rejeição genérica'), false);
 });
 
-test('resolveNextNfeNumeroFromSources usa histórico acima do contador PlugNotas', () => {
+test('resolveNextNfeNumeroFromSources respeita cadastro PlugNotas e histórico', () => {
   assert.equal(
     resolveNextNfeNumeroFromSources({ empresaNumero: 16, localMaxNumero: 14, periodoMaxNumero: 0 }),
-    15,
+    16,
   );
   assert.equal(
     resolveNextNfeNumeroFromSources({ empresaNumero: 1, localMaxNumero: 0, periodoMaxNumero: 14 }),
     15,
+  );
+  assert.equal(
+    resolveNextNfeNumeroFromSources({ empresaNumero: 16, localMaxNumero: 0, periodoMaxNumero: 0 }),
+    16,
   );
 });

@@ -1,15 +1,13 @@
 import { unwrapPlugnotasEmpresaRecord } from '../mei-emitente-empresa-sync.js';
 import { env } from '../../config/env.js';
 import {
-  atualizarEmpresaPlugNotas,
   consultarEmpresaPlugNotas,
   extractCertificadoIdFromEmpresaPayload,
+  patchEmpresaPlugnotasDirect,
   resolverCertificadoIdPorCnpj,
 } from './empresa.service.js';
 import { resolvePlugnotasCertificadoIdForUser } from './plugnotas-mei-nfse-emit-prep.js';
 import { relatorioNfe } from './nfe.service.js';
-import { resolveNextNfseRpsFromSources } from './plugnotas-empresa-rps-heal.js';
-
 const normalizeDoc = (value) => String(value || '').replace(/\D/g, '');
 
 const parsePositiveInt = (value, fallback = NaN) => {
@@ -199,7 +197,20 @@ export async function queryAuthoritativeNfeMaxUsed(cnpjInput, localMaxNumero = 0
   return Math.max(localMax, relatorioMax);
 }
 
-export const resolveNextNfeNumeroFromSources = resolveNextNfseRpsFromSources;
+/**
+ * Próximo nNF: nunca abaixo do cadastro PlugNotas nem do maior já usado (local/relatório).
+ * @param {{ empresaNumero?: number|null, localMaxNumero?: number|null, periodoMaxNumero?: number|null }} sources
+ * @returns {number}
+ */
+export function resolveNextNfeNumeroFromSources(sources = {}) {
+  const localMax = parsePositiveInt(sources.localMaxNumero, 0);
+  const periodoMax = parsePositiveInt(sources.periodoMaxNumero, 0);
+  const empresaNext = parsePositiveInt(sources.empresaNumero, 0);
+  const maxUsed = Math.max(localMax, periodoMax);
+  const fromHistory = maxUsed >= 1 ? maxUsed + 1 : 1;
+  const fromEmpresa = empresaNext >= 1 ? empresaNext : 1;
+  return Math.max(fromHistory, fromEmpresa);
+}
 
 const readCertificadoIdFromEmpresaJson = (empresaJson) => {
   const id = extractCertificadoIdFromEmpresaPayload(empresaJson);
@@ -243,17 +254,8 @@ const patchPlugnotasEmpresaNfeNextNumero = async (cnpj, empresaJson, { serie, nu
     ? nfeBlock.config
     : { producao: true };
 
-  const certificado = await resolveCertificadoIdForEmpresaNfePatch(cnpj, empresaJson, opts.userId ?? null);
-  if (!certificado) {
-    throw new Error(
-      'Certificado digital não encontrado no emissor para alinhar a numeração NF-e. '
-      + 'Em Certificado, confirme o .pfx activo ou grave de novo a empresa.',
-    );
-  }
-
-  await atualizarEmpresaPlugNotas({
-    cpfCnpj: cnpj,
-    certificado,
+  /** PATCH directo — `atualizarEmpresaPlugNotas` apaga `nfe.config` (política “apenas NFS-e”). */
+  const patchBody = {
     nfe: {
       ...nfeBlock,
       ativo: nfeBlock.ativo !== false,
@@ -264,7 +266,20 @@ const patchPlugnotasEmpresaNfeNextNumero = async (cnpj, empresaJson, { serie, nu
         numero,
       },
     },
-  }, { timeoutMs: opts.timeoutMs ?? resolveNfeSyncTimeoutMs() });
+  };
+
+  const certificado = await resolveCertificadoIdForEmpresaNfePatch(cnpj, empresaJson, opts.userId ?? null);
+  if (certificado) {
+    patchBody.certificado = certificado;
+  }
+
+  const result = await patchEmpresaPlugnotasDirect(cnpj, patchBody);
+  if (!result?.response) {
+    const message = result?.lastError instanceof Error
+      ? result.lastError.message
+      : String(result?.lastError || 'PATCH numeração NF-e sem resposta do emissor');
+    throw new Error(message);
+  }
 };
 
 /**
