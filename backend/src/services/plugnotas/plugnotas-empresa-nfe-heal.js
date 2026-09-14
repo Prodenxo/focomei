@@ -8,6 +8,8 @@ import {
 } from './empresa.service.js';
 import { resolvePlugnotasCertificadoIdForUser } from './plugnotas-mei-nfse-emit-prep.js';
 import { relatorioNfe } from './nfe.service.js';
+import { PLUGNOTAS_REGIME_ESPECIAL_MEI } from './plugnotas-mei-empresa-policy.js';
+import { PLUGNOTAS_NFE_VERSAO_ESQUEMA_MEI } from './plugnotas-mei-nfe-emit-force.js';
 const normalizeDoc = (value) => String(value || '').replace(/\D/g, '');
 
 const parsePositiveInt = (value, fallback = NaN) => {
@@ -155,8 +157,19 @@ export function buildPlugnotasNfeConfigForNumeracaoPatch(existingConfig, target)
     ...base,
     serie,
     numero,
+    versaoEsquema: PLUGNOTAS_NFE_VERSAO_ESQUEMA_MEI,
   };
 }
+
+const empresaPrecisaRegimeMeiPlugnotas = (empresa) => {
+  if (!empresa || typeof empresa !== 'object') return true;
+  const especial = Number(empresa.regimeTributarioEspecial);
+  const regime = Number(empresa.regimeTributario);
+  if (especial !== PLUGNOTAS_REGIME_ESPECIAL_MEI) return true;
+  if (regime !== 1) return true;
+  if (empresa.simplesNacional === false) return true;
+  return false;
+};
 
 const collectRelatorioNotas = (body) => {
   if (!body || typeof body !== 'object') return [];
@@ -300,6 +313,12 @@ const patchPlugnotasEmpresaNfeNextNumero = async (cnpj, empresaJson, { serie, nu
       config: buildPlugnotasNfeConfigForNumeracaoPatch(existingConfig, { serie, numero }),
     },
   };
+
+  if (empresaPrecisaRegimeMeiPlugnotas(empresa)) {
+    patchBody.regimeTributario = 1;
+    patchBody.regimeTributarioEspecial = PLUGNOTAS_REGIME_ESPECIAL_MEI;
+    patchBody.simplesNacional = true;
+  }
 
   const certificado = await resolveCertificadoIdForEmpresaNfePatch(cnpj, empresaJson, opts.userId ?? null);
   if (certificado) {

@@ -793,8 +793,12 @@ export const ensureMeiRegimeEspecialPlugnotasEmpresa = async (cpfCnpjInput, cert
 
   const empresa = unwrapPlugnotasEmpresaRecord(empresaRaw) || {};
   const especial = Number(empresa.regimeTributarioEspecial);
+  const regime = Number(empresa.regimeTributario);
+  const regimeMeiOk = especial === PLUGNOTAS_REGIME_ESPECIAL_MEI
+    && regime === 1
+    && empresa.simplesNacional !== false;
   const ieMissing = !String(empresa.inscricaoEstadual || '').trim();
-  if (especial === PLUGNOTAS_REGIME_ESPECIAL_MEI) {
+  if (regimeMeiOk) {
     if (!ieMissing) {
       return { ok: true, patched: false, reason: 'already_mei' };
     }
@@ -812,7 +816,9 @@ export const ensureMeiRegimeEspecialPlugnotasEmpresa = async (cpfCnpjInput, cert
     return { ok: false, patched: false, reason: 'patch_ie_failed', error: ieErrorMessage };
   }
 
-  const payload = buildMeiRegimePatchPayload(cnpj, certificadoId);
+  const payload = buildMeiRegimePatchPayload(cnpj, certificadoId, {
+    preserveInscricaoEstadual: !ieMissing,
+  });
   const updateResult = await tryUpdateEmpresa(cnpj, payload);
   if (updateResult.response) {
     return { ok: true, patched: true, reason: 'patched' };

@@ -113,13 +113,14 @@ export const normalizeMeiEmpresaPayload = (payload) => {
  * @param {string} cnpj14
  * @param {string} [certificadoId]
  */
-export const buildMeiRegimePatchPayload = (cnpj14, certificadoId) => {
+export const buildMeiRegimePatchPayload = (cnpj14, certificadoId, opts = {}) => {
+  const preserveIe = opts.preserveInscricaoEstadual === true;
   const payload = {
     cpfCnpj: cnpj14,
     regimeTributario: 1,
     simplesNacional: true,
     regimeTributarioEspecial: PLUGNOTAS_REGIME_ESPECIAL_MEI,
-    inscricaoEstadual: PLUGNOTAS_MEI_INSCRICAO_ESTADUAL_QUANDO_VAZIA
+    ...(preserveIe ? {} : { inscricaoEstadual: PLUGNOTAS_MEI_INSCRICAO_ESTADUAL_QUANDO_VAZIA }),
   };
   const cert = certificadoId != null ? String(certificadoId).trim() : '';
   if (cert) payload.certificado = cert;

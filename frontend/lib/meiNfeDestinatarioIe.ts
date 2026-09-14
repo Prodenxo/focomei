@@ -94,6 +94,12 @@ export function humanizeFiscalEmitError(
   }
 
   if (
+    lower.includes('regime tribut') && lower.includes('diverge')
+  ) {
+    return 'A SEFAZ recusou porque o CRT (regime) no XML não bate com o cadastro MEI na Receita. Faça deploy do backend recente e emita de novo; se persistir, em PlugNotas confira Regime Simples + MEI e NF-e com esquema pl_010c.'
+  }
+
+  if (
     lower.includes('documento') && lower.includes('ativo') && lower.includes('emissor')
   ) {
     return 'A NF-e ficou desactivada no emissor fiscal durante um sync anterior. Faça deploy do backend mais recente, abra Certificado → Empresa, confirme NF-e activa e grave de novo; depois emita uma nota nova (não reenvie a rejeitada).'

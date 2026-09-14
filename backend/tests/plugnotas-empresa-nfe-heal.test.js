@@ -41,6 +41,7 @@ test('buildPlugnotasNfeConfigForNumeracaoPatch remove numeracao incompleto', () 
   assert.equal(config.numeracao, undefined);
   assert.equal(config.numero, 17);
   assert.equal(config.serie, 1);
+  assert.equal(config.versaoEsquema, 'pl_010c');
 });
 
 test('resolveNextNfeNumeroFromSources respeita cadastro PlugNotas e histórico', () => {
