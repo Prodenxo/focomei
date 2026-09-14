@@ -111,13 +111,51 @@ export function readPlugnotasNfeNextFromEmpresa(empresaJson) {
   const config = empresa?.nfe?.config;
   if (!config || typeof config !== 'object' || Array.isArray(config)) return null;
 
-  const serieRaw = config.serie ?? config.serieNfe;
+  const numeracaoFirst = Array.isArray(config.numeracao) ? config.numeracao[0] : null;
+  const numeracaoObj = config.numeracao && typeof config.numeracao === 'object' && !Array.isArray(config.numeracao)
+    ? config.numeracao
+    : null;
+
+  const serieRaw = numeracaoFirst?.serie
+    ?? numeracaoObj?.serie
+    ?? config.serie
+    ?? config.serieNfe;
   const serie = serieRaw === undefined || serieRaw === null || serieRaw === ''
     ? 1
     : serieRaw;
-  const numero = parsePositiveInt(config.numero ?? config.numeroAtual ?? config.proximoNumero);
+  const numero = parsePositiveInt(
+    numeracaoFirst?.numero
+      ?? numeracaoObj?.numero
+      ?? config.numero
+      ?? config.numeroAtual
+      ?? config.proximoNumero,
+  );
   if (!Number.isFinite(numero)) return null;
   return { serie, numero };
+}
+
+/**
+ * Monta `nfe.config` para PATCH de numeração — remove `numeracao` incompleto (PlugNotas rejeita).
+ * @param {Record<string, unknown>|null|undefined} existingConfig
+ * @param {{ serie?: number|string, numero: number }} target
+ */
+export function buildPlugnotasNfeConfigForNumeracaoPatch(existingConfig, target) {
+  const base = existingConfig && typeof existingConfig === 'object' && !Array.isArray(existingConfig)
+    ? { ...existingConfig }
+    : { producao: true };
+  delete base.numeracao;
+
+  const serie = target?.serie ?? 1;
+  const numero = parsePositiveInt(target?.numero);
+  if (!Number.isFinite(numero)) {
+    throw new Error('Número NF-e inválido para sincronizar na PlugNotas');
+  }
+
+  return {
+    ...base,
+    serie,
+    numero,
+  };
 }
 
 const collectRelatorioNotas = (body) => {
@@ -260,11 +298,7 @@ const patchPlugnotasEmpresaNfeNextNumero = async (cnpj, empresaJson, { serie, nu
       ...nfeBlock,
       ativo: nfeBlock.ativo !== false,
       tipoContrato: nfeBlock.tipoContrato ?? 0,
-      config: {
-        ...existingConfig,
-        serie,
-        numero,
-      },
+      config: buildPlugnotasNfeConfigForNumeracaoPatch(existingConfig, { serie, numero }),
     },
   };
 

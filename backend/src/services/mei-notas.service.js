@@ -60,7 +60,6 @@ import {
 import {
   extractNfeItemQuantidade,
   extractNfeItemValorUnitario,
-  applyExplicitNfeNumeracaoToPlugnotasEmitPayload,
   normalizePlugnotasNfePayload,
 } from './plugnotas/plugnotas-nfe-payload.js';
 import {
@@ -1653,13 +1652,6 @@ const emitNfeWithAutoNumeracaoRecovery = async (
     if (numeracao?.serie !== undefined && numeracao?.serie !== null) {
       emitSerie = numeracao.serie;
     }
-    if (numeracao?.numero) {
-      emitPayload = applyExplicitNfeNumeracaoToPlugnotasEmitPayload(emitPayload, {
-        serie: emitSerie,
-        numero: numeracao.numero,
-      });
-    }
-
     emitPayload.idIntegracao = buildMeiIdIntegracao(userId);
     response = await adapter.emitir(emitPayload);
 

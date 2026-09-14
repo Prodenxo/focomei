@@ -5,6 +5,7 @@ import {
   isPlugnotasNfeDuplicidadeMessage,
   readNfeNumeroFromPlugnotasBody,
   resolveNextNfeNumeroFromSources,
+  buildPlugnotasNfeConfigForNumeracaoPatch,
 } from '../src/services/plugnotas/plugnotas-empresa-nfe-heal.js';
 
 test('parseNnfFromNfeChaveAcesso extrai nNF da posição 26-34', () => {
@@ -26,6 +27,20 @@ test('isPlugnotasNfeDuplicidadeMessage', () => {
   const msg = 'Duplicidade de NF-e, com diferença na Chave de Acesso [chNFe:332608...000000001...]';
   assert.equal(isPlugnotasNfeDuplicidadeMessage(msg), true);
   assert.equal(isPlugnotasNfeDuplicidadeMessage('Rejeição genérica'), false);
+});
+
+test('buildPlugnotasNfeConfigForNumeracaoPatch remove numeracao incompleto', () => {
+  const config = buildPlugnotasNfeConfigForNumeracaoPatch(
+    {
+      producao: true,
+      numeracao: { tipoEmissao: 'Normal' },
+      versaoEsquema: 'pl_010e',
+    },
+    { serie: 1, numero: 17 },
+  );
+  assert.equal(config.numeracao, undefined);
+  assert.equal(config.numero, 17);
+  assert.equal(config.serie, 1);
 });
 
 test('resolveNextNfeNumeroFromSources respeita cadastro PlugNotas e histórico', () => {

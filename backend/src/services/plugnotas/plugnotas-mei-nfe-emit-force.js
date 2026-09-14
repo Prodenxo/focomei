@@ -104,16 +104,15 @@ export const buildMeiNfePreEmitEmpresaPatches = (empresa, cnpj14) => {
   if (empresaPrecisaVersaoEsquemaMei(empresa)) {
     const nfe = toObject(empresa?.nfe);
     const config = toObject(nfe.config);
+    const configPatch = { ...config, versaoEsquema: PLUGNOTAS_NFE_VERSAO_ESQUEMA_MEI };
+    delete configPatch.numeracao;
     patches.push({
       cpfCnpj: cnpj,
       nfe: {
         ...nfe,
         ativo: nfe.ativo !== false,
         tipoContrato: nfe.tipoContrato ?? 0,
-        config: {
-          ...config,
-          versaoEsquema: PLUGNOTAS_NFE_VERSAO_ESQUEMA_MEI,
-        },
+        config: configPatch,
       },
     });
   }
