@@ -219,6 +219,27 @@ export const downloadNfeXmlPorIntegracao = async (idIntegracao, cnpj) => {
   return await downloadNfeXml(id);
 };
 
+/**
+ * Lista NF-e emitidas pelo CNPJ (paginada, máx. 31 dias por consulta).
+ * @param {{ cpfCnpj: string, dataInicial?: string, dataFinal?: string, hashProximaPagina?: string }} params
+ */
+export const consultarNfePorPeriodo = async ({
+  cpfCnpj,
+  dataInicial,
+  dataFinal,
+  hashProximaPagina,
+} = {}) => {
+  const cleanCnpj = String(cpfCnpj || '').replace(/\D/g, '');
+  if (cleanCnpj.length !== 14) {
+    throw badRequest('CNPJ do emitente deve ter 14 dígitos');
+  }
+  const params = new URLSearchParams({ cpfCnpj: cleanCnpj });
+  if (dataInicial) params.set('dataInicial', String(dataInicial));
+  if (dataFinal) params.set('dataFinal', String(dataFinal));
+  if (hashProximaPagina) params.set('hashProximaPagina', String(hashProximaPagina));
+  return await requestJson('GET', `/nfe/consulta/periodo?${params.toString()}`);
+};
+
 export const relatorioNfe = async (params = {}) => {
   const query = new URLSearchParams();
   Object.entries(params || {}).forEach(([key, value]) => {

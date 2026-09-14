@@ -7,9 +7,12 @@ import {
   resolverCertificadoIdPorCnpj,
 } from './empresa.service.js';
 import { resolvePlugnotasCertificadoIdForUser } from './plugnotas-mei-nfse-emit-prep.js';
-import { relatorioNfe } from './nfe.service.js';
+import { consultarNfePorPeriodo } from './nfe.service.js';
 import { PLUGNOTAS_REGIME_ESPECIAL_MEI } from './plugnotas-mei-empresa-policy.js';
-import { PLUGNOTAS_NFE_VERSAO_ESQUEMA_MEI } from './plugnotas-mei-nfe-emit-force.js';
+import {
+  PLUGNOTAS_NFE_VERSAO_ESQUEMA_ACCEPTED,
+  PLUGNOTAS_NFE_VERSAO_ESQUEMA_MEI,
+} from './plugnotas-mei-nfe-emit-force.js';
 const normalizeDoc = (value) => String(value || '').replace(/\D/g, '');
 
 const parsePositiveInt = (value, fallback = NaN) => {
@@ -145,7 +148,14 @@ export function buildPlugnotasNfeConfigForNumeracaoPatch(existingConfig, target)
   const base = existingConfig && typeof existingConfig === 'object' && !Array.isArray(existingConfig)
     ? { ...existingConfig }
     : { producao: true };
-  delete base.numeracao;
+  const numeracaoRaw = base.numeracao;
+  if (
+    numeracaoRaw
+    && typeof numeracaoRaw === 'object'
+    && !Array.isArray(numeracaoRaw)
+  ) {
+    delete base.numeracao;
+  }
 
   const serie = target?.serie ?? 1;
   const numero = parsePositiveInt(target?.numero);
@@ -153,30 +163,59 @@ export function buildPlugnotasNfeConfigForNumeracaoPatch(existingConfig, target)
     throw new Error('Número NF-e inválido para sincronizar na PlugNotas');
   }
 
+  const versaoExisting = String(base.versaoEsquema || '').trim();
+  const versaoEsquema = PLUGNOTAS_NFE_VERSAO_ESQUEMA_ACCEPTED.has(versaoExisting)
+    ? versaoExisting
+    : PLUGNOTAS_NFE_VERSAO_ESQUEMA_MEI;
+
+  const serieValue = Number.isFinite(Number(serie)) ? Number(serie) : serie;
+
   return {
     ...base,
-    serie,
+    serie: serieValue,
     numero,
-    versaoEsquema: PLUGNOTAS_NFE_VERSAO_ESQUEMA_MEI,
+    numeracao: [{ serie: serieValue, numero, numeracaoAtual: numero }],
+    versaoEsquema,
   };
 }
 
-const collectRelatorioNotas = (body) => {
+const collectPeriodoNfeNotas = (body) => {
   if (!body || typeof body !== 'object') return [];
-  const candidates = [body.notas, body.documentos, body.data, body.nfes, body.lista];
-  for (const list of candidates) {
-    if (Array.isArray(list) && list.length) return list;
-  }
-  if (Array.isArray(body)) return body;
+  if (Array.isArray(body.notas) && body.notas.length) return body.notas;
   return [];
 };
 
-const PLUGNOTAS_NFE_RELATORIO_MAX_PAGES = 15;
+/**
+ * Maior nNF numa nota do histórico por período (inclui chaves citadas na mensagem de rejeição).
+ * @param {unknown} nota
+ * @returns {number|null}
+ */
+export function readMaxNfeNumeroFromPeriodoNota(nota) {
+  if (!nota || typeof nota !== 'object') return null;
+  let max = readNfeNumeroFromPlugnotasBody(nota) ?? 0;
+  const texto = [
+    nota.mensagem,
+    nota.message,
+    nota.chave,
+    nota.chaveAcesso,
+  ].filter(Boolean).join(' ');
+  for (const match of texto.matchAll(/\d{44}/g)) {
+    const fromChave = parseNnfFromNfeChaveAcesso(match[0]);
+    if (fromChave && fromChave > max) max = fromChave;
+  }
+  return max > 0 ? max : null;
+}
+
+const PLUGNOTAS_NFE_PERIODO_MAX_PAGES = 40;
+const PLUGNOTAS_NFE_PERIODO_WINDOW_DAYS = 31;
+const PLUGNOTAS_NFE_PERIODO_LOOKBACK_DAYS = 365;
+
+const formatIsoDate = (date) => date.toISOString().slice(0, 10);
 
 /**
- * Maior nNF já emitido (relatório PlugNotas).
+ * Maior nNF já emitido (consulta por período PlugNotas — `/nfe/consulta/periodo`).
  * @param {string} cnpjInput
- * @param {{ maxPages?: number }} [opts]
+ * @param {{ maxPages?: number, lookbackDays?: number }} [opts]
  * @returns {Promise<number|null>}
  */
 export async function queryMaxNfeNumeroFromPlugnotasRelatorio(cnpjInput, opts = {}) {
@@ -185,43 +224,56 @@ export async function queryMaxNfeNumeroFromPlugnotasRelatorio(cnpjInput, opts = 
 
   const maxPages = Number.isFinite(opts.maxPages)
     ? Math.max(1, Math.trunc(opts.maxPages))
-    : PLUGNOTAS_NFE_RELATORIO_MAX_PAGES;
+    : PLUGNOTAS_NFE_PERIODO_MAX_PAGES;
+  const lookbackDays = Number.isFinite(opts.lookbackDays)
+    ? Math.max(1, Math.trunc(opts.lookbackDays))
+    : PLUGNOTAS_NFE_PERIODO_LOOKBACK_DAYS;
 
-  let hashProximaPagina;
   let maxKnown = 0;
-  const end = new Date();
-  const start = new Date(end);
-  start.setDate(start.getDate() - 365);
-  const dataInicial = start.toISOString().slice(0, 10);
-  const dataFinal = end.toISOString().slice(0, 10);
+  let pagesUsed = 0;
+  const rangeEnd = new Date();
+  const rangeStartLimit = new Date(rangeEnd);
+  rangeStartLimit.setDate(rangeStartLimit.getDate() - lookbackDays);
 
-  for (let page = 0; page < maxPages; page += 1) {
-    let body;
-    try {
-      body = await relatorioNfe({
-        cpfCnpj: cnpj,
-        cnpj,
-        dataInicial,
-        dataFinal,
-        ...(hashProximaPagina ? { hashProximaPagina } : {}),
-      });
-    } catch (error) {
-      console.warn(
-        '[plugnotas-nfe] falha ao consultar relatório NF-e',
-        error instanceof Error ? error.message : error,
-      );
-      break;
+  let windowEnd = new Date(rangeEnd);
+  while (windowEnd > rangeStartLimit && pagesUsed < maxPages) {
+    const windowStart = new Date(windowEnd);
+    windowStart.setDate(windowStart.getDate() - PLUGNOTAS_NFE_PERIODO_WINDOW_DAYS);
+    if (windowStart < rangeStartLimit) {
+      windowStart.setTime(rangeStartLimit.getTime());
     }
 
-    const notas = collectRelatorioNotas(body);
-    for (const nota of notas) {
-      const numero = readNfeNumeroFromPlugnotasBody(nota);
-      if (numero > maxKnown) maxKnown = numero;
+    let hashProximaPagina;
+    for (let page = 0; page < maxPages && pagesUsed < maxPages; page += 1) {
+      pagesUsed += 1;
+      let body;
+      try {
+        body = await consultarNfePorPeriodo({
+          cpfCnpj: cnpj,
+          dataInicial: formatIsoDate(windowStart),
+          dataFinal: formatIsoDate(windowEnd),
+          ...(hashProximaPagina ? { hashProximaPagina } : {}),
+        });
+      } catch (error) {
+        console.warn(
+          '[plugnotas-nfe] falha ao consultar histórico NF-e por período',
+          error instanceof Error ? error.message : error,
+        );
+        break;
+      }
+
+      for (const nota of collectPeriodoNfeNotas(body)) {
+        const numero = readMaxNfeNumeroFromPeriodoNota(nota);
+        if (numero > maxKnown) maxKnown = numero;
+      }
+
+      const nextHash = body?.hashProximaPagina;
+      if (!nextHash || typeof nextHash !== 'string') break;
+      hashProximaPagina = nextHash;
     }
 
-    const nextHash = body?.hashProximaPagina ?? body?.hashProxima;
-    if (!nextHash || typeof nextHash !== 'string') break;
-    hashProximaPagina = nextHash;
+    windowEnd = new Date(windowStart);
+    windowEnd.setDate(windowEnd.getDate() - 1);
   }
 
   return maxKnown > 0 ? maxKnown : null;
@@ -248,9 +300,9 @@ export function resolveNextNfeNumeroFromSources(sources = {}) {
   const periodoMax = parsePositiveInt(sources.periodoMaxNumero, 0);
   const empresaNext = parsePositiveInt(sources.empresaNumero, 0);
   const maxUsed = Math.max(localMax, periodoMax);
-  const fromHistory = maxUsed >= 1 ? maxUsed + 1 : 1;
-  const fromEmpresa = empresaNext >= 1 ? empresaNext : 1;
-  return Math.max(fromHistory, fromEmpresa);
+  const fromHistory = maxUsed >= 1 ? maxUsed + 1 : 0;
+  const candidates = [fromHistory, empresaNext, 1].filter((n) => Number.isFinite(n) && n >= 1);
+  return Math.max(...candidates);
 }
 
 const readCertificadoIdFromEmpresaJson = (empresaJson) => {
@@ -396,11 +448,15 @@ export function isPlugnotasNfeDocumentoInativoMessage(text) {
 
 export function isPlugnotasNfeDuplicidadeMessage(text) {
   const lower = String(text ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
-  if (!lower.includes('duplicidade')) return false;
-  return lower.includes('nf-e')
-    || lower.includes('nfe')
-    || lower.includes('chnfe')
-    || lower.includes('chave de acesso');
+  if (lower.includes('duplicidade')) {
+    return lower.includes('nf-e')
+      || lower.includes('nfe')
+      || lower.includes('chnfe')
+      || lower.includes('chave de acesso');
+  }
+  if (lower.includes('codigo numerico') && lower.includes('chave de acesso')) return true;
+  if (lower.includes('chave de acesso difere') && lower.includes('bd')) return true;
+  return false;
 }
 
 /**
@@ -444,11 +500,12 @@ export function extractDuplicidadeNfeNumeroFromResponse(response) {
     );
   }
   const text = chunks.filter(Boolean).join(' ');
-  const chaveMatch = text.match(/\d{44}/);
-  if (chaveMatch) {
-    const fromChave = parseNnfFromNfeChaveAcesso(chaveMatch[0]);
-    if (fromChave) return fromChave;
+  let maxFromChaves = 0;
+  for (const match of text.matchAll(/\d{44}/g)) {
+    const fromChave = parseNnfFromNfeChaveAcesso(match[0]);
+    if (fromChave && fromChave > maxFromChaves) maxFromChaves = fromChave;
   }
+  if (maxFromChaves > 0) return maxFromChaves;
   return readNfeNumeroFromPlugnotasBody(response);
 }
 
