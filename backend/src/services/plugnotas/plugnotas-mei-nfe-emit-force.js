@@ -7,6 +7,7 @@ import {
 } from './empresa.service.js';
 import {
   PLUGNOTAS_MEI_INSCRICAO_ESTADUAL_QUANDO_VAZIA,
+  PLUGNOTAS_REGIME_ESPECIAL_MEI,
 } from './plugnotas-mei-empresa-policy.js';
 
 /** Literal ISENTO no cadastro Plugnotas — omitido no XML de emissão (bug/comportamento da API). */
@@ -78,6 +79,16 @@ export const empresaPrecisaInscricaoEstadualPlugnotas = (empresa) => (
   !String(empresa?.inscricaoEstadual ?? '').trim()
 );
 
+export const empresaPrecisaRegimeMeiPlugnotas = (empresa) => {
+  if (!empresa || typeof empresa !== 'object') return true;
+  const especial = Number(empresa.regimeTributarioEspecial);
+  const regime = Number(empresa.regimeTributario);
+  if (especial !== PLUGNOTAS_REGIME_ESPECIAL_MEI) return true;
+  if (regime !== 1) return true;
+  if (empresa.simplesNacional === false) return true;
+  return false;
+};
+
 const empresaPrecisaVersaoEsquemaMei = (empresa) => {
   const versao = String(empresa?.nfe?.config?.versaoEsquema || '').trim();
   return versao !== PLUGNOTAS_NFE_VERSAO_ESQUEMA_MEI;
@@ -113,6 +124,15 @@ export const buildMeiNfePreEmitEmpresaPatches = (empresa, cnpj14) => {
         tipoContrato: nfe.tipoContrato ?? 0,
         config: configPatch,
       },
+    });
+  }
+
+  if (empresaPrecisaRegimeMeiPlugnotas(empresa)) {
+    patches.push({
+      cpfCnpj: cnpj,
+      regimeTributario: 1,
+      regimeTributarioEspecial: PLUGNOTAS_REGIME_ESPECIAL_MEI,
+      simplesNacional: true,
     });
   }
 
@@ -282,9 +302,26 @@ export const syncNumericIeToPlugnotasCadastroIfNeeded = async (cnpjInput, ieNume
 };
 
 /**
- * Garante IE no emitente e versaoEsquema no JSON de emissão.
- * CRT/regime vêm do cadastro Plugnotas (PATCH pré-emissão) — enviar `crt` no JSON
- * faz a Plugnotas montar `<CRT>` antes de `<IE>` no XML quando IE vem só do cadastro.
+ * Alinha `config.producao` com o cadastro NF-e na Plugnotas (homologação vs produção).
+ * @param {Record<string, unknown>} payload
+ * @param {Record<string, unknown>|null|undefined} empresa
+ */
+export const applyMeiNfeEmitConfigFromEmpresa = (payload, empresa) => {
+  if (!payload || typeof payload !== 'object') return payload;
+  const nfeConfig = toObject(empresa?.nfe?.config);
+  if (typeof nfeConfig.producao !== 'boolean') return payload;
+  const config = toObject(payload.config);
+  return {
+    ...payload,
+    config: {
+      ...config,
+      producao: nfeConfig.producao,
+    },
+  };
+};
+
+/**
+ * Garante IE no emitente, CRT 4 (MEI) quando há IE numérica, e versaoEsquema pl_010c.
  * @param {Record<string, unknown>} payload
  */
 export const applyMeiNfeEmitForcePolicy = (payload) => {
@@ -296,7 +333,11 @@ export const applyMeiNfeEmitForcePolicy = (payload) => {
   const config = toObject(withIe.config);
   const { crt, emitente, ...rest } = withIe;
   const emitenteClean = toObject(emitente);
-  delete emitenteClean.crt;
+  if (isPlugnotasNfeEmitenteIeNumericForXml(emitenteClean.inscricaoEstadual)) {
+    emitenteClean.crt = PLUGNOTAS_CRT_MEI;
+  } else {
+    delete emitenteClean.crt;
+  }
 
   return {
     ...rest,

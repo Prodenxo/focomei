@@ -63,6 +63,7 @@ import {
   normalizePlugnotasNfePayload,
 } from './plugnotas/plugnotas-nfe-payload.js';
 import {
+  applyMeiNfeEmitConfigFromEmpresa,
   applyMeiNfeEmitForcePolicy,
   applyPlugnotasNfeEmitenteIeForXml,
   ensureMeiNfePlugnotasCadastroBeforeEmit,
@@ -2282,6 +2283,7 @@ export const emitirNota = async (userId, input) => {
           metadata.interestadualAliquotaIcms = applied.resolved.taxas?.aliquotaIcms ?? null;
         }
       }
+      emitPayload = applyMeiNfeEmitConfigFromEmpresa(emitPayload, empresaPlugnotasNfe);
       emitPayload = applyMeiNfeEmitForcePolicy(emitPayload);
       if (cnpjEmitente.length === 14) {
         emitPayload = applyPlugnotasNfeEmitenteIeForXml(emitPayload, empresaPlugnotasNfe);
