@@ -17,6 +17,7 @@ import {
   consultarEmpresaPlugNotas,
   atualizarEmpresaPlugNotas,
   extractCertificadoIdFromEmpresaPayload,
+  patchEmpresaPlugnotasDirect,
   resolverCertificadoIdPorCnpj,
 } from './empresa.service.js';
 import { resolvePrestadorEmitEmail } from './plugnotas-nfse-email-resolve.js';
@@ -24,6 +25,7 @@ import { PLUGNOTAS_EMPRESA_NAO_CADASTRADA_CODE } from './empresa-cadastro-runtim
 import {
   PLUGNOTAS_MEI_INSCRICAO_ESTADUAL_QUANDO_VAZIA,
   PLUGNOTAS_REGIME_ESPECIAL_MEI,
+  PLUGNOTAS_REGIME_TRIBUTARIO_MEI,
   applyNfseNationalContractPolicy,
   normalizeMeiEmpresaPayload,
 } from './plugnotas-mei-empresa-policy.js';
@@ -235,6 +237,30 @@ export const ensurePlugnotasEmpresaCertificadoLinked = async (userId, cnpj14, em
 };
 
 /**
+ * A NF-e grava `regimeTributario` 5 (CRT 4 - MEI) no cadastro; a NFS-e continua com 1.
+ * @param {string} cnpj14
+ * @param {unknown} empresaJson
+ */
+const restoreNfseRegimeTributarioAfterNfe = async (cnpj14, empresaJson) => {
+  const empresa = unwrapPlugnotasEmpresaRecord(empresaJson);
+  if (Number(empresa?.regimeTributario) !== PLUGNOTAS_REGIME_TRIBUTARIO_MEI) return;
+
+  try {
+    /** PATCH directo — `atualizarEmpresaPlugNotas` apaga `nfe.config` (numeração). */
+    await patchEmpresaPlugnotasDirect(cnpj14, {
+      regimeTributario: 1,
+      regimeTributarioEspecial: PLUGNOTAS_REGIME_ESPECIAL_MEI,
+      simplesNacional: true,
+    });
+  } catch (error) {
+    console.warn('[plugnotas-nfse] falha ao restaurar regime tributário antes da NFS-e', {
+      cnpj14,
+      message: error instanceof Error ? error.message : error,
+    });
+  }
+};
+
+/**
  * Garante cadastro da empresa no Plugnotas antes da NFS-e (auto-registo a partir do espelho local).
  * @param {string} userId
  * @param {string} cnpjInput
@@ -246,6 +272,7 @@ export const ensureMeiNfsePlugnotasCadastroBeforeEmit = async (userId, cnpjInput
 
   try {
     const empresaJson = await consultarEmpresaPlugNotas(cnpj);
+    await restoreNfseRegimeTributarioAfterNfe(cnpj, empresaJson);
     return ensurePlugnotasEmpresaCertificadoLinked(userId, cnpj, empresaJson);
   } catch (error) {
     if (!isEmpresaNaoCadastradaError(error)) throw error;

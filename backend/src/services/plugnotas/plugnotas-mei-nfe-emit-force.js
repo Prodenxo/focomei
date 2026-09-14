@@ -8,6 +8,7 @@ import {
 import {
   PLUGNOTAS_MEI_INSCRICAO_ESTADUAL_QUANDO_VAZIA,
   PLUGNOTAS_REGIME_ESPECIAL_MEI,
+  PLUGNOTAS_REGIME_TRIBUTARIO_MEI,
 } from './plugnotas-mei-empresa-policy.js';
 
 /** Literal ISENTO no cadastro Plugnotas — omitido no XML de emissão (bug/comportamento da API). */
@@ -90,7 +91,8 @@ export const empresaPrecisaRegimeMeiPlugnotas = (empresa) => {
   const especial = Number(empresa.regimeTributarioEspecial);
   const regime = Number(empresa.regimeTributario);
   if (especial !== PLUGNOTAS_REGIME_ESPECIAL_MEI) return true;
-  if (regime !== 1) return true;
+  /** Na NF-e o regime do cadastro vira o `<CRT>` do XML: MEI exige 4. */
+  if (regime !== PLUGNOTAS_REGIME_TRIBUTARIO_MEI) return true;
   if (empresa.simplesNacional === false) return true;
   return false;
 };
@@ -136,7 +138,7 @@ export const buildMeiNfePreEmitEmpresaPatches = (empresa, cnpj14) => {
   if (empresaPrecisaRegimeMeiPlugnotas(empresa)) {
     patches.push({
       cpfCnpj: cnpj,
-      regimeTributario: 1,
+      regimeTributario: PLUGNOTAS_REGIME_TRIBUTARIO_MEI,
       regimeTributarioEspecial: PLUGNOTAS_REGIME_ESPECIAL_MEI,
       simplesNacional: true,
     });

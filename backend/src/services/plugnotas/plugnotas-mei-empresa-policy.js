@@ -76,7 +76,19 @@ export const applyNfseNationalContractPolicy = (payload) => {
 export const PLUGNOTAS_REGIME_ESPECIAL_MEI = 5;
 
 /**
- * Garante payload MEI na Plugnotas: regimeTributario 1 + regimeTributarioEspecial 5.
+ * Regime MEI no cadastro Plugnotas: o valor 5 é o que gera `<CRT>4</CRT>` no XML da NF-e
+ * (NT 2024.001). Enviar 4 aqui produz `<CRT>3</CRT>` e a SEFAZ rejeita com a 481.
+ */
+export const PLUGNOTAS_REGIME_TRIBUTARIO_MEI = 5;
+
+/** Regimes aceitos para MEI: 1 (Simples) e 5 (MEI) — 5 é obrigatório na NF-e. */
+export const isPlugnotasRegimeTributarioMeiCompativel = (value) => {
+  const regime = Number(value);
+  return regime === 1 || regime === PLUGNOTAS_REGIME_TRIBUTARIO_MEI;
+};
+
+/**
+ * Garante payload MEI na Plugnotas: regimeTributario 1 ou 5 + regimeTributarioEspecial 5.
  * @param {Record<string, unknown>} payload
  */
 export const normalizeMeiEmpresaPayload = (payload) => {
@@ -84,8 +96,9 @@ export const normalizeMeiEmpresaPayload = (payload) => {
   let regime = Number(payload.regimeTributario);
   const especial = Number(payload.regimeTributarioEspecial);
 
-  if (regime === 4) {
-    payload.regimeTributario = 1;
+  /** CRT 4 (código da SEFAZ) equivale ao regime 5 no cadastro Plugnotas. */
+  if (regime === 4 || regime === PLUGNOTAS_REGIME_TRIBUTARIO_MEI) {
+    payload.regimeTributario = PLUGNOTAS_REGIME_TRIBUTARIO_MEI;
     payload.regimeTributarioEspecial = PLUGNOTAS_REGIME_ESPECIAL_MEI;
     payload.simplesNacional = true;
     return payload;

@@ -22,6 +22,7 @@ import {
   applyNfseNationalContractPolicy,
   buildMeiRegimePatchPayload,
   inspectNfseContractInput,
+  isPlugnotasRegimeTributarioMeiCompativel,
   normalizeMeiEmpresaPayload,
   PLUGNOTAS_MEI_INSCRICAO_ESTADUAL_QUANDO_VAZIA,
   PLUGNOTAS_REGIME_ESPECIAL_MEI,
@@ -795,7 +796,7 @@ export const ensureMeiRegimeEspecialPlugnotasEmpresa = async (cpfCnpjInput, cert
   const especial = Number(empresa.regimeTributarioEspecial);
   const regime = Number(empresa.regimeTributario);
   const regimeMeiOk = especial === PLUGNOTAS_REGIME_ESPECIAL_MEI
-    && regime === 1
+    && isPlugnotasRegimeTributarioMeiCompativel(regime)
     && empresa.simplesNacional !== false;
   const ieMissing = !String(empresa.inscricaoEstadual || '').trim();
   if (regimeMeiOk) {

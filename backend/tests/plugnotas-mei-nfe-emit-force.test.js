@@ -3,9 +3,15 @@ import assert from 'node:assert/strict';
 import {
   applyMeiNfeEmitConfigFromEmpresa,
   applyMeiNfeEmitForcePolicy,
+  buildMeiNfePreEmitEmpresaPatches,
   PLUGNOTAS_CRT_MEI,
   PLUGNOTAS_NFE_VERSAO_ESQUEMA_MEI,
 } from '../src/services/plugnotas/plugnotas-mei-nfe-emit-force.js';
+import {
+  normalizeMeiEmpresaPayload,
+  PLUGNOTAS_REGIME_ESPECIAL_MEI,
+  PLUGNOTAS_REGIME_TRIBUTARIO_MEI,
+} from '../src/services/plugnotas/plugnotas-mei-empresa-policy.js';
 
 test('applyMeiNfeEmitForcePolicy define CRT 4 no emitente quando há IE numérica', () => {
   const out = applyMeiNfeEmitForcePolicy({
@@ -39,4 +45,27 @@ test('applyMeiNfeEmitConfigFromEmpresa copia versaoEsquema pl_010e do cadastro',
   );
   assert.equal(out.config.versaoEsquema, 'pl_010e');
   assert.equal(out.config.producao, false);
+});
+
+test('buildMeiNfePreEmitEmpresaPatches grava regime MEI que gera CRT 4', () => {
+  const patches = buildMeiNfePreEmitEmpresaPatches(
+    {
+      inscricaoEstadual: '16508705',
+      regimeTributario: 1,
+      regimeTributarioEspecial: PLUGNOTAS_REGIME_ESPECIAL_MEI,
+      simplesNacional: true,
+      nfe: { config: { versaoEsquema: PLUGNOTAS_NFE_VERSAO_ESQUEMA_MEI } },
+    },
+    '67593254000131',
+  );
+  const regimePatch = patches.find((patch) => patch.regimeTributario !== undefined);
+  assert.equal(regimePatch.regimeTributario, PLUGNOTAS_REGIME_TRIBUTARIO_MEI);
+  assert.equal(regimePatch.regimeTributarioEspecial, PLUGNOTAS_REGIME_ESPECIAL_MEI);
+});
+
+test('normalizeMeiEmpresaPayload converte CRT 4 para o regime MEI da Plugnotas', () => {
+  const out = normalizeMeiEmpresaPayload({ regimeTributario: 4 });
+  assert.equal(out.regimeTributario, PLUGNOTAS_REGIME_TRIBUTARIO_MEI);
+  assert.equal(out.regimeTributarioEspecial, PLUGNOTAS_REGIME_ESPECIAL_MEI);
+  assert.equal(out.simplesNacional, true);
 });

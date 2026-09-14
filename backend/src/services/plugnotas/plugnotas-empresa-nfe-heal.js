@@ -8,7 +8,10 @@ import {
 } from './empresa.service.js';
 import { resolvePlugnotasCertificadoIdForUser } from './plugnotas-mei-nfse-emit-prep.js';
 import { consultarNfePorPeriodo } from './nfe.service.js';
-import { PLUGNOTAS_REGIME_ESPECIAL_MEI } from './plugnotas-mei-empresa-policy.js';
+import {
+  PLUGNOTAS_REGIME_ESPECIAL_MEI,
+  PLUGNOTAS_REGIME_TRIBUTARIO_MEI,
+} from './plugnotas-mei-empresa-policy.js';
 import {
   PLUGNOTAS_NFE_VERSAO_ESQUEMA_ACCEPTED,
   PLUGNOTAS_NFE_VERSAO_ESQUEMA_MEI,
@@ -364,7 +367,7 @@ const patchPlugnotasEmpresaNfeNextNumero = async (cnpj, empresaJson, { serie, nu
     },
   };
 
-  patchBody.regimeTributario = 1;
+  patchBody.regimeTributario = PLUGNOTAS_REGIME_TRIBUTARIO_MEI;
   patchBody.regimeTributarioEspecial = PLUGNOTAS_REGIME_ESPECIAL_MEI;
   patchBody.simplesNacional = true;
 
