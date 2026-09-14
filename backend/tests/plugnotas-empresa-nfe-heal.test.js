@@ -38,15 +38,17 @@ test('buildPlugnotasNfeConfigForNumeracaoPatch grava numeracao[] e preserva pl_0
       producao: true,
       numeracao: { tipoEmissao: 'Normal' },
       versaoEsquema: 'pl_010e',
+      tipoEmissao: 'Normal',
+      versaoManual: '6.0',
     },
     { serie: 1, numero: 17 },
   );
   assert.equal(Array.isArray(config.numeracao), true);
   assert.equal(config.numeracao[0].numero, 17);
   assert.equal(config.numeracao[0].numeracaoAtual, 17);
-  assert.equal(config.numero, 17);
-  assert.equal(config.serie, 1);
-  assert.equal(config.versaoEsquema, 'pl_010e');
+  assert.equal(config.numeracaoAutomatica, false);
+  assert.equal(config.producao, true);
+  assert.equal(config.versaoEsquema, undefined);
 });
 
 test('applyPlugnotasNfeNumeracaoToEmitPayload define serie e numero no JSON', () => {

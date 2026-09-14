@@ -147,16 +147,8 @@ export function readPlugnotasNfeNextFromEmpresa(empresaJson) {
  */
 export function buildPlugnotasNfeConfigForNumeracaoPatch(existingConfig, target) {
   const base = existingConfig && typeof existingConfig === 'object' && !Array.isArray(existingConfig)
-    ? { ...existingConfig }
+    ? existingConfig
     : { producao: true };
-  const numeracaoRaw = base.numeracao;
-  if (
-    numeracaoRaw
-    && typeof numeracaoRaw === 'object'
-    && !Array.isArray(numeracaoRaw)
-  ) {
-    delete base.numeracao;
-  }
 
   const serie = target?.serie ?? 1;
   const numero = parsePositiveInt(target?.numero);
@@ -164,19 +156,16 @@ export function buildPlugnotasNfeConfigForNumeracaoPatch(existingConfig, target)
     throw new Error('Número NF-e inválido para sincronizar na PlugNotas');
   }
 
-  const versaoExisting = String(base.versaoEsquema || '').trim();
-  const versaoEsquema = PLUGNOTAS_NFE_VERSAO_ESQUEMA_ACCEPTED.has(versaoExisting)
-    ? versaoExisting
-    : PLUGNOTAS_NFE_VERSAO_ESQUEMA_MEI;
-
   const serieValue = Number.isFinite(Number(serie)) ? Number(serie) : serie;
+  const producao = typeof base.producao === 'boolean' ? base.producao : true;
 
+  /**
+   * PATCH mínimo — não misturar `versaoEsquema`/flat com `numeracao[]` (PlugNotas retorna 400).
+   */
   return {
-    ...base,
-    serie: serieValue,
-    numero,
+    producao,
+    numeracaoAutomatica: false,
     numeracao: [{ serie: serieValue, numero, numeracaoAtual: numero }],
-    versaoEsquema,
   };
 }
 
