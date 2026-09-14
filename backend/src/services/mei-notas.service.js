@@ -28,7 +28,7 @@ import {
   advancePlugnotasNfeNumeracaoAfterEmit,
   ensurePlugnotasNfeNumeracaoBeforeEmit,
   extractDuplicidadeNfeNumeroFromResponse,
-  isMeiNfeNumeracaoHealEnabled,
+  queryMaxNfeNumeroFromPlugnotasRelatorio,
   isPlugnotasNfeDuplicidadeFromResponse,
   queryAuthoritativeNfeMaxUsed,
   readNfeNumeroFromHistoryRow,
@@ -1637,7 +1637,6 @@ const emitNfeWithAutoNumeracaoRecovery = async (
   const emitStartedAt = Date.now();
   let localMax = parsePositiveIntLocal(prep.initialLocalMax, 0)
     || parsePositiveIntLocal(await queryMaxNfeNumeroEmitted(userId, cnpjEmitente), 0);
-  const empresaJsonCache = prep.empresaJson ?? null;
   let emitPayload = { ...basePayload };
   let response;
   let emitSerie = 1;
@@ -1647,7 +1646,6 @@ const emitNfeWithAutoNumeracaoRecovery = async (
     const numeracao = await ensurePlugnotasNfeNumeracaoBeforeEmit(cnpjEmitente, {
       localMaxNumero: localMax,
       relatorioMaxNumero: prep.relatorioMax ?? 0,
-      empresaJson: empresaJsonCache,
       userId,
     });
     if (numeracao?.serie !== undefined && numeracao?.serie !== null) {
@@ -1688,17 +1686,16 @@ const emitNfeWithAutoNumeracaoRecovery = async (
       ?? readNfeNumeroFromPlugnotasBody(response);
     if (blockedNumero) {
       localMax = Math.max(localMax, blockedNumero);
-      const next = resolveNextNfeNumeroFromSources({
-        empresaNumero: null,
+      const periodoBump = parsePositiveIntLocal(
+        await queryMaxNfeNumeroFromPlugnotasRelatorio(cnpjEmitente),
+        0,
+      );
+      prep.relatorioMax = Math.max(prep.relatorioMax ?? 0, periodoBump);
+      await ensurePlugnotasNfeNumeracaoBeforeEmit(cnpjEmitente, {
         localMaxNumero: localMax,
-        periodoMaxNumero: prep.relatorioMax ?? 0,
+        relatorioMaxNumero: prep.relatorioMax,
+        userId,
       });
-      await syncPlugnotasNfeNumeracaoBeforeEmit(
-        cnpjEmitente,
-        { serie: emitSerie, numero: next },
-        empresaJsonCache,
-        { strict: false, userId },
-      ).catch(() => {});
     }
 
     console.warn('[plugnotas-nfe] duplicidade na emissão — novo número no mesmo clique', {
@@ -2253,7 +2250,6 @@ export const emitirNota = async (userId, input) => {
       assertNfsePrestadorEmailOrThrow(emitPayload);
     }
     let cnpjEmitenteNfe = '';
-    let empresaPlugnotasNfeForNumeracao = null;
     if (documentType === DOCUMENT_TYPE_NFE || documentType === DOCUMENT_TYPE_NFCE) {
       emitPayload = normalizePlugnotasNfePayload(payload);
       const cnpjEmitente = prestadorDoc
@@ -2262,7 +2258,6 @@ export const emitirNota = async (userId, input) => {
       let empresaPlugnotasNfe = null;
       if (cnpjEmitente.length === 14) {
         empresaPlugnotasNfe = await ensureMeiNfePlugnotasCadastroBeforeEmit(cnpjEmitente);
-        empresaPlugnotasNfeForNumeracao = empresaPlugnotasNfe;
         emitPayload = hydrateMeiNfeEmitenteIeFromEmpresa(emitPayload, empresaPlugnotasNfe);
       }
       if (documentType === DOCUMENT_TYPE_NFE) {
@@ -2299,17 +2294,12 @@ export const emitirNota = async (userId, input) => {
     let cnpjPrestadorNfse = '';
     let nfseEmitPrep = null;
     let nfeEmitPrep = null;
-    if (
-      documentType === DOCUMENT_TYPE_NFE
-      && cnpjEmitenteNfe.length === 14
-      && isMeiNfeNumeracaoHealEnabled()
-    ) {
+    if (documentType === DOCUMENT_TYPE_NFE && cnpjEmitenteNfe.length === 14) {
       const [initialLocalMax, authoritativeMax] = await Promise.all([
         queryMaxNfeNumeroEmitted(userId, cnpjEmitenteNfe),
         queryAuthoritativeNfeMaxUsed(cnpjEmitenteNfe, 0),
       ]);
       nfeEmitPrep = {
-        empresaJson: empresaPlugnotasNfeForNumeracao,
         initialLocalMax: Math.max(initialLocalMax ?? 0, authoritativeMax),
         relatorioMax: authoritativeMax,
       };
@@ -2343,11 +2333,7 @@ export const emitirNota = async (userId, input) => {
         ));
         response = auto.response;
         emitPayload = auto.emitPayload;
-      } else if (
-        documentType === DOCUMENT_TYPE_NFE
-        && cnpjEmitenteNfe.length === 14
-        && isMeiNfeNumeracaoHealEnabled()
-      ) {
+      } else if (documentType === DOCUMENT_TYPE_NFE && cnpjEmitenteNfe.length === 14) {
         const auto = await withNfeEmitLock(cnpjEmitenteNfe, () => emitNfeWithAutoNumeracaoRecovery(
           adapter,
           userId,

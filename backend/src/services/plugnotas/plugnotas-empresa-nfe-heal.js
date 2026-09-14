@@ -102,7 +102,8 @@ export function readNfeNumeroFromPlugnotasBody(body) {
 export function readNfeNumeroFromHistoryRow(row) {
   if (!row || typeof row !== 'object') return null;
   const fromPayload = readNfeNumeroFromPlugnotasBody(row.payload_json);
-  const fromResponse = readNfeNumeroFromPlugnotasBody(row.response_json);
+  const fromResponse = readMaxNfeNumeroFromPeriodoNota(row.response_json)
+    ?? readNfeNumeroFromPlugnotasBody(row.response_json);
   const max = Math.max(fromPayload ?? 0, fromResponse ?? 0);
   return max > 0 ? max : null;
 }
@@ -519,6 +520,33 @@ export const isMeiNfeNumeracaoHealEnabled = () => {
  * @param {string} cnpjInput
  * @param {{ localMaxNumero?: number|null, relatorioMaxNumero?: number|null, empresaJson?: unknown, userId?: string|null }} [opts]
  */
+/**
+ * Confirma que o cadastro PlugNotas refletiu o próximo nNF antes do POST /nfe.
+ * @param {string} cnpjInput
+ * @param {number} expectedNumero
+ */
+export async function assertPlugnotasNfeNumeracaoAtLeast(cnpjInput, expectedNumero) {
+  const cnpj = normalizeDoc(cnpjInput);
+  const expected = parsePositiveInt(expectedNumero);
+  if (cnpj.length !== 14 || !Number.isFinite(expected)) return;
+
+  let empresaJson;
+  try {
+    empresaJson = await consultarEmpresaPlugNotas(cnpj);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Não foi possível confirmar a numeração NF-e na PlugNotas: ${message}`);
+  }
+
+  const current = readPlugnotasNfeNextFromEmpresa(empresaJson);
+  if (current && current.numero >= expected) return;
+
+  throw new Error(
+    `Numeração NF-e não atualizou na PlugNotas (próximo esperado: ${expected}, `
+    + `cadastro: ${current?.numero ?? 'vazio'}). Tente emitir de novo em alguns segundos.`,
+  );
+}
+
 export async function ensurePlugnotasNfeNumeracaoBeforeEmit(cnpjInput, opts = {}) {
   const cnpj = normalizeDoc(cnpjInput);
   if (cnpj.length !== 14) return null;
@@ -530,13 +558,11 @@ export async function ensurePlugnotasNfeNumeracaoBeforeEmit(cnpjInput, opts = {}
 
   const localMax = parsePositiveInt(opts.localMaxNumero, 0);
 
-  let empresaJson = opts.empresaJson ?? null;
-  if (!empresaJson) {
-    try {
-      empresaJson = await consultarEmpresaPlugNotas(cnpj);
-    } catch {
-      empresaJson = null;
-    }
+  let empresaJson = null;
+  try {
+    empresaJson = await consultarEmpresaPlugNotas(cnpj);
+  } catch {
+    empresaJson = opts.empresaJson ?? null;
   }
 
   const fromEmpresa = empresaJson ? readPlugnotasNfeNextFromEmpresa(empresaJson) : null;
@@ -553,6 +579,18 @@ export async function ensurePlugnotasNfeNumeracaoBeforeEmit(cnpjInput, opts = {}
     empresaJson,
     { strict: true, userId: opts.userId ?? null },
   );
+
+  await sleepMs(400);
+  await assertPlugnotasNfeNumeracaoAtLeast(cnpj, safeNext);
+
+  console.info('[plugnotas-nfe] numeração alinhada antes da emissão', {
+    cnpj14: `${cnpj.slice(0, 4)}***${cnpj.slice(-2)}`,
+    serie,
+    numero: safeNext,
+    localMax,
+    relatorioMax,
+    empresaNumero: fromEmpresa?.numero ?? null,
+  });
 
   return { serie, numero: safeNext, localMax, relatorioMax, empresaNumero: fromEmpresa?.numero ?? null };
 }
