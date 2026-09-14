@@ -405,11 +405,15 @@ export async function syncPlugnotasNfeNumeracaoBeforeEmit(cnpjInput, target, emp
     }
   }
 
+  const empresaRecord = unwrapPlugnotasEmpresaRecord(empresa) || {};
   const current = empresa ? readPlugnotasNfeNextFromEmpresa(empresa) : null;
+  const numeracaoAutomaticaAtiva = empresaRecord?.nfe?.config?.numeracaoAutomatica !== false;
+  /** Número certo com automática ligada ainda emite nNF=1 — força PATCH mínimo. */
   if (
     current
     && String(current.serie) === String(usedSerie)
     && current.numero === targetNumero
+    && !numeracaoAutomaticaAtiva
   ) {
     return;
   }
