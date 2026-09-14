@@ -295,8 +295,7 @@ const patchPlugnotasEmpresaNfeNextNumero = async (cnpj, empresaJson, { serie, nu
   /** PATCH directo — `atualizarEmpresaPlugNotas` apaga `nfe.config` (política “apenas NFS-e”). */
   const patchBody = {
     nfe: {
-      ...nfeBlock,
-      ativo: nfeBlock.ativo !== false,
+      ativo: true,
       tipoContrato: nfeBlock.tipoContrato ?? 0,
       config: buildPlugnotasNfeConfigForNumeracaoPatch(existingConfig, { serie, numero }),
     },
@@ -383,6 +382,11 @@ export async function syncPlugnotasNfeNumeracaoBeforeEmit(cnpjInput, target, emp
  * @param {unknown} text
  * @returns {boolean}
  */
+export function isPlugnotasNfeDocumentoInativoMessage(text) {
+  const lower = String(text ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  return lower.includes('documento') && lower.includes('ativo') && lower.includes('emissor');
+}
+
 export function isPlugnotasNfeDuplicidadeMessage(text) {
   const lower = String(text ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
   if (!lower.includes('duplicidade')) return false;

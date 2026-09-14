@@ -109,8 +109,7 @@ export const buildMeiNfePreEmitEmpresaPatches = (empresa, cnpj14) => {
     patches.push({
       cpfCnpj: cnpj,
       nfe: {
-        ...nfe,
-        ativo: nfe.ativo !== false,
+        ativo: true,
         tipoContrato: nfe.tipoContrato ?? 0,
         config: configPatch,
       },

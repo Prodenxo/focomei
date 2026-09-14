@@ -94,6 +94,12 @@ export function humanizeFiscalEmitError(
   }
 
   if (
+    lower.includes('documento') && lower.includes('ativo') && lower.includes('emissor')
+  ) {
+    return 'A NF-e ficou desactivada no emissor fiscal durante um sync anterior. Faça deploy do backend mais recente, abra Certificado → Empresa, confirme NF-e activa e grave de novo; depois emita uma nota nova (não reenvie a rejeitada).'
+  }
+
+  if (
     lower.includes('email') && lower.includes('obrigat')
   ) {
     if (context.documentType === 'NFSE') {
