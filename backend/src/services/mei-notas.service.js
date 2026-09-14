@@ -26,6 +26,7 @@ import {
 } from './plugnotas/plugnotas-empresa-rps-heal.js';
 import {
   advancePlugnotasNfeNumeracaoAfterEmit,
+  applyPlugnotasNfeNumeracaoToEmitPayload,
   ensurePlugnotasNfeNumeracaoBeforeEmit,
   extractDuplicidadeNfeNumeroFromResponse,
   queryMaxNfeNumeroFromPlugnotasRelatorio,
@@ -1652,6 +1653,13 @@ const emitNfeWithAutoNumeracaoRecovery = async (
       emitSerie = numeracao.serie;
     }
     emitPayload.idIntegracao = buildMeiIdIntegracao(userId);
+    emitPayload = applyPlugnotasNfeNumeracaoToEmitPayload(emitPayload, numeracao);
+    console.info('[plugnotas-nfe] POST /nfe com numeração explícita', {
+      cnpj14: `${normalizeDoc(cnpjEmitente).slice(0, 4)}***${normalizeDoc(cnpjEmitente).slice(-2)}`,
+      serie: emitPayload.serie,
+      numero: emitPayload.numero,
+      attempt: attempt + 1,
+    });
     response = await adapter.emitir(emitPayload);
 
     const integracaoPoll = extractIntegracaoId(response) || emitPayload.idIntegracao;

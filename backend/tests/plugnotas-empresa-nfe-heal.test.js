@@ -6,6 +6,7 @@ import {
   readNfeNumeroFromPlugnotasBody,
   resolveNextNfeNumeroFromSources,
   buildPlugnotasNfeConfigForNumeracaoPatch,
+  applyPlugnotasNfeNumeracaoToEmitPayload,
 } from '../src/services/plugnotas/plugnotas-empresa-nfe-heal.js';
 
 test('parseNnfFromNfeChaveAcesso extrai nNF da posição 26-34', () => {
@@ -46,6 +47,15 @@ test('buildPlugnotasNfeConfigForNumeracaoPatch grava numeracao[] e preserva pl_0
   assert.equal(config.numero, 17);
   assert.equal(config.serie, 1);
   assert.equal(config.versaoEsquema, 'pl_010e');
+});
+
+test('applyPlugnotasNfeNumeracaoToEmitPayload define serie e numero no JSON', () => {
+  const out = applyPlugnotasNfeNumeracaoToEmitPayload(
+    { idIntegracao: 'x', emitente: { cpfCnpj: '67593254000131' } },
+    { serie: 1, numero: 16 },
+  );
+  assert.equal(out.numero, 16);
+  assert.equal(out.serie, 1);
 });
 
 test('resolveNextNfeNumeroFromSources respeita cadastro PlugNotas e histórico', () => {

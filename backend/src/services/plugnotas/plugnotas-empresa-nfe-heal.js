@@ -296,6 +296,24 @@ export async function queryAuthoritativeNfeMaxUsed(cnpjInput, localMaxNumero = 0
  * @param {{ empresaNumero?: number|null, localMaxNumero?: number|null, periodoMaxNumero?: number|null }} sources
  * @returns {number}
  */
+/**
+ * Informa série/nNF no JSON de emissão (PlugNotas: campos raiz `serie` e `numero`).
+ * @param {Record<string, unknown>} payload
+ * @param {{ serie?: number|string, numero?: number }|null|undefined} numeracao
+ */
+export function applyPlugnotasNfeNumeracaoToEmitPayload(payload, numeracao) {
+  if (!payload || typeof payload !== 'object' || !numeracao) return payload;
+  const numero = parsePositiveInt(numeracao.numero);
+  if (!Number.isFinite(numero)) return payload;
+  const serieRaw = numeracao.serie ?? 1;
+  const serie = Number.isFinite(Number(serieRaw)) ? Number(serieRaw) : serieRaw;
+  return {
+    ...payload,
+    serie,
+    numero,
+  };
+}
+
 export function resolveNextNfeNumeroFromSources(sources = {}) {
   const localMax = parsePositiveInt(sources.localMaxNumero, 0);
   const periodoMax = parsePositiveInt(sources.periodoMaxNumero, 0);
