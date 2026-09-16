@@ -1,9 +1,9 @@
 .cartao {
-  background: var(--caixa);
-  border: 1px solid var(--linha-suave);
-  border-radius: var(--r-lg);
-  box-shadow: var(--sombra);
-  padding: var(--e5);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 24px;
   min-width: 0;
 }
 
@@ -31,14 +31,14 @@
 }
 
 .tituloIcone {
-  color: var(--verde);
+  color: var(--accent);
   display: inline-flex;
 }
 
 .titulo {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--tinta);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
   letter-spacing: -0.2px;
   white-space: nowrap;
   overflow: hidden;
@@ -49,9 +49,9 @@
   display: inline-flex;
   align-items: center;
   gap: var(--e1);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--tinta-3);
+  color: var(--accent);
   background: none;
   border: none;
   padding: var(--e1) var(--e2);

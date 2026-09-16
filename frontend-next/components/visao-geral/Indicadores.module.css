@@ -58,8 +58,10 @@
 /* Resumo — seis leituras pequenas, todas do mesmo tamanho */
 .resumo {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: var(--e3);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  min-height: 276px;
 }
 
 .indicador {
@@ -67,19 +69,19 @@
   align-items: center;
   gap: var(--e3);
   background: var(--caixa);
-  border: 1px solid var(--linha-suave);
-  border-radius: var(--r-lg);
-  box-shadow: var(--sombra);
-  padding: var(--e4);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 16px 18px;
   min-width: 0;
 }
 
 .indicadorSelo {
-  width: 34px;
-  height: 34px;
-  border-radius: var(--r-md);
-  background: var(--caixa-funda);
-  color: var(--tinta-3);
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -91,15 +93,15 @@
 }
 
 .indicadorRotulo {
-  font-size: 11px;
-  color: var(--tinta-3);
+  font-size: 12px;
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .indicadorValor {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.4px;
   white-space: nowrap;
@@ -122,15 +124,10 @@
   color: var(--tinta);
 }
 
-@media (max-width: 1180px) {
-  .resumo {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 680px) {
   .resumo {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-height: 0;
   }
 
   .fluxoValor {

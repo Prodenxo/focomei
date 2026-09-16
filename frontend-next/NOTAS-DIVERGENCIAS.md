@@ -80,3 +80,31 @@ números com alguém que conheça os orçamentos reais antes de levar para produ
 
 Cosmético, sem efeito em cálculo: a versão TypeScript aceita `categoriasMap` como quarto
 argumento e nunca o utiliza. No porte o parâmetro foi removido da assinatura.
+
+---
+
+## 5. Contratos fiscais do Foco Simples não foram copiados
+
+O módulo fiscal usa somente os contratos existentes no Foco MEI:
+
+- DAS: `/mei-guide/*`, com consulta, geração, atualização de guia vencida e download.
+- Notas e catálogos: `/mei-notas/*`.
+- Operação interestadual: consulta e aceite do termo em `/mei-notas/interestadual/*`.
+
+As rotas exclusivas do Foco Simples (`/simples-das/*`, `/accountant/*`, configuração de cenários
+tributários e sincronização manual inexistente do certificado) foram removidas. O upload de
+certificado continua usando a integração já executada pelo backend do Foco MEI.
+
+## 6. Solicitações administrativas têm fallback para a Edge Function
+
+O backend local atual não publica `/admin/access-requests/*`. A tela tenta esse contrato primeiro
+e, ao receber 404, usa a Edge Function `manage-access-requests`, como o frontend Expo. Para esse
+fallback funcionar, o ambiente web precisa fornecer `NEXT_PUBLIC_SUPABASE_URL` e
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, e a sessão Supabase precisa existir no navegador.
+
+## 7. Corte definitivo do Expo
+
+O fallback para `localhost:8081` foi removido do `next.config.mjs`. Todas as rotas funcionais
+listadas na navegação, autenticação, ativação, contrato, conta e módulo fiscal agora são atendidas
+diretamente pelo Next.js. `/visao-geral`, `/mei` e `/configuracoes` permanecem somente como
+redirecionamentos de compatibilidade para as novas rotas.

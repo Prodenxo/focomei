@@ -38,6 +38,12 @@ export function useSessao() {
       })
       .catch((e) => {
         if (isAbortError(e)) return;
+        if (e?.status === 401) {
+          /* token guardado expirou: melhor mandar para o login do que mostrar zeros */
+          setSessao(null);
+          setEstado('sem-sessao');
+          return;
+        }
         /* backend fora do ar não derruba a tela: segue com o snapshot local */
       });
 

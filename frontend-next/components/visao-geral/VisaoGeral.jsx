@@ -3,11 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Botao } from '@/components/ui/Botao';
 import { FiltroContas } from '@/components/ui/FiltroContas';
-import { NavTopo } from '@/components/ui/NavTopo';
 import { Icone } from '@/components/ui/Icone';
-import { legacyHref } from '@/lib/env';
-import { CONFIGURACOES_HREF, LOGIN_HREF, buildNavItems } from '@/lib/navConfig';
-import { canAccessMeiArea } from '@/lib/meiAccess';
 import { useRequisicao } from '@/hooks/useRequisicao';
 import { useSessao } from '@/hooks/useSessao';
 import {
@@ -18,7 +14,6 @@ import {
   fetchResumoOrcamentos,
   fetchTransacoes,
 } from '@/services/visaoGeral';
-import { MESES } from '@/lib/finance/dashboardUtils';
 import { isInSelectedMonth } from '@/lib/finance/transactionPeriodFilter';
 import {
   buildContaNameMap,
@@ -44,7 +39,7 @@ import { buildBpoMatrixViewModel } from '@/lib/finance/bpoMatrix';
 import { pickDefaultContaFinanceira } from '@/lib/finance/contaPadrao';
 import { Cabecalho } from './Cabecalho';
 import { CartaoSaldo } from './CartaoSaldo';
-import { CartaoFluxo, ResumoIndicadores } from './Indicadores';
+import { ResumoIndicadores } from './Indicadores';
 import { EvolucaoSaldo } from './EvolucaoSaldo';
 import { UltimasMovimentacoes } from './UltimasMovimentacoes';
 import { MovimentacaoHoje } from './MovimentacaoHoje';
@@ -58,7 +53,7 @@ import estilos from './VisaoGeral.module.css';
 const BPO_ANO_MINIMO = 2020;
 
 export function VisaoGeral() {
-  const { sessao, estado, primeiroNome, encerrar } = useSessao();
+  const { sessao, estado, primeiroNome } = useSessao();
   const autenticado = estado === 'pronta';
 
   const agora = useMemo(() => new Date(), []);
@@ -77,7 +72,7 @@ export function VisaoGeral() {
 
   useEffect(() => {
     if (estado === 'sem-sessao') {
-      window.location.replace(legacyHref(LOGIN_HREF));
+      window.location.replace('/login');
     }
   }, [estado]);
 
@@ -233,8 +228,6 @@ export function VisaoGeral() {
     [orcamentosAnuais.dados, transacoesFiltradas, bpoAno, categoriasTipoMap, categoriasMap],
   );
 
-  const podeVerMei = canAccessMeiArea(sessao?.role ?? null, sessao?.mei ?? null);
-  const itensNav = useMemo(() => buildNavItems(podeVerMei), [podeVerMei]);
   const contaSugerida = useMemo(
     () => (filtroConta !== 'all' && filtroConta !== 'unassigned'
       ? filtroConta
@@ -276,17 +269,6 @@ export function VisaoGeral() {
 
   return (
     <div className={estilos.pagina}>
-      <NavTopo
-        itens={itensNav}
-        idAtivo="Dashboard"
-        nomeUsuario={sessao?.displayName || primeiroNome}
-        hrefConta={legacyHref(CONFIGURACOES_HREF)}
-        aoSair={() => {
-          encerrar();
-          window.location.href = legacyHref(LOGIN_HREF);
-        }}
-      />
-
       <main className={estilos.conteudo}>
         <Cabecalho
           nome={primeiroNome}
@@ -303,7 +285,7 @@ export function VisaoGeral() {
           contas={contasComSaldo}
           filtro={filtroConta}
           aoFiltrar={setFiltroConta}
-          hrefConfiguracoes={legacyHref('/contas')}
+          hrefConfiguracoes="/contas"
         />
 
         {erroPrincipal ? (
@@ -342,17 +324,14 @@ export function VisaoGeral() {
                 rotulo={rotuloSaldo}
                 dica={dicaSaldo}
                 valor={saldoMeta.value}
-                serie={saldoData}
+                totalIncome={totalIncome}
+                totalExpenses={totalExpenses}
                 carregando={carregandoPrincipal}
                 visivel={saldoVisivel}
                 aoAlternarVisibilidade={() => setSaldoVisivel((atual) => !atual)}
-                atualizadoEm={`${dicaSaldo} · ${MESES[mes.month - 1]} ${mes.year}`}
               />
-              <CartaoFluxo tipo="entrada" valor={totalIncome} carregando={carregandoPrincipal} />
-              <CartaoFluxo tipo="saida" valor={totalExpenses} carregando={carregandoPrincipal} />
+              <ResumoIndicadores insights={insights} carregando={carregandoPrincipal} />
             </section>
-
-            <ResumoIndicadores insights={insights} carregando={carregandoPrincipal} />
 
             <section className={estilos.duasColunas}>
               <EvolucaoSaldo
@@ -365,7 +344,7 @@ export function VisaoGeral() {
                 itens={recentes}
                 contaNameById={contaNameById}
                 carregando={carregandoPrincipal}
-                hrefTodas={legacyHref('/transacoes')}
+                hrefTodas="/transacoes"
                 aoNovaTransacao={() => setModalAberto(true)}
               />
             </section>
@@ -386,7 +365,7 @@ export function VisaoGeral() {
               <MovimentacaoHoje
                 fluxo={fluxoHoje}
                 carregando={carregandoPrincipal}
-                hrefAgenda={legacyHref('/agenda')}
+                hrefAgenda="/agenda"
                 aoNovaTransacao={() => setModalAberto(true)}
               />
             </section>
@@ -397,13 +376,13 @@ export function VisaoGeral() {
               faixas={faixasOrcamento}
               temAlgum={temAlgumOrcamento}
               carregando={resumoOrcamentos.carregando}
-              hrefOrcamentos={legacyHref('/orcamentos')}
+              hrefOrcamentos="/orcamentos"
             />
 
             <section className={estilos.duasColunas}>
-              <ContaGlobal href={legacyHref('/conta-global')} />
+              <ContaGlobal href="/conta-global" />
               {sessao?.role === 'superadmin' ? (
-                <SolicitacoesAcesso href={legacyHref('/solicitacoes')} />
+                <SolicitacoesAcesso href="/solicitacoes" />
               ) : null}
             </section>
           </>

@@ -1,23 +1,23 @@
 .cabecalho {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--e4);
   flex-wrap: wrap;
 }
 
 .saudacao {
-  font-size: 30px;
-  font-weight: 800;
-  letter-spacing: -0.9px;
-  color: var(--tinta);
-  line-height: 1.15;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.8px;
+  color: var(--text-primary);
+  line-height: 1.2;
 }
 
 .legenda {
-  font-size: 13.5px;
-  color: var(--tinta-3);
-  margin-top: 2px;
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-top: 4px;
 }
 
 .controles {

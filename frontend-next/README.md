@@ -1,67 +1,36 @@
-# frontend-next — Visão Geral em Next.js
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
 
-Aplicação Next.js (App Router, JavaScript/JSX) que hoje contém **só a Visão Geral**. O app Expo em
-`frontend/` continua intacto e responde por todas as outras telas, inclusive o login.
+## Getting Started
 
-## Como rodar
+First, run the development server:
 
 ```bash
-cp .env.example .env.local   # ajuste as URLs se precisar
-npm install
-npm run dev                  # http://localhost:3001/visao-geral
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
 ```
 
-Para ver dados reais é preciso ter, ao mesmo tempo:
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-1. O backend rodando (`NEXT_PUBLIC_MEI_API_URL`, padrão `http://localhost:3333`).
-2. O app Expo rodando (`NEXT_PUBLIC_LEGACY_WEB_URL`, padrão `http://localhost:8081`).
-3. **Login feito no app Expo, no mesmo navegador.**
+You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
 
-## Sessão compartilhada
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-Não há login aqui. O app Expo grava a sessão no `localStorage` (no web, o AsyncStorage é o próprio
-`localStorage`) e esta tela lê as mesmas chaves:
+## Learn More
 
-| Chave | Modo |
-|---|---|
-| `focomei-local-auth` | autenticação local via API |
-| `financas-pessoais-auth` | Supabase |
+To learn more about Next.js, take a look at the following resources:
 
-Sem sessão válida, a página redireciona para `/login` do app antigo em vez de mostrar zeros. O
-token do navegador é revalidado em `GET /api/auth/session` para pegar `role` e `mei` atualizados.
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
-Como as duas aplicações rodam em portas diferentes, `localhost:3001` e `localhost:8081` têm
-`localStorage` separados. Para desenvolver com dados reais, abra o app Expo pela porta 8081,
-faça login, e copie as chaves acima para a origem 3001 pelo console do navegador — ou sirva as
-duas atrás do mesmo host.
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-## Scripts
+## Deploy on Vercel
 
-| Comando | O que faz |
-|---|---|
-| `npm run dev` | servidor de desenvolvimento na porta 3001 |
-| `npm run build` | build de produção |
-| `npm run lint` | ESLint (`next/core-web-vitals`) |
-| `npm test` | testes das funções financeiras (`node:test`) |
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
-## Organização
-
-```
-app/visao-geral/          rota da tela
-components/ui/            compartilhados: nav, botões, cards, filtros, estados
-components/visao-geral/   blocos da tela
-components/tema/          claro / escuro / automático (mesma chave do app antigo)
-lib/finance/              porte fiel dos cálculos financeiros
-lib/api.js                porte do apiClient (Bearer + contrato { success, data, message })
-lib/session.js            leitura da sessão do navegador
-services/visaoGeral.js    chamadas de API da tela
-styles/tokens.css         cores, tipografia, espaçamento, raios e sombras
-tests/                    paridade dos cálculos
-```
-
-## Regras financeiras
-
-Os cálculos foram portados linha a linha de `frontend/lib/` e
-`frontend/screens/Dashboard/`. As diferenças encontradas entre os próprios indicadores atuais
-estão registradas em [`NOTAS-DIVERGENCIAS.md`](./NOTAS-DIVERGENCIAS.md) — nenhuma foi alterada em
-silêncio.
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

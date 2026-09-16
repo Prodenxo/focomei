@@ -1,31 +1,32 @@
-import { legacyHref } from '@/lib/env';
+import {
+  Briefcase,
+  Calendar,
+  Globe,
+  Home,
+  LayoutGrid,
+  Receipt,
+  Wallet,
+} from 'lucide-react';
 
-/**
- * Mesma ordem e rótulos de `frontend/lib/appNavConfig.ts`. As URLs apontam para o
- * app Expo atual — só a Visão Geral vive aqui.
- */
-const NAV_ITEMS = [
-  { id: 'Dashboard', label: 'Visão Geral', href: '/visao-geral', interno: true },
-  { id: 'Transacoes', label: 'Transações', href: '/transacoes' },
-  { id: 'Contas', label: 'Contas', href: '/contas' },
-  { id: 'ContaGlobal', label: 'Conta global', href: '/conta-global' },
-  { id: 'Categorias', label: 'Categorias', href: '/categorias' },
-  { id: 'Orcamentos', label: 'Orçamentos', href: '/orcamentos' },
-  { id: 'Agenda', label: 'Agenda', href: '/agenda' },
-  { id: 'MeuMei', label: 'Meu MEI', href: '/mei', exigeMei: true },
+/** Mapeamento Expo → Next.js (rotas explícitas de migração). */
+export const NAV_ITEMS = [
+  { id: 'dashboard', label: 'Visão geral', href: '/', icon: Home },
+  { id: 'transacoes', label: 'Transações', href: '/transacoes', icon: Receipt },
+  { id: 'contas', label: 'Contas', href: '/contas', icon: Wallet },
+  { id: 'conta-global', label: 'Conta global', href: '/conta-global', icon: Globe },
+  { id: 'categorias', label: 'Categorias', href: '/categorias', icon: LayoutGrid },
+  { id: 'orcamentos', label: 'Orçamentos', href: '/orcamentos', icon: Wallet },
+  { id: 'agenda', label: 'Agenda', href: '/agenda', icon: Calendar },
+  {
+    id: 'notas',
+    label: 'Meu MEI',
+    href: '/notas',
+    icon: Briefcase,
+    requiresFiscalAccess: true,
+  },
 ];
 
-export const CONFIGURACOES_HREF = '/configuracoes';
-export const LOGIN_HREF = '/login';
-
-/** Resolve o destino final: interno fica relativo, o resto vai para o app antigo. */
-export function resolveNavHref(item) {
-  return item.interno ? item.href : legacyHref(item.href);
-}
-
-export function buildNavItems(podeVerMei) {
-  return NAV_ITEMS.filter((item) => !item.exigeMei || podeVerMei).map((item) => ({
-    ...item,
-    url: resolveNavHref(item),
-  }));
+export function isNavActive(pathname, href) {
+  if (href === '/') return pathname === '/';
+  return pathname === href || pathname.startsWith(`${href}/`);
 }

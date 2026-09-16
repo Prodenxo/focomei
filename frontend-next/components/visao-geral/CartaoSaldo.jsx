@@ -1,61 +1,27 @@
 'use client';
 
-import { useId, useMemo } from 'react';
 import { Icone } from '@/components/ui/Icone';
 import { formatarReal } from '@/lib/finance/dashboardUtils';
-import { caminhoSuave, escalaPontos, fecharArea } from '@/lib/grafico';
 import estilos from './CartaoSaldo.module.css';
 
-const LARGURA = 220;
-const ALTURA = 96;
-
-function Onda({ serie }) {
-  const idGradiente = useId();
-  const caminho = useMemo(() => {
-    if (serie.length < 2) return null;
-    const pontos = escalaPontos(serie, { largura: LARGURA, altura: ALTURA, margemTopo: 8, margemBase: 0 });
-    const linha = caminhoSuave(pontos);
-    return { linha, area: fecharArea(linha, pontos, ALTURA) };
-  }, [serie]);
-
-  if (!caminho) return null;
-
-  return (
-    <svg
-      className={estilos.onda}
-      viewBox={`0 0 ${LARGURA} ${ALTURA}`}
-      preserveAspectRatio="none"
-      aria-hidden="true"
-    >
-      <defs>
-        <linearGradient id={idGradiente} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#34d399" stopOpacity="0.9" />
-          <stop offset="100%" stopColor="#0e9f6e" stopOpacity="0.55" />
-        </linearGradient>
-      </defs>
-      <path d={caminho.area} fill={`url(#${idGradiente})`} />
-      <path d={caminho.linha} fill="none" stroke="#6ee7b7" strokeWidth="1.5" />
-    </svg>
-  );
-}
-
 /**
- * Saldo é o número que o MEI abre o app para ver: fundo marinho, número grande e a
- * própria curva do mês sangrando até a borda — o mesmo dado, em duas leituras.
+ * Hero financeiro no mesmo padrão visual do Foco MEI: saldo primeiro e fluxo do
+ * período separado por semântica, sem alterar os cálculos recebidos.
  */
 export function CartaoSaldo({
   rotulo,
   dica,
   valor,
-  serie = [],
+  totalIncome,
+  totalExpenses,
   carregando,
   visivel,
   aoAlternarVisibilidade,
-  atualizadoEm,
 }) {
   return (
     <div className={estilos.cartao}>
-      <Onda serie={serie} />
+      <span className={estilos.circuloMaior} aria-hidden="true" />
+      <span className={estilos.circuloMenor} aria-hidden="true" />
 
       <div className={estilos.topo}>
         <span className={estilos.rotulo}>{rotulo}</span>
@@ -77,7 +43,32 @@ export function CartaoSaldo({
         </p>
       )}
 
-      <p className={estilos.rodape}>{carregando ? 'Carregando…' : atualizadoEm || dica}</p>
+      <p className={estilos.rodape}>{carregando ? 'Carregando…' : dica}</p>
+
+      <div className={estilos.fluxos}>
+        <div className={estilos.fluxo}>
+          <span className={`${estilos.fluxoIcone} ${estilos.entrada}`}>
+            <Icone nome="setaCima" tamanho={17} />
+          </span>
+          <div>
+            <p className={estilos.fluxoRotulo}>Entradas</p>
+            <p className={`${estilos.fluxoValor} numero`}>
+              {carregando ? '—' : formatarReal(totalIncome)}
+            </p>
+          </div>
+        </div>
+        <div className={`${estilos.fluxo} ${estilos.fluxoSaida}`}>
+          <span className={`${estilos.fluxoIcone} ${estilos.saida}`}>
+            <Icone nome="setaBaixo" tamanho={17} />
+          </span>
+          <div>
+            <p className={estilos.fluxoRotulo}>Saídas</p>
+            <p className={`${estilos.fluxoValor} numero`}>
+              {carregando ? '—' : formatarReal(totalExpenses)}
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

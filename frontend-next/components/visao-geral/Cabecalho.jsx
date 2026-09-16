@@ -17,8 +17,8 @@ export function Cabecalho({
   return (
     <header className={estilos.cabecalho}>
       <div>
-        <h1 className={estilos.saudacao}>Olá, {nome}</h1>
-        <p className={estilos.legenda}>Sua vida financeira em um só lugar.</p>
+        <h1 className={estilos.saudacao}>Visão geral</h1>
+        <p className={estilos.legenda}>Olá, {nome}</p>
       </div>
 
       <div className={estilos.controles}>

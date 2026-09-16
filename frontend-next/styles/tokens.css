@@ -5,40 +5,40 @@
 
 :root {
   /* Superfícies — mesma matiz, só a luminosidade muda */
-  --papel: #f3f7f6;
+  --papel: #f4f7fa;
   --caixa: #ffffff;
   --caixa-alta: #ffffff;
-  --caixa-funda: #eef3f2;
+  --caixa-funda: #f7f9fb;
 
   /* Tinta (texto) em quatro níveis */
-  --tinta: #0e2a47;
-  --tinta-2: #556b78;
-  --tinta-3: #8298a4;
-  --tinta-4: #aebcc4;
+  --tinta: #102d60;
+  --tinta-2: #53647d;
+  --tinta-3: #74839a;
+  --tinta-4: #96a2b3;
 
   /* Traços */
-  --linha: rgba(14, 42, 71, 0.1);
-  --linha-suave: rgba(14, 42, 71, 0.06);
-  --linha-forte: rgba(14, 42, 71, 0.18);
-  --foco: #0e9f6e;
+  --linha: #e1e7ee;
+  --linha-suave: rgba(16, 45, 96, 0.08);
+  --linha-forte: rgba(16, 45, 96, 0.2);
+  --foco: #00ad78;
 
   /* Dinheiro */
-  --verde: #0e9f6e;
-  --verde-fundo: #0b8259;
-  --verde-claro: #34d399;
-  --verde-veu: #e7f6ef;
+  --verde: #00ad78;
+  --verde-fundo: #008e63;
+  --verde-claro: #57ddb2;
+  --verde-veu: #e5f8f2;
   --saida: #e2464b;
   --saida-veu: #fdecec;
   --alerta: #d97706;
   --alerta-veu: #fdf3e4;
 
   /* Carimbo marinho do card de saldo */
-  --marinho-topo: #16405f;
-  --marinho-base: #0a2540;
+  --marinho-topo: #174d87;
+  --marinho-base: #102d60;
 
   /* Controles de formulário — recebem conteúdo, então afundam */
-  --controle: #f5f8f8;
-  --controle-linha: rgba(14, 42, 71, 0.14);
+  --controle: #f7f9fb;
+  --controle-linha: #dbe3ec;
 
   /* Espaçamento base 4px */
   --e1: 4px;
@@ -58,13 +58,14 @@
   --r-pill: 999px;
 
   /* Sombra — só levanta, nunca chama atenção */
-  --sombra: 0 1px 2px rgba(14, 42, 71, 0.04), 0 2px 6px rgba(14, 42, 71, 0.05);
-  --sombra-alta: 0 8px 24px rgba(14, 42, 71, 0.12);
+  --sombra: 0 1px 2px rgba(16, 45, 96, 0.03), 0 5px 16px rgba(16, 45, 96, 0.045);
+  --sombra-alta: 0 12px 32px rgba(16, 45, 96, 0.13);
 
-  --largura-pagina: 1320px;
+  --largura-pagina: 1440px;
   --transicao: 140ms cubic-bezier(0.2, 0, 0, 1);
 }
 
+.dark,
 [data-tema='escuro'] {
   --papel: #0a141d;
   --caixa: #101d28;
