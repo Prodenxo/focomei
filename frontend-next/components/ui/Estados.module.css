@@ -1,0 +1,66 @@
+.esqueleto {
+  display: block;
+  background: linear-gradient(
+    90deg,
+    var(--caixa-funda) 25%,
+    var(--linha-suave) 37%,
+    var(--caixa-funda) 63%
+  );
+  background-size: 400% 100%;
+  animation: brilho 1.4s ease infinite;
+  border-radius: var(--r-sm);
+}
+
+@keyframes brilho {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+.estado {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--e2);
+  text-align: center;
+  padding: var(--e6) var(--e4);
+  min-height: 120px;
+}
+
+.selo {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--caixa-funda);
+  color: var(--tinta-3);
+  margin-bottom: var(--e1);
+}
+
+.seloErro {
+  background: var(--saida-veu);
+  color: var(--saida);
+}
+
+.titulo {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tinta);
+}
+
+.descricao {
+  font-size: 12.5px;
+  color: var(--tinta-3);
+  max-width: 34ch;
+  line-height: 1.5;
+}
+
+.acao {
+  margin-top: var(--e2);
+}

@@ -1,0 +1,139 @@
+.fluxo {
+  display: flex;
+  align-items: center;
+  gap: var(--e4);
+  background: var(--caixa);
+  border: 1px solid var(--linha-suave);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sombra);
+  padding: var(--e5);
+  min-height: 132px;
+  min-width: 0;
+}
+
+.selo {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.seloEntrada {
+  background: var(--verde-veu);
+  color: var(--verde);
+}
+
+.seloSaida {
+  background: var(--saida-veu);
+  color: var(--saida);
+}
+
+.fluxoTexto {
+  min-width: 0;
+}
+
+.fluxoRotulo {
+  font-size: 13px;
+  color: var(--tinta-3);
+  font-weight: 500;
+}
+
+.fluxoValor {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.8px;
+  color: var(--tinta);
+  margin: 2px 0;
+  white-space: nowrap;
+}
+
+.fluxoDica {
+  font-size: 11.5px;
+  color: var(--tinta-4);
+}
+
+/* Resumo — seis leituras pequenas, todas do mesmo tamanho */
+.resumo {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--e3);
+}
+
+.indicador {
+  display: flex;
+  align-items: center;
+  gap: var(--e3);
+  background: var(--caixa);
+  border: 1px solid var(--linha-suave);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sombra);
+  padding: var(--e4);
+  min-width: 0;
+}
+
+.indicadorSelo {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-md);
+  background: var(--caixa-funda);
+  color: var(--tinta-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.indicadorTexto {
+  min-width: 0;
+}
+
+.indicadorRotulo {
+  font-size: 11px;
+  color: var(--tinta-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.indicadorValor {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+  white-space: nowrap;
+  margin-top: 1px;
+}
+
+.positivo {
+  color: var(--verde-fundo);
+}
+
+.negativo {
+  color: var(--saida);
+}
+
+.neutro {
+  color: var(--tinta);
+}
+
+.destaque {
+  color: var(--tinta);
+}
+
+@media (max-width: 1180px) {
+  .resumo {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .resumo {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fluxoValor {
+    font-size: 20px;
+  }
+}

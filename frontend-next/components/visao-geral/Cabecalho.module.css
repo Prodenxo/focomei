@@ -1,0 +1,52 @@
+.cabecalho {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--e4);
+  flex-wrap: wrap;
+}
+
+.saudacao {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.9px;
+  color: var(--tinta);
+  line-height: 1.15;
+}
+
+.legenda {
+  font-size: 13.5px;
+  color: var(--tinta-3);
+  margin-top: 2px;
+}
+
+.controles {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  flex-wrap: wrap;
+}
+
+.bpoAtivo {
+  background: var(--verde-veu);
+  border-color: var(--verde);
+  color: var(--verde-fundo);
+}
+
+@media (max-width: 720px) {
+  .cabecalho {
+    align-items: stretch;
+  }
+
+  .saudacao {
+    font-size: 24px;
+  }
+
+  .controles {
+    width: 100%;
+  }
+
+  .controles > *:last-child {
+    flex: 1;
+  }
+}

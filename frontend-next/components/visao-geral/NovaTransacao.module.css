@@ -1,0 +1,140 @@
+.fundo {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 37, 64, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--e4);
+  z-index: 50;
+}
+
+.painel {
+  background: var(--caixa);
+  border-radius: var(--r-xl);
+  box-shadow: var(--sombra-alta);
+  width: 100%;
+  max-width: 460px;
+  max-height: 92vh;
+  overflow-y: auto;
+  padding: var(--e6);
+}
+
+.topo {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--e3);
+  margin-bottom: var(--e5);
+}
+
+.titulo {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+  color: var(--tinta);
+}
+
+.subtitulo {
+  font-size: 12.5px;
+  color: var(--tinta-3);
+  margin-top: 2px;
+}
+
+.campos {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e4);
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dupla {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--e3);
+}
+
+.rotulo {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tinta-2);
+}
+
+.entrada,
+.selecao {
+  height: 38px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--controle-linha);
+  background: var(--controle);
+  color: var(--tinta);
+  padding: 0 var(--e3);
+  font-size: 13.5px;
+  width: 100%;
+}
+
+.selecao {
+  cursor: pointer;
+}
+
+.segmentado {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--controle-linha);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.segmento {
+  border: none;
+  background: var(--controle);
+  padding: 9px var(--e3);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--tinta-3);
+  cursor: pointer;
+}
+
+.segmento + .segmento {
+  border-left: 1px solid var(--controle-linha);
+}
+
+.segmentoEntrada {
+  background: var(--verde-veu);
+  color: var(--verde-fundo);
+}
+
+.segmentoSaida {
+  background: var(--saida-veu);
+  color: var(--saida);
+}
+
+.erro {
+  font-size: 12.5px;
+  color: var(--saida);
+  background: var(--saida-veu);
+  border-radius: var(--r-md);
+  padding: var(--e2) var(--e3);
+}
+
+.acoes {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--e2);
+  margin-top: var(--e5);
+}
+
+@media (max-width: 460px) {
+  .painel {
+    padding: var(--e4);
+  }
+
+  .dupla {
+    grid-template-columns: 1fr;
+  }
+}

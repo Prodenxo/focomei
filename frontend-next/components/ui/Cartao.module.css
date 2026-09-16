@@ -1,0 +1,65 @@
+.cartao {
+  background: var(--caixa);
+  border: 1px solid var(--linha-suave);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sombra);
+  padding: var(--e5);
+  min-width: 0;
+}
+
+.compacto {
+  padding: var(--e4);
+}
+
+.semPadding {
+  padding: 0;
+}
+
+.cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--e3);
+  margin-bottom: var(--e4);
+}
+
+.tituloGrupo {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  min-width: 0;
+}
+
+.tituloIcone {
+  color: var(--verde);
+  display: inline-flex;
+}
+
+.titulo {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--tinta);
+  letter-spacing: -0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.acao {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--e1);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tinta-3);
+  background: none;
+  border: none;
+  padding: var(--e1) var(--e2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: color var(--transicao);
+}
+
+.acao:hover {
+  color: var(--verde);
+}

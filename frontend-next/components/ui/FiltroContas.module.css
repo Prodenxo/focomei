@@ -1,0 +1,80 @@
+.trilha {
+  display: flex;
+  align-items: stretch;
+  gap: var(--e2);
+  overflow-x: auto;
+  padding-bottom: var(--e1);
+  scrollbar-width: thin;
+}
+
+.trilha::-webkit-scrollbar {
+  height: 6px;
+}
+
+.trilha::-webkit-scrollbar-thumb {
+  background: var(--linha);
+  border-radius: var(--r-pill);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--e2);
+  flex: 1 1 0;
+  min-width: 140px;
+  height: 42px;
+  padding: 0 var(--e4);
+  border-radius: var(--r-md);
+  border: 1px solid var(--linha-suave);
+  background: var(--caixa);
+  box-shadow: var(--sombra);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--tinta-2);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color var(--transicao), background var(--transicao), color var(--transicao);
+}
+
+.chip:hover {
+  border-color: var(--linha-forte);
+}
+
+.ativo {
+  background: var(--verde-veu);
+  border-color: var(--verde);
+  color: var(--verde-fundo);
+  font-weight: 600;
+}
+
+.rotulo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ponto {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.icone {
+  display: inline-flex;
+  color: currentColor;
+  flex-shrink: 0;
+}
+
+.config {
+  flex: 0 0 auto;
+  min-width: 0;
+  color: var(--tinta-2);
+}
+
+@media (max-width: 900px) {
+  .chip {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+}

@@ -1,0 +1,104 @@
+.base {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--e2);
+  border-radius: var(--r-md);
+  border: 1px solid transparent;
+  padding: 0 var(--e4);
+  height: 38px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transicao), border-color var(--transicao), color var(--transicao);
+}
+
+.base:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.primario {
+  background: var(--verde);
+  color: #fff;
+  box-shadow: var(--sombra);
+}
+
+.primario:hover:not(:disabled) {
+  background: var(--verde-fundo);
+}
+
+.secundario {
+  background: var(--caixa);
+  color: var(--tinta);
+  border-color: var(--linha);
+  box-shadow: var(--sombra);
+}
+
+.secundario:hover:not(:disabled) {
+  border-color: var(--linha-forte);
+}
+
+.fantasma {
+  background: transparent;
+  color: var(--tinta-2);
+}
+
+.fantasma:hover:not(:disabled) {
+  background: var(--caixa-funda);
+  color: var(--tinta);
+}
+
+.verdeSuave {
+  background: var(--verde-veu);
+  color: var(--verde-fundo);
+  border-color: transparent;
+}
+
+.verdeSuave:hover:not(:disabled) {
+  background: var(--verde-veu);
+  border-color: var(--verde);
+}
+
+.pequeno {
+  height: 32px;
+  padding: 0 var(--e3);
+  font-size: 12px;
+}
+
+.blocoTotal {
+  width: 100%;
+}
+
+.iconeSozinho {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: var(--r-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--tinta-2);
+  cursor: pointer;
+  transition: background var(--transicao), color var(--transicao), border-color var(--transicao);
+}
+
+.iconeSozinho:hover:not(:disabled) {
+  background: var(--caixa-funda);
+  color: var(--tinta);
+}
+
+.iconeSozinho:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.iconeContornado {
+  background: var(--caixa);
+  border-color: var(--linha);
+  box-shadow: var(--sombra);
+}
