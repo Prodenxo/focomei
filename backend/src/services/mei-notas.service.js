@@ -58,6 +58,7 @@ import {
   enrichCodigosServicosComNbs,
   resolveCodigoNbsForServico,
 } from './nfse-codigo-nbs.js';
+import { assertNfseServicoObraSuportado } from './nfse-servico-obra.js';
 import {
   extractNfeItemQuantidade,
   extractNfeItemValorUnitario,
@@ -731,6 +732,7 @@ const validatePayload = (payload) => {
   }
 
   assertNfseServicoCodigosMinLength(payload);
+  assertNfseServicoObraSuportado(payload);
 };
 
 const validateNfeLikePayload = (payload, { label = 'NF-e' } = {}) => {
