@@ -37,33 +37,110 @@ export const formatNfseSubitem = (codigo) => {
   return `${key.slice(0, 2)}.${key.slice(2, 4)}.${key.slice(4, 6)}`;
 };
 
-const hasObraInfo = (servico, payload) => Boolean(
-  servico?.obra
-  || servico?.construcaoCivil
-  || payload?.obra
-  || payload?.construcaoCivil,
-);
+const onlyDigits = (value) => String(value ?? '').replace(/\D/g, '');
+
+const isCompleteCidadePrestacao = (cidade) => {
+  if (!cidade || typeof cidade !== 'object') return false;
+  const cep = onlyDigits(cidade.cep);
+  const codigo = onlyDigits(cidade.codigo || cidade.codigoCidade);
+  const estado = String(cidade.estado || cidade.uf || '').trim().toUpperCase();
+  return Boolean(
+    String(cidade.logradouro || '').trim()
+    && String(cidade.numero || '').trim()
+    && String(cidade.bairro || '').trim()
+    && cep.length === 8
+    && codigo.length === 7
+    && estado.length === 2
+  );
+};
 
 /**
- * Barra a emissão antes de enviar: a nota seria rejeitada e o número da DPS seria perdido.
+ * Monta `cidadePrestacao` (local da obra / prestação) a partir de um endereço PlugNotas.
+ * @param {Record<string, unknown>|null|undefined} endereco
+ * @returns {Record<string, string>|null}
+ */
+export const buildCidadePrestacaoFromEndereco = (endereco) => {
+  if (!endereco || typeof endereco !== 'object') return null;
+  const cidade = {
+    codigo: onlyDigits(endereco.codigoCidade || endereco.codigo),
+    descricao: String(endereco.descricaoCidade || endereco.descricao || '').trim(),
+    logradouro: String(endereco.logradouro || '').trim(),
+    numero: String(endereco.numero || '').trim(),
+    complemento: String(endereco.complemento || '').trim(),
+    bairro: String(endereco.bairro || '').trim(),
+    estado: String(endereco.estado || endereco.uf || '').trim().toUpperCase().slice(0, 2),
+    cep: onlyDigits(endereco.cep).slice(0, 8),
+  };
+  if (!isCompleteCidadePrestacao(cidade)) return null;
+  if (!cidade.descricao) delete cidade.descricao;
+  if (!cidade.complemento) delete cidade.complemento;
+  return cidade;
+};
+
+const hasObraAddress = (payload) => {
+  if (isCompleteCidadePrestacao(payload?.cidadePrestacao)) return true;
+  const servicos = Array.isArray(payload?.servico) ? payload.servico : [];
+  return servicos.some((servico) => (
+    isCompleteCidadePrestacao(servico?.obra?.endereco)
+    || isCompleteCidadePrestacao(servico?.obra)
+  ));
+};
+
+/**
+ * Para códigos de obra, preenche o local da obra com o endereço do cliente
+ * quando o utilizador não informou outro endereço.
+ * @param {Record<string, unknown>} payload
+ * @returns {Record<string, unknown>}
+ */
+export const applyNfseObraFromTomadorEndereco = (payload) => {
+  if (!payload || typeof payload !== 'object') return payload;
+  const servicos = Array.isArray(payload.servico) ? payload.servico : [];
+  if (!servicos.some((servico) => nfseServicoExigeObra(servico?.codigo))) {
+    return payload;
+  }
+
+  const enderecoFonte = payload.obra?.endereco
+    || servicos.find((servico) => servico?.obra?.endereco)?.obra?.endereco
+    || payload.tomador?.endereco;
+  const cidade = isCompleteCidadePrestacao(payload.cidadePrestacao)
+    ? payload.cidadePrestacao
+    : buildCidadePrestacaoFromEndereco(enderecoFonte);
+
+  const next = { ...payload };
+  if (cidade && !isCompleteCidadePrestacao(payload.cidadePrestacao)) {
+    next.cidadePrestacao = cidade;
+  }
+
+  next.servico = servicos.map((servico) => {
+    if (!nfseServicoExigeObra(servico?.codigo)) return servico;
+    const obra = servico?.obra && typeof servico.obra === 'object' ? { ...servico.obra } : {};
+    if (!isCompleteCidadePrestacao(obra.endereco) && enderecoFonte) {
+      obra.endereco = { ...enderecoFonte };
+    }
+    return { ...servico, obra };
+  });
+  return next;
+};
+
+/**
+ * Barra a emissão se o código exige obra e ainda não há endereço do local.
  * @throws {import('../utils/errors.js').HttpError} 400
  */
 export const assertNfseServicoObraSuportado = (payload) => {
   const servicos = Array.isArray(payload?.servico) ? payload.servico : [];
   servicos.forEach((servico) => {
     if (!nfseServicoExigeObra(servico?.codigo)) return;
-    if (hasObraInfo(servico, payload)) return;
+    if (hasObraAddress(payload)) return;
     const subitem = formatNfseSubitem(servico?.codigo);
     throw badRequest(
-      `O código de serviço ${subitem} é de obra e a nota nacional exige os dados da obra, `
-      + 'que o Foco MEI ainda não envia. Se o seu serviço não é de obra, troque o código '
-      + 'do serviço em MEI → Notas (por exemplo, limpeza e conservação de imóveis é 07.10.02).',
+      `O código de serviço ${subitem} exige o endereço da obra. `
+      + 'Informe o endereço completo do cliente (usamos o mesmo da obra) '
+      + 'ou o endereço onde o serviço foi feito.',
       {
         code: 'NFSE_SERVICO_EXIGE_OBRA',
         codigo: subitem,
         botHint:
-          'Não tente emitir de novo com o mesmo código. Explique que o código cadastrado é de obra '
-          + 'e peça para o utilizador corrigir o código do serviço na app.',
+          'Peça o endereço da obra. Se for o mesmo do cliente, confirme e reenvie o preview/emissão.',
       },
     );
   });

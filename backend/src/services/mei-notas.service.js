@@ -58,7 +58,10 @@ import {
   enrichCodigosServicosComNbs,
   resolveCodigoNbsForServico,
 } from './nfse-codigo-nbs.js';
-import { assertNfseServicoObraSuportado } from './nfse-servico-obra.js';
+import {
+  applyNfseObraFromTomadorEndereco,
+  assertNfseServicoObraSuportado,
+} from './nfse-servico-obra.js';
 import {
   extractNfeItemQuantidade,
   extractNfeItemValorUnitario,
@@ -441,6 +444,7 @@ const buildServicoFromInput = (input) => {
     discriminacao,
     cnae,
     codigoNbs,
+    obra: prune(input.obra || null),
     iss: prune(issSource),
     valor: prune({
       ...valor,
@@ -562,7 +566,11 @@ const buildPayloadFromInput = (input, userId) => {
     servico: servicosList
   });
 
-  return { payload, prestadorDoc, tomadorDoc };
+  return {
+    payload: applyNfseObraFromTomadorEndereco(payload),
+    prestadorDoc,
+    tomadorDoc,
+  };
 };
 
 const buildNfeLikePayloadFromInput = (input, userId, { defaultModel = '55' } = {}) => {
