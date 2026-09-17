@@ -70,7 +70,9 @@ export async function fetchScrumHubTicketFormConfig () {
   }
 }
 
-const ALLOWED_PRIORITIES = new Set(['baixa', 'media', 'alta', 'critica'])
+const ALLOWED_PRIORITIES = new Set(['baixa', 'media', 'alta', 'urgente'])
+/** Versões antigas do app enviavam "critica", que o ScrumHub recusa. */
+const PRIORITY_ALIASES = { critica: 'urgente' }
 
 function appendIfPresent (formData, key, value) {
   if (value === undefined || value === null) return
@@ -80,9 +82,14 @@ function appendIfPresent (formData, key, value) {
 }
 
 function normalizePrioridade (value) {
-  const prioridade = String(value || 'media').trim().toLowerCase()
+  const raw = String(value || 'media')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+  const prioridade = PRIORITY_ALIASES[raw] || raw
   if (!ALLOWED_PRIORITIES.has(prioridade)) {
-    throw badRequest('Prioridade inválida.')
+    throw badRequest('Prioridade deve ser: baixa, media, alta ou urgente.')
   }
   return prioridade
 }

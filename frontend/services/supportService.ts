@@ -16,7 +16,7 @@ export type SupportTicketAttachment = {
   size?: number | null
 }
 
-export type SupportTicketPriority = 'baixa' | 'media' | 'alta' | 'critica'
+export type SupportTicketPriority = 'baixa' | 'media' | 'alta' | 'urgente'
 
 export type CreateSupportTicketInput = {
   nome: string
