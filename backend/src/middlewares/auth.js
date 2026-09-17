@@ -11,6 +11,7 @@ import {
   isLocalAuthMode,
   verifyLocalAccessToken,
 } from '../services/local-auth.service.js';
+import { assertUserOperationalAccess } from '../services/access-control.service.js';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -50,6 +51,37 @@ const attachAutomationUser = (req, userId) => {
   req.accessToken = null;
 };
 
+const isSignOutRequest = (req) =>
+  pathWithoutQuery(req.originalUrl || '') === '/api/auth/signout';
+
+const isAccessManagementRequest = (req) => {
+  const path = pathWithoutQuery(req.originalUrl || '');
+  return path === '/api/users' || path.startsWith('/api/users/');
+};
+
+const finalizeAuthenticatedRequest = async (req, next) => {
+  if (isSignOutRequest(req)) return next();
+  const selectedEmpresaId = String(req.headers['x-empresa-id'] || '').trim() || null;
+  const accessContext = await assertUserOperationalAccess(req.user?.id, {
+    selectedEmpresaId,
+    allowBlockedOfficeManagement: isAccessManagementRequest(req),
+  });
+  req.accessContext = accessContext;
+
+  // Rotas administrativas operacionais atuam em nome do cliente indicado na URL.
+  // O superadmin continua gerindo cadastros em /users, mas não contorna uma
+  // suspensão ao consultar, emitir ou baixar dados pelo /admin.
+  const requestPath = pathWithoutQuery(req.originalUrl || '');
+  const targetUserId =
+    requestPath.startsWith('/api/admin/') && UUID_RE.test(String(req.params?.userId || ''))
+      ? String(req.params.userId)
+      : null;
+  if (targetUserId && targetUserId !== req.user?.id) {
+    req.targetAccessContext = await assertUserOperationalAccess(targetUserId);
+  }
+  return next();
+};
+
 export const requireAuth = async (req, _res, next) => {
   try {
     const authHeader = req.headers.authorization || '';
@@ -74,7 +106,7 @@ export const requireAuth = async (req, _res, next) => {
         );
       }
       attachAutomationUser(req, userId);
-      return next();
+      return finalizeAuthenticatedRequest(req, next);
     }
 
     // 🔑 1b. Segundo segredo opcional (ex.: OpenClaw / n8n sem mexer no API_SECRET principal)
@@ -89,7 +121,7 @@ export const requireAuth = async (req, _res, next) => {
         );
       }
       attachAutomationUser(req, userId);
-      return next();
+      return finalizeAuthenticatedRequest(req, next);
     }
 
     // 🔑 2. Mesmo Bearer do OpenClaw só para GET /api/categories (robô + lista minimal/full)
@@ -112,7 +144,7 @@ export const requireAuth = async (req, _res, next) => {
         );
       }
       attachAutomationUser(req, userId);
-      return next();
+      return finalizeAuthenticatedRequest(req, next);
     }
 
     // 🔐 3a. Auth local (EasyPanel / AUTH_MODE=local)
@@ -122,7 +154,7 @@ export const requireAuth = async (req, _res, next) => {
         req.user = localUser;
         req.accessToken = token;
         req.authType = 'user';
-        return next();
+        return finalizeAuthenticatedRequest(req, next);
       }
       return next(unauthorized('Sessão inválida ou expirada. Faça login novamente.'));
     }
@@ -137,7 +169,7 @@ export const requireAuth = async (req, _res, next) => {
         req.user = localUser;
         req.accessToken = token;
         req.authType = 'user';
-        return next();
+        return finalizeAuthenticatedRequest(req, next);
       }
     }
 
@@ -147,7 +179,7 @@ export const requireAuth = async (req, _res, next) => {
         req.user = jwksUser;
         req.accessToken = token;
         req.authType = 'user';
-        return next();
+        return finalizeAuthenticatedRequest(req, next);
       }
     }
 
@@ -168,7 +200,7 @@ export const requireAuth = async (req, _res, next) => {
       req.user = data.user;
       req.accessToken = token;
       req.authType = 'user';
-      return next();
+      return finalizeAuthenticatedRequest(req, next);
     }
 
     if (error && isSupabaseAuthNetworkError(error)) {

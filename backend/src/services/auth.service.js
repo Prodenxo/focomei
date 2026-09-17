@@ -31,6 +31,7 @@ import {
   verifyLocalAccessToken,
 } from './local-auth.service.js';
 import { claimInviteTokenForSignup } from './invite-claim.service.js';
+import { assertUserOperationalAccess } from './access-control.service.js';
 
 const assertValidWhatsappPhone = (phone) => {
   const digits = normalizeWhatsappPhoneDigits(phone);
@@ -170,17 +171,33 @@ const getRoleAndCompanyFromLink = async ({ accessToken, userId }) => {
   const linkClient = env.SUPABASE_SERVICE_ROLE_KEY
     ? createSupabaseClient({ useServiceRole: true })
     : createSupabaseClient({ accessToken });
-  const { data: linkData, error } = await linkClient
+  const { data: linkRows, error } = await linkClient
     .from('role_x_user_x_empresa')
     .select('empresas_id, roles_id, mei')
     .eq('user_id', userId)
     .eq('status', true)
     .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(20);
 
   if (error) {
     console.warn('[Auth] role_x_user_x_empresa lookup error:', error.message);
+  }
+
+  let linkData = linkRows?.[0] || null;
+  const empresaIds = [...new Set((linkRows || []).map((row) => row.empresas_id).filter(Boolean))];
+  if (!error && empresaIds.length > 0) {
+    const { data: empresas, error: empresasError } = await linkClient
+      .from('empresas')
+      .select('id, access_status')
+      .in('id', empresaIds);
+    if (!empresasError) {
+      const blockedIds = new Set(
+        (empresas || [])
+          .filter((empresa) => empresa.access_status === 'blocked')
+          .map((empresa) => empresa.id),
+      );
+      linkData = (linkRows || []).find((row) => !blockedIds.has(row.empresas_id)) || linkData;
+    }
   }
 
   if (!error && linkData?.roles_id) {
@@ -209,28 +226,7 @@ const getRoleAndCompanyFromLink = async ({ accessToken, userId }) => {
 
 const ensureUserNotBlocked = async ({ accessToken, userId }) => {
   if (!accessToken || !userId || !env.SUPABASE_SERVICE_ROLE_KEY) return;
-  const adminClient = createSupabaseClient({ useServiceRole: true });
-  const { data: linkData } = await adminClient
-    .from('role_x_user_x_empresa')
-    .select('id, status, expires_at')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (linkData?.status === false) {
-    throw forbidden('Seu perfil está bloqueado', { code: 'PROFILE_BLOCKED' });
-  }
-
-  if (linkData?.expires_at && new Date(linkData.expires_at) < new Date()) {
-    if (linkData?.id) {
-      await adminClient
-        .from('role_x_user_x_empresa')
-        .update({ status: false })
-        .eq('id', linkData.id);
-    }
-    throw forbidden('Seu acesso expirou', { code: 'ACCESS_EXPIRED' });
-  }
+  await assertUserOperationalAccess(userId);
 };
 
 const getOrCreateProfileRole = async ({ accessToken, userId }) => {

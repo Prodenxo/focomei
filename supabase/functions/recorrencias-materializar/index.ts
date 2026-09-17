@@ -74,13 +74,49 @@ serve(async (req) => {
     }])
 
     // Busca todas as recorrências ativas.
-    const { data: recorrencias, error: recErr } = await db
+    const { data: recorrenciasData, error: recErr } = await db
       .from('recorrencias')
       .select('*')
       .eq('ativo', true)
 
     if (recErr) throw new Error(recErr.message)
-    if (!recorrencias?.length) {
+    if (!recorrenciasData?.length) {
+      return new Response(
+        JSON.stringify({ ok: true, materializado: 0, anoMes }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    const userIds = [...new Set(recorrenciasData.map((rec: any) => rec.user_id).filter(Boolean))]
+    const { data: links, error: linksError } = await db
+      .from('role_x_user_x_empresa')
+      .select('user_id, empresas_id, status, expires_at')
+      .in('user_id', userIds)
+      .eq('status', true)
+    if (linksError) throw new Error(linksError.message)
+
+    const empresaIds = [...new Set((links ?? []).map((link: any) => link.empresas_id).filter(Boolean))]
+    const { data: empresas, error: empresasError } = empresaIds.length
+      ? await db.from('empresas').select('id, access_status').in('id', empresaIds)
+      : { data: [], error: null }
+    if (empresasError) throw new Error(empresasError.message)
+
+    const blockedEmpresaIds = new Set(
+      (empresas ?? [])
+        .filter((empresa: any) => empresa.access_status === 'blocked')
+        .map((empresa: any) => empresa.id)
+    )
+    const now = Date.now()
+    const allowedUserIds = new Set(
+      (links ?? [])
+        .filter((link: any) => {
+          if (link.expires_at && new Date(link.expires_at).getTime() <= now) return false
+          return !link.empresas_id || !blockedEmpresaIds.has(link.empresas_id)
+        })
+        .map((link: any) => link.user_id)
+    )
+    const recorrencias = recorrenciasData.filter((rec: any) => allowedUserIds.has(rec.user_id))
+    if (recorrencias.length === 0) {
       return new Response(
         JSON.stringify({ ok: true, materializado: 0, anoMes }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

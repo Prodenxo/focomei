@@ -15,6 +15,9 @@ router.post('/empresas/current/cnpj-onboarding', requireAuth, controller.complet
 router.get('/empresas/:empresaId', requireAuth, controller.getEmpresaById);
 router.post('/empresas', requireAuth, controller.createEmpresa);
 router.put('/empresas/:empresaId', requireAuth, controller.updateEmpresa);
+router.post('/empresas/:empresaId/block', requireAuth, controller.blockEmpresa);
+router.post('/empresas/:empresaId/unblock', requireAuth, controller.unblockEmpresa);
+router.get('/access-block-audit', requireAuth, controller.listAccessBlockAudit);
 router.delete('/empresas/:empresaId', requireAuth, controller.deleteEmpresa);
 router.post('/sync-phone', requireAuth, controller.syncPhone);
 router.post('/:userId/ban', requireAuth, controller.banUser);

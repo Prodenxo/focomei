@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { assertCurrentAccess } from '../_shared/access-control.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -52,6 +53,9 @@ serve(async (req) => {
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
+
+    const accessDenied = await assertCurrentAccess(supabaseClient, corsHeaders)
+    if (accessDenied) return accessDenied
 
     const method = req.method
     const url = new URL(req.url)

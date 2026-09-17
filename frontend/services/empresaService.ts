@@ -23,6 +23,9 @@ export interface EmpresaFullData {
   cep?: string;
   telefone?: string;
   email?: string;
+  access_status?: 'active' | 'blocked';
+  blocked_at?: string | null;
+  blocked_by?: string | null;
 }
 
 export interface EmpresaOption {
@@ -32,6 +35,9 @@ export interface EmpresaOption {
   max_mei?: number | null;
   max_usuarios_nao_mei?: number | null;
   product_line?: string | null;
+  access_status?: 'active' | 'blocked';
+  blocked_at?: string | null;
+  blocked_by?: string | null;
 }
 
 export interface EmpresaLimitsPayload {
@@ -96,6 +102,54 @@ export async function deleteEmpresa(empresaId: string): Promise<void> {
   await apiClient.delete(`/users/empresas/${encodeURIComponent(empresaId)}`);
 }
 
+export async function blockEmpresa(
+  empresaId: string,
+  reason?: string,
+): Promise<EmpresaOption> {
+  const result = await apiClient.post<{ empresa: EmpresaOption }>(
+    `/users/empresas/${encodeURIComponent(empresaId)}/block`,
+    { reason: reason?.trim() || null },
+  );
+  return result.empresa;
+}
+
+export async function unblockEmpresa(
+  empresaId: string,
+  reason?: string,
+): Promise<EmpresaOption> {
+  const result = await apiClient.post<{ empresa: EmpresaOption }>(
+    `/users/empresas/${encodeURIComponent(empresaId)}/unblock`,
+    { reason: reason?.trim() || null },
+  );
+  return result.empresa;
+}
+
+export interface AccessBlockAuditEntry {
+  id: number;
+  target_type: 'empresa' | 'usuario';
+  target_id: string;
+  actor_user_id: string;
+  previous_status: 'active' | 'blocked';
+  new_status: 'active' | 'blocked';
+  reason?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+}
+
+export async function listAccessBlockAudit(
+  targetType?: 'empresa' | 'usuario',
+  targetId?: string,
+): Promise<AccessBlockAuditEntry[]> {
+  const params = new URLSearchParams();
+  if (targetType) params.set('targetType', targetType);
+  if (targetId) params.set('targetId', targetId);
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  const result = await apiClient.get<{ entries?: AccessBlockAuditEntry[] }>(
+    `/users/access-block-audit${suffix}`,
+  );
+  return result.entries || [];
+}
+
 export interface CnpjLookupResult {
   cpfCnpj: string;
   razaoSocial: string | null;
@@ -116,6 +170,7 @@ export interface CnpjLookupResult {
   };
   situacaoCadastral?: string | null;
   porte?: string | null;
+  opcaoSimples?: boolean | null;
 }
 
 const shouldFallbackCnpjLookup = (error: unknown) => {
@@ -135,7 +190,16 @@ const fromClientCnpjLookup = (data: CnpjLookupData): CnpjLookupResult => ({
   telefone: data.telefone,
   inscricaoMunicipal: data.inscricaoMunicipal,
   inscricaoEstadual: data.inscricaoEstadual,
-  endereco: data.endereco,
+  endereco: {
+    logradouro: data.endereco?.logradouro ?? null,
+    numero: data.endereco?.numero ?? null,
+    complemento: data.endereco?.complemento ?? null,
+    bairro: data.endereco?.bairro ?? null,
+    codigoCidade: data.endereco?.codigoCidade ?? null,
+    descricaoCidade: data.endereco?.descricaoCidade ?? null,
+    estado: data.endereco?.estado ?? null,
+    cep: data.endereco?.cep ?? null,
+  },
   situacaoCadastral: data.situacaoCadastral,
   porte: data.porte,
   opcaoSimples: data.opcaoSimples,

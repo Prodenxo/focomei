@@ -49,7 +49,10 @@ const EMPRESA_SELECT_FIELDS = [
   'email',
   'max_mei',
   'max_usuarios_nao_mei',
-  'legacy_mei_slots_pix'
+  'legacy_mei_slots_pix',
+  'access_status',
+  'blocked_at',
+  'blocked_by'
 ].join(', ');
 const EMPRESA_TEXT_FIELDS = [
   'empresa',
@@ -74,6 +77,12 @@ const normalizeRoleValue = (role) => {
   const normalized = String(role).trim().toLowerCase();
   if (normalized === 'user') return 'usuario';
   return normalized;
+};
+
+export const assertCanManageOfficeAccess = (role) => {
+  if (normalizeRoleValue(role) !== 'superadmin') {
+    throw forbidden('Apenas o superadmin pode bloquear ou desbloquear escritórios.');
+  }
 };
 
 const getRoleCandidates = (role) => {
@@ -576,6 +585,8 @@ export const getRequesterContext = async (accessToken, preverifiedUser = null) =
     .from('role_x_user_x_empresa')
     .select('id, empresas_id, roles_id, status, mei, expires_at')
     .eq('user_id', user.id)
+    .eq('status', true)
+    .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -591,18 +602,6 @@ export const getRequesterContext = async (accessToken, preverifiedUser = null) =
   }
 
   if (linkData?.roles_id) {
-    if (linkData?.status === false) {
-      throw forbidden('Seu perfil está bloqueado', { code: 'PROFILE_BLOCKED' });
-    }
-    if (linkData?.expires_at && new Date(linkData.expires_at) < new Date()) {
-      if (linkData?.id) {
-        await linkClient
-          .from('role_x_user_x_empresa')
-          .update({ status: false })
-          .eq('id', linkData.id);
-      }
-      throw forbidden('Seu acesso expirou', { code: 'ACCESS_EXPIRED' });
-    }
     const { data: roleData, error: roleError } = await linkClient
       .from('roles')
       .select('roles')
@@ -747,7 +746,7 @@ const buildAuthUserMapForIds = async (adminClient, userIds, seedUsers = []) => {
   return userMap;
 };
 
-const buildListUsersPgLinkJoin = (empresaScopeParamIndex = null) => {
+export const buildListUsersPgLinkJoin = (empresaScopeParamIndex = null) => {
   if (empresaScopeParamIndex != null) {
     return `
      LEFT JOIN LATERAL (
@@ -755,7 +754,6 @@ const buildListUsersPgLinkJoin = (empresaScopeParamIndex = null) => {
        FROM public.role_x_user_x_empresa
        WHERE user_id = u.id
          AND empresas_id = $${empresaScopeParamIndex}
-         AND COALESCE(status, true) = true
        ORDER BY created_at DESC
        LIMIT 1
      ) link ON true`;
@@ -766,9 +764,9 @@ const buildListUsersPgLinkJoin = (empresaScopeParamIndex = null) => {
        SELECT empresas_id, roles_id, status, mei, expires_at
        FROM public.role_x_user_x_empresa
        WHERE user_id = u.id
-         AND COALESCE(status, true) = true
        ORDER BY
          CASE WHEN empresas_id IS NOT NULL THEN 0 ELSE 1 END,
+         CASE WHEN COALESCE(status, true) = true THEN 0 ELSE 1 END,
          created_at DESC
        LIMIT 1
      ) link ON true`;
@@ -777,7 +775,7 @@ const buildListUsersPgLinkJoin = (empresaScopeParamIndex = null) => {
 const resolveTargetUserLinkPg = async (userId, requester) => {
   if (requester.role === 'admin' && requester.empresaId) {
     const { rows } = await query(
-      `SELECT empresas_id, roles_id
+      `SELECT empresas_id, roles_id, status
        FROM public.role_x_user_x_empresa
        WHERE user_id = $1 AND empresas_id = $2
        ORDER BY created_at DESC
@@ -788,7 +786,7 @@ const resolveTargetUserLinkPg = async (userId, requester) => {
   }
 
   const { rows } = await query(
-    `SELECT empresas_id, roles_id
+    `SELECT empresas_id, roles_id, status
      FROM public.role_x_user_x_empresa
      WHERE user_id = $1
      ORDER BY CASE WHEN empresas_id IS NOT NULL THEN 0 ELSE 1 END, created_at DESC
@@ -802,7 +800,7 @@ const resolveTargetUserLinkSupabase = async (adminClient, userId, requester) => 
   if (requester.role === 'admin' && requester.empresaId) {
     const { data, error } = await adminClient
       .from('role_x_user_x_empresa')
-      .select('empresas_id, roles_id')
+      .select('empresas_id, roles_id, status')
       .eq('user_id', userId)
       .eq('empresas_id', requester.empresaId)
       .order('created_at', { ascending: false })
@@ -814,7 +812,7 @@ const resolveTargetUserLinkSupabase = async (adminClient, userId, requester) => 
 
   const { data: links, error } = await adminClient
     .from('role_x_user_x_empresa')
-    .select('empresas_id, roles_id')
+    .select('empresas_id, roles_id, status')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(20);
@@ -838,7 +836,6 @@ const listUsersPg = async ({ role, empresaId, search }) => {
       FROM public.role_x_user_x_empresa rx
       WHERE rx.user_id = u.id
         AND rx.empresas_id = $${empresaScopeParamIndex}
-        AND COALESCE(rx.status, true) = true
     )`);
   }
 
@@ -917,7 +914,8 @@ const listEmpresasPg = async ({ role, empresaId }) => {
   if (role === 'admin') {
     if (!empresaId) throw forbidden();
     const { rows } = await query(
-      `SELECT id, empresa, nome_fantasia, max_mei, max_usuarios_nao_mei
+      `SELECT id, empresa, nome_fantasia, max_mei, max_usuarios_nao_mei,
+              access_status, blocked_at, blocked_by
        FROM public.empresas
        WHERE id = $1`,
       [empresaId],
@@ -931,7 +929,8 @@ const listEmpresasPg = async ({ role, empresaId }) => {
   }
 
   const { rows } = await query(
-    `SELECT id, empresa, nome_fantasia, max_mei, max_usuarios_nao_mei
+    `SELECT id, empresa, nome_fantasia, max_mei, max_usuarios_nao_mei,
+            access_status, blocked_at, blocked_by
      FROM public.empresas
      ORDER BY empresa ASC`,
   );
@@ -1136,7 +1135,7 @@ export const listEmpresas = async (accessToken) => {
   const adminClient = createSupabaseClient({ useServiceRole: true });
   let query = adminClient
     .from('empresas')
-    .select('id, empresa, nome_fantasia, max_mei, max_usuarios_nao_mei, legacy_mei_slots_pix')
+    .select('id, empresa, nome_fantasia, max_mei, max_usuarios_nao_mei, legacy_mei_slots_pix, access_status, blocked_at, blocked_by')
     .order('empresa', { ascending: true });
 
   if (role === 'admin') {
@@ -1277,6 +1276,114 @@ export const updateEmpresa = async (accessToken, empresaId, input) => {
   if (!data?.id) throw badRequest('Empresa nao encontrada');
 
   return { empresa: { ...data, product_line: deriveEmpresaProductLine(data.max_mei) } };
+};
+
+const normalizeBlockReason = (value) => {
+  const reason = String(value || '').trim();
+  return reason ? reason.slice(0, 1000) : null;
+};
+
+export const setEmpresaAccessStatus = async (
+  accessToken,
+  empresaId,
+  blocked,
+  reason = null,
+) => {
+  const requester = await getRequesterContext(accessToken);
+  assertCanManageOfficeAccess(requester.role);
+  if (!empresaId) throw badRequest('Empresa é obrigatória');
+
+  const adminClient = createSupabaseClient({ useServiceRole: true });
+  const { data: current, error: currentError } = await adminClient
+    .from('empresas')
+    .select('id, empresa, nome_fantasia, access_status, blocked_at, blocked_by')
+    .eq('id', empresaId)
+    .maybeSingle();
+  if (currentError) throw badRequest(currentError.message);
+  if (!current?.id) throw badRequest('Empresa não encontrada');
+
+  const previousStatus = current.access_status === 'blocked' ? 'blocked' : 'active';
+  const nextStatus = blocked ? 'blocked' : 'active';
+  if (previousStatus === nextStatus) {
+    return {
+      empresa: current,
+      changed: false,
+    };
+  }
+
+  const now = new Date().toISOString();
+  const normalizedReason = normalizeBlockReason(reason);
+  const patch = blocked
+    ? {
+        access_status: nextStatus,
+        blocked_at: now,
+        blocked_by: requester.userId,
+        blocked_reason: normalizedReason,
+      }
+    : {
+        access_status: nextStatus,
+        blocked_at: null,
+        blocked_by: null,
+        blocked_reason: null,
+      };
+
+  const { data: updated, error: updateError } = await adminClient
+    .from('empresas')
+    .update(patch)
+    .eq('id', empresaId)
+    .select('id, empresa, nome_fantasia, access_status, blocked_at, blocked_by')
+    .maybeSingle();
+  if (updateError) throw badRequest(updateError.message);
+  if (!updated?.id) throw badRequest('Empresa não encontrada');
+
+  const { error: auditError } = await adminClient
+    .from('access_block_audit')
+    .insert({
+      target_type: 'empresa',
+      target_id: empresaId,
+      actor_user_id: requester.userId,
+      previous_status: previousStatus,
+      new_status: nextStatus,
+      reason: normalizedReason,
+      metadata: {
+        empresa: current.nome_fantasia || current.empresa || null,
+      },
+    });
+  if (auditError) {
+    await adminClient
+      .from('empresas')
+      .update({
+        access_status: previousStatus,
+        blocked_at: current.blocked_at,
+        blocked_by: current.blocked_by,
+      })
+      .eq('id', empresaId);
+    throw badRequest(`Não foi possível registrar a auditoria: ${auditError.message}`);
+  }
+
+  return {
+    empresa: updated,
+    changed: true,
+  };
+};
+
+export const listAccessBlockAudit = async (accessToken, filters = {}) => {
+  const requester = await getRequesterContext(accessToken);
+  if (requester.role !== 'superadmin') throw forbidden();
+
+  const adminClient = createSupabaseClient({ useServiceRole: true });
+  let auditQuery = adminClient
+    .from('access_block_audit')
+    .select('id, target_type, target_id, actor_user_id, previous_status, new_status, reason, metadata, created_at')
+    .order('created_at', { ascending: false })
+    .limit(Math.min(Math.max(Number(filters.limit) || 100, 1), 500));
+
+  if (filters.targetType) auditQuery = auditQuery.eq('target_type', filters.targetType);
+  if (filters.targetId) auditQuery = auditQuery.eq('target_id', filters.targetId);
+
+  const { data, error } = await auditQuery;
+  if (error) throw badRequest(error.message);
+  return { entries: data || [] };
 };
 
 export const createUser = async (accessToken, input, deps = {}) => {
@@ -2010,7 +2117,7 @@ export const updateUser = async (accessToken, userId, input) => {
   };
 };
 
-export const banUser = async (accessToken, userId, status = false) => {
+export const banUser = async (accessToken, userId, status = false, reason = null) => {
   if (!userId) throw badRequest('userId é obrigatório');
 
   const requester = await getRequesterContext(accessToken);
@@ -2037,7 +2144,11 @@ export const banUser = async (accessToken, userId, status = false) => {
       if (!ROLE_UPDATE_ALLOWED_SUPERADMIN.has(targetRole)) throw forbidden();
     }
 
-    // Atualiza todos os vínculos do usuário (lista e login usam o mais recente)
+    const previousStatus = linkData.status === false ? 'blocked' : 'active';
+    const nextStatus = status ? 'active' : 'blocked';
+    const normalizedReason = normalizeBlockReason(reason);
+
+    // Bloqueio individual é global para a conta e não representa bloqueio de escritório.
     await query(
       `UPDATE public.role_x_user_x_empresa SET status = $1 WHERE user_id = $2`,
       [status, userId],
@@ -2049,6 +2160,21 @@ export const banUser = async (accessToken, userId, status = false) => {
        WHERE id = $2`,
       [status ? null : new Date('2099-12-31T23:59:59.000Z').toISOString(), userId],
     );
+    if (previousStatus !== nextStatus) {
+      await query(
+        `INSERT INTO public.access_block_audit
+          (target_type, target_id, actor_user_id, previous_status, new_status, reason, metadata)
+         VALUES ('usuario', $1, $2, $3, $4, $5, $6::jsonb)`,
+        [
+          userId,
+          requester.userId,
+          previousStatus,
+          nextStatus,
+          normalizedReason,
+          JSON.stringify({ empresaId: linkData.empresas_id || null }),
+        ],
+      );
+    }
     return { userId, status };
   }
 
@@ -2074,21 +2200,48 @@ export const banUser = async (accessToken, userId, status = false) => {
     if (!ROLE_UPDATE_ALLOWED_SUPERADMIN.has(targetRole)) throw forbidden();
   }
 
-  const { data: latestLink, error: latestLinkError } = await adminClient
+  const { data: targetLinks, error: targetLinksError } = await adminClient
     .from('role_x_user_x_empresa')
-    .select('id')
+    .select('id, status, empresas_id')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (latestLinkError) throw badRequest(latestLinkError.message);
-  if (!latestLink?.id) throw badRequest('Vínculo de role não encontrado');
+    .limit(100);
+  if (targetLinksError) throw badRequest(targetLinksError.message);
+  if (!targetLinks?.length) throw badRequest('Vínculo de role não encontrado');
 
+  const previousStatus = targetLinks.some((row) => row.status !== false) ? 'active' : 'blocked';
+  const nextStatus = status ? 'active' : 'blocked';
+  const normalizedReason = normalizeBlockReason(reason);
   const { error: banError } = await adminClient
     .from('role_x_user_x_empresa')
     .update({ status })
-    .eq('id', latestLink.id);
+    .eq('user_id', userId);
   if (banError) throw badRequest(banError.message);
+
+  if (previousStatus !== nextStatus) {
+    const { error: auditError } = await adminClient.from('access_block_audit').insert({
+      target_type: 'usuario',
+      target_id: userId,
+      actor_user_id: requester.userId,
+      previous_status: previousStatus,
+      new_status: nextStatus,
+      reason: normalizedReason,
+      metadata: {
+        empresaIds: [...new Set(targetLinks.map((row) => row.empresas_id).filter(Boolean))],
+      },
+    });
+    if (auditError) {
+      const activeIds = targetLinks.filter((row) => row.status !== false).map((row) => row.id);
+      const blockedIds = targetLinks.filter((row) => row.status === false).map((row) => row.id);
+      if (activeIds.length) {
+        await adminClient.from('role_x_user_x_empresa').update({ status: true }).in('id', activeIds);
+      }
+      if (blockedIds.length) {
+        await adminClient.from('role_x_user_x_empresa').update({ status: false }).in('id', blockedIds);
+      }
+      throw badRequest(`Não foi possível registrar a auditoria: ${auditError.message}`);
+    }
+  }
 
   return { userId, status };
 };

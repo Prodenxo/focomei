@@ -12,6 +12,7 @@ import {
   pickPreferredUserIdFromPhoneMatches,
   pickUserIdFromN8nLinkRows,
 } from './n8n-link-phone.service.js';
+import { assertUserOperationalAccess } from './access-control.service.js';
 
 export { buildPhoneLookupCandidates } from './n8n-link-phone.service.js';
 import * as transactionsService from './transactions.service.js';
@@ -942,6 +943,10 @@ export const runOpenclawAction = async (input) => {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[OpenClaw] actorContext ignorado (action continua):', msg);
   }
+
+  // Operações do robô atuam em nome do utilizador e obedecem aos mesmos
+  // bloqueios das APIs, mesmo quando a chamada usa segredo de serviço.
+  await assertUserOperationalAccess(userId);
 
   if (action === 'resolve_user') {
     const account = await fetchOpenclawAccountSummary(userId);

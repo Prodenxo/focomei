@@ -13,6 +13,7 @@ import {
   sendPasswordResetEmailViaResend,
 } from './password-reset-email.service.js';
 import { claimInviteTokenForSignup } from './invite-claim.service.js';
+import { assertUserOperationalAccess } from './access-control.service.js';
 
 const ROLE_DEFAULT = 'usuario';
 const TOKEN_TTL_SEC = 60 * 60 * 24 * 7; // 7 dias
@@ -267,10 +268,14 @@ const getRoleAndCompany = async (userId) => {
   // Cargo global (ex.: superadmin) manda sobre o papel na empresa
   if (profileRole === 'superadmin') {
     const { rows: linkRows } = await query(
-      `SELECT empresas_id, mei
-       FROM public.role_x_user_x_empresa
-       WHERE user_id = $1 AND status = true
-       ORDER BY created_at DESC
+      `SELECT rx.empresas_id, rx.mei
+       FROM public.role_x_user_x_empresa rx
+       LEFT JOIN public.empresas e ON e.id = rx.empresas_id
+       WHERE rx.user_id = $1
+         AND rx.status = true
+         AND (rx.expires_at IS NULL OR rx.expires_at > now())
+       ORDER BY CASE WHEN e.access_status = 'blocked' THEN 1 ELSE 0 END,
+                rx.created_at DESC
        LIMIT 1`,
       [userId],
     );
@@ -283,10 +288,14 @@ const getRoleAndCompany = async (userId) => {
   }
 
   const { rows: linkRows } = await query(
-    `SELECT empresas_id, roles_id, mei
-     FROM public.role_x_user_x_empresa
-     WHERE user_id = $1 AND status = true
-     ORDER BY created_at DESC
+    `SELECT rx.empresas_id, rx.roles_id, rx.mei
+     FROM public.role_x_user_x_empresa rx
+     LEFT JOIN public.empresas e ON e.id = rx.empresas_id
+     WHERE rx.user_id = $1
+       AND rx.status = true
+       AND (rx.expires_at IS NULL OR rx.expires_at > now())
+     ORDER BY CASE WHEN e.access_status = 'blocked' THEN 1 ELSE 0 END,
+              rx.created_at DESC
      LIMIT 1`,
     [userId],
   );
@@ -321,14 +330,31 @@ const ensureUserNotBlocked = async (userId) => {
     `SELECT id, status, expires_at, empresas_id
      FROM public.role_x_user_x_empresa
      WHERE user_id = $1
-     ORDER BY created_at DESC
-     LIMIT 1`,
+     ORDER BY created_at DESC`,
     [userId],
   );
-  const link = rows[0];
-  if (!link) return;
+  const links = rows || [];
+  if (links.length === 0) return;
+  const now = new Date();
+  const hasActiveLink = links.some(
+    (link) =>
+      link.status !== false
+      && (!link.expires_at || new Date(link.expires_at) > now),
+  );
+  if (hasActiveLink) return;
 
-  if (link.status === false) {
+  const expiredLinks = links.filter(
+    (link) => link.status !== false && link.expires_at && new Date(link.expires_at) <= now,
+  );
+  if (expiredLinks.length > 0) {
+    await query(
+      'UPDATE public.role_x_user_x_empresa SET status = false WHERE id = ANY($1::uuid[])',
+      [expiredLinks.map((link) => link.id)],
+    );
+    throw forbidden('Seu acesso expirou', { code: 'ACCESS_EXPIRED' });
+  }
+
+  if (links.every((link) => link.status === false)) {
     // Pedido antigo (manual_approval) ou self_serve pendente → libera p/ /planos.
     try {
       const { unlockPendingSelfServeSignup } = await import(
@@ -345,14 +371,6 @@ const ensureUserNotBlocked = async (userId) => {
       );
     }
     throw forbidden('Seu perfil está bloqueado', { code: 'PROFILE_BLOCKED' });
-  }
-
-  if (link.expires_at && new Date(link.expires_at) < new Date()) {
-    await query(
-      'UPDATE public.role_x_user_x_empresa SET status = false WHERE id = $1',
-      [link.id],
-    );
-    throw forbidden('Seu acesso expirou', { code: 'ACCESS_EXPIRED' });
   }
 };
 
@@ -499,6 +517,7 @@ export const localSignIn = async ({ email, password }) => {
   }
 
   await ensureUserNotBlocked(userRow.id);
+  await assertUserOperationalAccess(userRow.id);
 
   const meta = userRow.raw_user_meta_data || {};
   const accessToken = signLocalAccessToken({
@@ -529,6 +548,7 @@ export const localGetSession = async (accessToken) => {
   if (!user) return null;
 
   await ensureUserNotBlocked(user.id);
+  await assertUserOperationalAccess(user.id);
   const { role, empresaId, mei } = await getRoleAndCompany(user.id);
 
   return {
@@ -587,6 +607,7 @@ export const localImpersonate = async (accessToken, targetUserId) => {
   }
 
   await ensureUserNotBlocked(userRow.id);
+  await assertUserOperationalAccess(userRow.id);
   const {
     role: targetRole,
     empresaId: targetEmpresaId,
