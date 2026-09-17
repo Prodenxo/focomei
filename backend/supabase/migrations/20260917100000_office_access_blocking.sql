@@ -1,4 +1,5 @@
 -- Suspensão de escritórios sem alterar vínculos ou excluir dados.
+-- Compatível com o Postgres da aplicação (AUTH_MODE=local) e com Supabase.
 alter table public.empresas
   add column if not exists access_status text not null default 'active',
   add column if not exists blocked_at timestamptz,
@@ -38,205 +39,233 @@ create index if not exists idx_access_block_audit_target
 create index if not exists idx_access_block_audit_actor
   on public.access_block_audit (actor_user_id, created_at desc);
 
-alter table public.access_block_audit enable row level security;
-
 comment on column public.empresas.access_status is
   'Suspensão operacional do escritório. Não altera status dos vínculos de usuários.';
 
 comment on table public.access_block_audit is
   'Auditoria imutável de bloqueios e desbloqueios de escritórios e usuários.';
 
--- O token pode continuar criptograficamente válido após um bloqueio. Estas
--- funções tornam o estado atual do banco autoritativo também para RLS e RPCs.
-create or replace function public.current_access_allowed()
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select
-    coalesce(
-      (select p.role = 'superadmin' from public.profiles p where p.id = auth.uid()),
-      false
-    )
-    or exists (
-      select 1
-      from public.role_x_user_x_empresa rx
-      left join public.empresas e on e.id = rx.empresas_id
-      where rx.user_id = auth.uid()
-        and coalesce(rx.status, true) = true
-        and (rx.expires_at is null or rx.expires_at > now())
-        and (rx.empresas_id is null or coalesce(e.access_status, 'active') = 'active')
-    );
-$$;
-
-create or replace function public.target_user_access_allowed(target_user_id uuid)
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select
-    coalesce(
-      (select p.role = 'superadmin' from public.profiles p where p.id = target_user_id),
-      false
-    )
-    or exists (
-      select 1
-      from public.role_x_user_x_empresa rx
-      left join public.empresas e on e.id = rx.empresas_id
-      where rx.user_id = target_user_id
-        and coalesce(rx.status, true) = true
-        and (rx.expires_at is null or rx.expires_at > now())
-        and (rx.empresas_id is null or coalesce(e.access_status, 'active') = 'active')
-    );
-$$;
-
-create or replace function public.current_access_denial_code()
-returns text
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select case
-    when public.current_access_allowed() then null
-    when exists (
-      select 1
-      from public.role_x_user_x_empresa rx
-      where rx.user_id = auth.uid()
-        and coalesce(rx.status, true) = true
-        and (rx.expires_at is null or rx.expires_at > now())
-    ) then 'OFFICE_BLOCKED'
-    else 'PROFILE_BLOCKED'
-  end;
-$$;
-
-create or replace function public.current_app_role()
-returns text
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select coalesce(
-    (select 'superadmin' from public.profiles p
-      where p.id = auth.uid() and p.role = 'superadmin'),
-    (
-      select lower(r.roles)
-      from public.role_x_user_x_empresa rx
-      join public.roles r on r.id = rx.roles_id
-      left join public.empresas e on e.id = rx.empresas_id
-      where rx.user_id = auth.uid()
-        and coalesce(rx.status, true) = true
-        and (rx.expires_at is null or rx.expires_at > now())
-        and (rx.empresas_id is null or coalesce(e.access_status, 'active') = 'active')
-      order by rx.created_at desc
-      limit 1
-    )
-  );
-$$;
-
-create or replace function public.current_empresa_id()
-returns uuid
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select rx.empresas_id
-  from public.role_x_user_x_empresa rx
-  join public.empresas e on e.id = rx.empresas_id
-  where rx.user_id = auth.uid()
-    and coalesce(rx.status, true) = true
-    and (rx.expires_at is null or rx.expires_at > now())
-    and coalesce(e.access_status, 'active') = 'active'
-  order by rx.created_at desc
-  limit 1;
-$$;
-
-create or replace function public.admin_can_view_user(target_user_id uuid)
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select
-    public.current_access_allowed()
-    and public.target_user_access_allowed(target_user_id)
-    and case
-      when public.current_app_role() = 'superadmin' then true
-      when public.current_app_role() = 'admin' then exists (
-        select 1
-        from public.role_x_user_x_empresa rx
-        where rx.user_id = target_user_id
-          and rx.empresas_id = public.current_empresa_id()
-      )
-      else false
-    end;
-$$;
-
--- Fecha a escalada cross-tenant da policy antiga de INSERT de vínculos.
-drop policy if exists "role_link_insert_admin" on public.role_x_user_x_empresa;
-create policy "role_link_insert_admin"
-on public.role_x_user_x_empresa
-for insert
-with check (
-  public.current_app_role() = 'superadmin'
-  or (
-    public.current_app_role() = 'admin'
-    and empresas_id = public.current_empresa_id()
-  )
-);
-
--- Admin vê somente perfis do próprio escritório; superadmin mantém visão global.
-drop policy if exists "profiles_select_own_or_admin" on public.profiles;
-create policy "profiles_select_own_or_admin"
-on public.profiles
-for select
-using (
-  id = auth.uid()
-  or public.current_app_role() = 'superadmin'
-  or (
-    public.current_app_role() = 'admin'
-    and public.admin_can_view_user(id)
-  )
-);
-
--- Políticas restritivas são combinadas com as policies funcionais existentes:
--- mesmo uma policy antiga de "self" não libera uma conta/escritório suspenso.
-do $$
-declare
-  table_name text;
+-- Daqui em diante é exclusivo de bancos com Supabase Auth: as políticas dependem
+-- de auth.uid() e do papel `authenticated`. No Postgres da aplicação o backend é
+-- o único caminho de acesso e já aplica as mesmas regras em cada requisição.
+do $rls$
 begin
-  foreach table_name in array array[
-    'lancamentos_id',
-    'categorias_id',
-    'mei_nfse',
-    'user_mei_certificates',
-    'google_tokens_id',
-    'google_tokens',
-    'recorrencias',
-    'contas_financeiras'
-  ]
-  loop
-    if to_regclass('public.' || table_name) is not null then
-      execute format(
-        'drop policy if exists "access_status_guard" on public.%I',
-        table_name
-      );
-      execute format(
-        'create policy "access_status_guard" on public.%I as restrictive for all to authenticated using (public.current_access_allowed()) with check (public.current_access_allowed())',
-        table_name
-      );
-    end if;
-  end loop;
-end;
-$$;
+  if to_regprocedure('auth.uid()') is null
+     or not exists (select 1 from pg_roles where rolname = 'authenticated')
+  then
+    raise notice 'Banco sem Supabase Auth: políticas RLS de bloqueio ignoradas.';
+    return;
+  end if;
 
-grant execute on function public.current_access_allowed() to authenticated;
-grant execute on function public.current_access_denial_code() to authenticated;
-grant execute on function public.target_user_access_allowed(uuid) to authenticated;
+  execute 'alter table public.access_block_audit enable row level security';
+
+  -- O token pode continuar criptograficamente válido após um bloqueio. Estas
+  -- funções tornam o estado atual do banco autoritativo também para RLS e RPCs.
+  execute $fn$
+    create or replace function public.current_access_allowed()
+    returns boolean
+    language sql
+    stable
+    security definer
+    set search_path = public
+    as $body$
+      select
+        coalesce(
+          (select p.role = 'superadmin' from public.profiles p where p.id = auth.uid()),
+          false
+        )
+        or exists (
+          select 1
+          from public.role_x_user_x_empresa rx
+          left join public.empresas e on e.id = rx.empresas_id
+          where rx.user_id = auth.uid()
+            and coalesce(rx.status, true) = true
+            and (rx.expires_at is null or rx.expires_at > now())
+            and (rx.empresas_id is null or coalesce(e.access_status, 'active') = 'active')
+        );
+    $body$;
+  $fn$;
+
+  execute $fn$
+    create or replace function public.target_user_access_allowed(target_user_id uuid)
+    returns boolean
+    language sql
+    stable
+    security definer
+    set search_path = public
+    as $body$
+      select
+        coalesce(
+          (select p.role = 'superadmin' from public.profiles p where p.id = target_user_id),
+          false
+        )
+        or exists (
+          select 1
+          from public.role_x_user_x_empresa rx
+          left join public.empresas e on e.id = rx.empresas_id
+          where rx.user_id = target_user_id
+            and coalesce(rx.status, true) = true
+            and (rx.expires_at is null or rx.expires_at > now())
+            and (rx.empresas_id is null or coalesce(e.access_status, 'active') = 'active')
+        );
+    $body$;
+  $fn$;
+
+  execute $fn$
+    create or replace function public.current_access_denial_code()
+    returns text
+    language sql
+    stable
+    security definer
+    set search_path = public
+    as $body$
+      select case
+        when public.current_access_allowed() then null
+        when exists (
+          select 1
+          from public.role_x_user_x_empresa rx
+          where rx.user_id = auth.uid()
+            and coalesce(rx.status, true) = true
+            and (rx.expires_at is null or rx.expires_at > now())
+        ) then 'OFFICE_BLOCKED'
+        else 'PROFILE_BLOCKED'
+      end;
+    $body$;
+  $fn$;
+
+  execute $fn$
+    create or replace function public.current_app_role()
+    returns text
+    language sql
+    stable
+    security definer
+    set search_path = public
+    as $body$
+      select coalesce(
+        (select 'superadmin' from public.profiles p
+          where p.id = auth.uid() and p.role = 'superadmin'),
+        (
+          select lower(r.roles)
+          from public.role_x_user_x_empresa rx
+          join public.roles r on r.id = rx.roles_id
+          left join public.empresas e on e.id = rx.empresas_id
+          where rx.user_id = auth.uid()
+            and coalesce(rx.status, true) = true
+            and (rx.expires_at is null or rx.expires_at > now())
+            and (rx.empresas_id is null or coalesce(e.access_status, 'active') = 'active')
+          order by rx.created_at desc
+          limit 1
+        )
+      );
+    $body$;
+  $fn$;
+
+  execute $fn$
+    create or replace function public.current_empresa_id()
+    returns uuid
+    language sql
+    stable
+    security definer
+    set search_path = public
+    as $body$
+      select rx.empresas_id
+      from public.role_x_user_x_empresa rx
+      join public.empresas e on e.id = rx.empresas_id
+      where rx.user_id = auth.uid()
+        and coalesce(rx.status, true) = true
+        and (rx.expires_at is null or rx.expires_at > now())
+        and coalesce(e.access_status, 'active') = 'active'
+      order by rx.created_at desc
+      limit 1;
+    $body$;
+  $fn$;
+
+  execute $fn$
+    create or replace function public.admin_can_view_user(target_user_id uuid)
+    returns boolean
+    language sql
+    stable
+    security definer
+    set search_path = public
+    as $body$
+      select
+        public.current_access_allowed()
+        and public.target_user_access_allowed(target_user_id)
+        and case
+          when public.current_app_role() = 'superadmin' then true
+          when public.current_app_role() = 'admin' then exists (
+            select 1
+            from public.role_x_user_x_empresa rx
+            where rx.user_id = target_user_id
+              and rx.empresas_id = public.current_empresa_id()
+          )
+          else false
+        end;
+    $body$;
+  $fn$;
+
+  -- Fecha a escalada cross-tenant da policy antiga de INSERT de vínculos.
+  execute 'drop policy if exists "role_link_insert_admin" on public.role_x_user_x_empresa';
+  execute $fn$
+    create policy "role_link_insert_admin"
+    on public.role_x_user_x_empresa
+    for insert
+    with check (
+      public.current_app_role() = 'superadmin'
+      or (
+        public.current_app_role() = 'admin'
+        and empresas_id = public.current_empresa_id()
+      )
+    );
+  $fn$;
+
+  -- Admin vê somente perfis do próprio escritório; superadmin mantém visão global.
+  execute 'drop policy if exists "profiles_select_own_or_admin" on public.profiles';
+  execute $fn$
+    create policy "profiles_select_own_or_admin"
+    on public.profiles
+    for select
+    using (
+      id = auth.uid()
+      or public.current_app_role() = 'superadmin'
+      or (
+        public.current_app_role() = 'admin'
+        and public.admin_can_view_user(id)
+      )
+    );
+  $fn$;
+
+  -- Políticas restritivas são combinadas com as policies funcionais existentes:
+  -- mesmo uma policy antiga de "self" não libera uma conta/escritório suspenso.
+  declare
+    guarded_table text;
+  begin
+    foreach guarded_table in array array[
+      'lancamentos_id',
+      'categorias_id',
+      'mei_nfse',
+      'user_mei_certificates',
+      'google_tokens_id',
+      'google_tokens',
+      'recorrencias',
+      'contas_financeiras'
+    ]
+    loop
+      if to_regclass('public.' || guarded_table) is not null then
+        execute format(
+          'drop policy if exists "access_status_guard" on public.%I',
+          guarded_table
+        );
+        execute format(
+          'create policy "access_status_guard" on public.%I as restrictive for all to authenticated using (public.current_access_allowed()) with check (public.current_access_allowed())',
+          guarded_table
+        );
+      end if;
+    end loop;
+  end;
+
+  execute 'grant execute on function public.current_access_allowed() to authenticated';
+  execute 'grant execute on function public.current_access_denial_code() to authenticated';
+  execute 'grant execute on function public.target_user_access_allowed(uuid) to authenticated';
+end;
+$rls$;
