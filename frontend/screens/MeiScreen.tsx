@@ -468,8 +468,20 @@ function MeiScreenContent() {
   const [hasCertificate, setHasCertificate] = useState(false);
   const [hasServerCertificate, setHasServerCertificate] = useState(false);
   const [certDocumento, setCertDocumento] = useState<string | null>(null);
+  const [certValidTo, setCertValidTo] = useState<string | null>(null);
   const [downloadLoading, setDownloadLoading] = useState(false);
   const [downloadGuiasAbertasLoading, setDownloadGuiasAbertasLoading] = useState(false);
+
+  // Com o A1 vencido a Receita recusa o termo de autorização e nada funciona até reenviar.
+  const certValidToDate = useMemo(() => {
+    if (!certValidTo) return null;
+    const validade = new Date(certValidTo);
+    return Number.isNaN(validade.getTime()) ? null : validade;
+  }, [certValidTo]);
+  const certificadoVencido = Boolean(
+    hasUserCertificate && certValidToDate && certValidToDate.getTime() < Date.now(),
+  );
+  const certValidToLabel = certValidToDate ? certValidToDate.toLocaleDateString('pt-BR') : null;
 
   // Parcelamentos
   const [parcelamentos, setParcelamentos] = useState<ParcelamentoItem[]>([]);
@@ -892,6 +904,7 @@ function MeiScreenContent() {
         setHasServerCertificate(Boolean(status.hasEnvCertificate));
         setHasCertificate(Boolean(status.hasUserCertificate || status.hasEnvCertificate));
         setCertDocumento(status.documento || null);
+        setCertValidTo(status.certValidTo || null);
         setDocumentosAtivosMirror(status.documentosAtivos ?? null);
         setMeiError(null);
       } catch (error: any) {
@@ -900,6 +913,7 @@ function MeiScreenContent() {
         setHasCertificate(false);
         setHasServerCertificate(false);
         setCertDocumento(null);
+        setCertValidTo(null);
         setMeiError(error?.message || 'Nao foi possivel verificar o certificado');
       } finally {
         if (isMounted) {
@@ -1866,6 +1880,7 @@ function MeiScreenContent() {
       setHasCertificate(Boolean(status.hasUserCertificate || status.hasEnvCertificate));
       setHasServerCertificate(Boolean(status.hasEnvCertificate));
       setCertDocumento(status.documento || null);
+      setCertValidTo(status.certValidTo || null);
 
       setCertPassword('');
       setPickedCertFile(null);
@@ -1957,6 +1972,7 @@ function MeiScreenContent() {
       setHasCertificate(Boolean(status.hasUserCertificate || status.hasEnvCertificate));
       // Limpa empresa, CNPJ e documento da UI — dados ficam no banco para quando enviar novo cert
       setCertDocumento(null);
+      setCertValidTo(null);
       setCnpj('');
       setEmpresaFiscal(null);
       setIsEditingEmpresa(false);
@@ -2880,20 +2896,25 @@ function MeiScreenContent() {
                 <View
                   style={[
                     styles.contextChipDot,
-                    { backgroundColor: hasCertificate ? theme.success : theme.error },
+                    {
+                      backgroundColor:
+                        hasCertificate && !certificadoVencido ? theme.success : theme.error,
+                    },
                   ]}
                 />
                 <View>
                   <Text style={styles.contextChipLabel}>Certificado</Text>
                   <Text
                     style={
-                      hasUserCertificate
+                      hasUserCertificate && !certificadoVencido
                         ? styles.contextChipValueSuccess
                         : styles.contextChipValueError
                     }
                   >
                     {meiCertificateLoading
                       ? 'Verificando...'
+                      : certificadoVencido
+                      ? `Vencido em ${certValidToLabel}`
                       : hasUserCertificate
                       ? 'Configurado'
                       : 'Não configurado'}
@@ -2991,14 +3012,21 @@ function MeiScreenContent() {
                 <View
                   style={[
                     styles.overviewIconWrap,
-                    hasCertificate ? styles.overviewIconWrapSuccess : styles.overviewIconWrapError,
+                    hasCertificate && !certificadoVencido
+                      ? styles.overviewIconWrapSuccess
+                      : styles.overviewIconWrapError,
                   ]}
                 >
-                  <CertificateIcon size={22} color={hasCertificate ? theme.success : theme.error} />
+                  <CertificateIcon
+                    size={22}
+                    color={hasCertificate && !certificadoVencido ? theme.success : theme.error}
+                  />
                 </View>
                 <Text style={styles.overviewTitle}>Certificado Digital</Text>
                 <Text style={styles.overviewDesc}>
-                  {hasUserCertificate
+                  {certificadoVencido
+                    ? `Seu certificado A1 venceu em ${certValidToLabel}. Emita um novo e-CNPJ do MEI e envie o arquivo para voltar a baixar guias e emitir notas.`
+                    : hasUserCertificate
                     ? 'Certificado A1 instalado e válido para emissão.'
                     : 'Você ainda não enviou um certificado A1. Sem ele, não é possível emitir notas nem baixar guias.'}
                 </Text>
@@ -3007,10 +3035,18 @@ function MeiScreenContent() {
                   <Text
                     style={[
                       styles.overviewMetricValue,
-                      hasUserCertificate ? styles.overviewMetricValueSuccess : styles.overviewMetricValueError,
+                      hasUserCertificate && !certificadoVencido
+                        ? styles.overviewMetricValueSuccess
+                        : styles.overviewMetricValueError,
                     ]}
                   >
-                    {meiCertificateLoading ? '...' : hasUserCertificate ? 'Pronto' : 'Pendente'}
+                    {meiCertificateLoading
+                      ? '...'
+                      : certificadoVencido
+                      ? 'Vencido'
+                      : hasUserCertificate
+                      ? 'Pronto'
+                      : 'Pendente'}
                   </Text>
                 </View>
                 <Text style={styles.overviewCta}>Gerenciar →</Text>
