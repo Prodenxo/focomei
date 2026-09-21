@@ -184,7 +184,8 @@ export async function fetchScrumHubTicketTimeline (ticketId) {
     'Não foi possível consultar a conversa do chamado.',
   )
   if (Array.isArray(data)) return data
-  return data?.timeline || data?.items || data?.comentarios || []
+  /** ScrumHub devolve a conversa em `data.mensagens` (abertura + comentários). */
+  return data?.mensagens || data?.timeline || data?.items || data?.comentarios || []
 }
 
 export async function createScrumHubTicketComment (

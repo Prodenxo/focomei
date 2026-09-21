@@ -122,6 +122,10 @@ export const isTeamComment = (row, requesterEmail) => {
   return true
 }
 
+/** Abertura do chamado é sempre do solicitante, mesmo sem campos de externo. */
+const isAberturaItem = (row) =>
+  text(first(row.tipo, row.type)).toLowerCase().includes('abertura')
+
 export const normalizeTimelineItem = (row) => ({
   id: timelineId(row) || remoteEventKey(row),
   type: isCommentItem(row) ? 'comment' : text(first(row.tipo, row.type)) || 'event',
@@ -129,7 +133,9 @@ export const normalizeTimelineItem = (row) => ({
   createdAt: timelineCreatedAt(row),
   authorName: timelineAuthorName(row),
   authorEmail: timelineAuthorEmail(row) || null,
-  external: Boolean(row.nome_externo || row.email_externo || bool(row.is_externo)),
+  external: Boolean(
+    row.nome_externo || row.email_externo || bool(row.is_externo) || isAberturaItem(row),
+  ),
 })
 
 export const resolveSupportRequester = async (userId, accessContext = {}) => {

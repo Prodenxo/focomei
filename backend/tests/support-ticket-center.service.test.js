@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   assertSupportTicketOwnership,
   deliverPendingSupportWhatsapp,
+  isTeamComment,
   normalizeRemoteTicket,
   normalizeTimelineItem,
   syncSupportTicketLink,
@@ -119,6 +120,48 @@ test('sync é idempotente e só cria evento para comentário novo da equipe', as
   const insert = calls.find((call) => call.sql.includes('support_ticket_events'))
   assert.equal(insert.params[2], 'comment:2')
   assert.equal(insert.params[3], 'comment')
+})
+
+test('payload real do ScrumHub: abertura é do cliente e comentário do painel notifica', () => {
+  const mensagens = [
+    {
+      tipo: 'abertura',
+      id: null,
+      texto: 'teste',
+      autor: 'Leonardo de Lima',
+      created_at: '2026-09-21 14:16:26',
+    },
+    {
+      tipo: 'comentario',
+      id: 3217,
+      texto: 'Teste',
+      autor: 'Leonardo de Lima',
+      usuario_id: 25,
+      nome_externo: null,
+      created_at: '2026-09-21 14:17:24',
+    },
+    {
+      tipo: 'comentario',
+      id: 3218,
+      texto: 'Oi',
+      autor: 'Leonardo de Lima',
+      usuario_id: 25,
+      nome_externo: 'Leonardo de Lima',
+      created_at: '2026-09-21 14:22:12',
+    },
+  ]
+
+  const [abertura, doPainel, doApp] = mensagens.map(normalizeTimelineItem)
+
+  assert.equal(abertura.text, 'teste')
+  assert.equal(abertura.external, true)
+  assert.equal(doPainel.type, 'comment')
+  assert.equal(doPainel.text, 'Teste')
+  assert.equal(doPainel.external, false)
+  assert.equal(doApp.external, true)
+
+  assert.equal(isTeamComment(mensagens[1], 'leo.irak@hotmail.com'), true)
+  assert.equal(isTeamComment(mensagens[2], 'leo.irak@hotmail.com'), false)
 })
 
 test('comentário da equipe sem autor identificado ainda notifica', async () => {
