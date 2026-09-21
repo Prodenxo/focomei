@@ -12,7 +12,7 @@ const enabled = () =>
 
 const intervalMs = () => {
   const value = Number(env.SCRUMHUB_SYNC_INTERVAL_MS)
-  return Number.isFinite(value) && value >= 60_000 ? value : 5 * 60 * 1000
+  return Number.isFinite(value) && value >= 60_000 ? value : 60 * 1000
 }
 
 export const runSupportTicketSync = async () => {

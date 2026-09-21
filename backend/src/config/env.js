@@ -400,6 +400,6 @@ export const env = {
   SCRUMHUB_API_KEY: normalizeEnvSecret(process.env.SCRUMHUB_API_KEY || ""),
   SCRUMHUB_SYNC_ENABLED: (process.env.SCRUMHUB_SYNC_ENABLED || "true").trim(),
   SCRUMHUB_SYNC_INTERVAL_MS: (
-    process.env.SCRUMHUB_SYNC_INTERVAL_MS || String(5 * 60 * 1000)
+    process.env.SCRUMHUB_SYNC_INTERVAL_MS || String(60 * 1000)
   ).trim(),
 };
