@@ -42,7 +42,7 @@ export interface PlugNotasCompanyForm {
   nfceAtivo: boolean;
   /** Lote inicial RPS no emissor (NFS-e). */
   rpsLote: number;
-  /** Número inicial RPS. */
+  /** Próximo número RPS/DPS que será usado pelo emissor. */
   rpsNumero: number;
   /** Série RPS (texto). */
   rpsSerie: string;
@@ -52,6 +52,17 @@ const clampRpsInt = (value: unknown, fallback: number): number => {
   const n = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10);
   if (Number.isFinite(n) && n >= 1) return n;
   return fallback;
+};
+
+/** Converte o próximo número configurado no emissor para o último já utilizado. */
+export const rpsNextToLastEmitted = (nextNumero: unknown): number =>
+  Math.max(0, clampRpsInt(nextNumero, 1) - 1);
+
+/** O usuário informa o último utilizado; PlugNotas precisa receber o próximo. */
+export const rpsLastEmittedToNext = (lastNumero: unknown): number => {
+  const parsed = Number.parseInt(String(lastNumero ?? ''), 10);
+  const safeLast = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  return safeLast + 1;
 };
 
 export function isPlugnotasRpsSerieNotRegisteredMessage(message: string): boolean {
@@ -156,7 +167,7 @@ export function getPlugNotasCompanyValidationMessage(form: PlugNotasCompanyForm)
     return 'Lote RPS deve ser um número inteiro maior ou igual a 1.';
   }
   if (!Number.isFinite(form.rpsNumero) || form.rpsNumero < 1) {
-    return 'Número inicial do RPS deve ser um inteiro maior ou igual a 1.';
+    return 'O próximo número do RPS deve ser um inteiro maior ou igual a 1.';
   }
   if (!String(form.rpsSerie ?? '').trim()) {
     return 'Informe a série do RPS (ex.: 1).';

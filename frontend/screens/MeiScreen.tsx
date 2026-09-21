@@ -110,6 +110,8 @@ import {
   getPlugNotasCompanyValidationMessage,
   buildPlugNotasEmpresaPayload,
   empresaFiscalToCompanyForm,
+  rpsLastEmittedToNext,
+  rpsNextToLastEmitted,
   type PlugNotasCompanyForm,
 } from '../lib/plugNotasEmpresaForm';
 import {
@@ -4026,6 +4028,27 @@ function MeiScreenContent() {
                     autoCapitalize="none"
                   />
                 </View>
+
+                {documentosPermitidos.nfse ? (
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Último RPS/DPS utilizado</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Ex.: 125"
+                      placeholderTextColor={theme.placeholder}
+                      value={String(rpsNextToLastEmitted(plugNotasCompanyForm.rpsNumero))}
+                      onChangeText={(value) => updatePlugNotasCompanyForm({
+                        rpsNumero: rpsLastEmittedToNext(value.replace(/\D/g, '')),
+                      })}
+                      keyboardType="numeric"
+                    />
+                    <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 4, lineHeight: 16 }}>
+                      Informe o número da última nota emitida. A próxima usará o RPS/DPS{' '}
+                      {plugNotasCompanyForm.rpsNumero}. O sistema não reduz abaixo de uma numeração
+                      já encontrada no histórico.
+                    </Text>
+                  </View>
+                ) : null}
 
                 {documentosPermitidos.nfe ? (
                   <View style={styles.inputGroup}>

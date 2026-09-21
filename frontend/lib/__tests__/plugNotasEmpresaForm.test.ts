@@ -1,7 +1,10 @@
 import {
   buildPlugNotasEmpresaPayload,
+  empresaFiscalToCompanyForm,
   getDefaultPlugNotasCompanyForm,
   getPlugNotasCompanyValidationMessage,
+  rpsLastEmittedToNext,
+  rpsNextToLastEmitted,
 } from '../plugNotasEmpresaForm';
 
 describe('buildPlugNotasEmpresaPayload', () => {
@@ -73,5 +76,49 @@ describe('buildPlugNotasEmpresaPayload', () => {
       nfceAtivo: true,
     };
     expect(getPlugNotasCompanyValidationMessage(form)).toMatch(/NFC-e exige CSC/i);
+  });
+
+  it('converte o último RPS informado para o próximo número do emissor', () => {
+    expect(rpsLastEmittedToNext('125')).toBe(126);
+    expect(rpsLastEmittedToNext('0')).toBe(1);
+    expect(rpsNextToLastEmitted(126)).toBe(125);
+    expect(rpsNextToLastEmitted(1)).toBe(0);
+  });
+
+  it('carrega o próximo RPS salvo e permite exibir o último utilizado', () => {
+    const form = empresaFiscalToCompanyForm({
+      nfse: { ativo: true, config: { rps: { numero: 43, serie: '1', lote: 1 } } },
+    });
+
+    expect(form.rpsNumero).toBe(43);
+    expect(rpsNextToLastEmitted(form.rpsNumero)).toBe(42);
+  });
+
+  it('envia para PlugNotas o número seguinte ao último informado', () => {
+    const form = {
+      ...getDefaultPlugNotasCompanyForm(),
+      razaoSocial: 'Empresa Teste LTDA',
+      email: 'contato@empresa.com.br',
+      logradouro: 'Rua A',
+      numero: '1',
+      bairro: 'Centro',
+      cep: '01310100',
+      codigoCidade: '3550308',
+      descricaoCidade: 'São Paulo',
+      estado: 'SP',
+      rpsNumero: rpsLastEmittedToNext(99),
+    };
+
+    const payload = buildPlugNotasEmpresaPayload({
+      cnpj: '12345678000199',
+      certificadoId: '',
+      form,
+    });
+
+    expect(payload.rps).toEqual({
+      lote: 1,
+      numeracao: [{ numero: 100, serie: '1' }],
+    });
+    expect((payload.nfse as { config: { rps: { numero: number } } }).config.rps.numero).toBe(100);
   });
 });
