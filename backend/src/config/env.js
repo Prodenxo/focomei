@@ -398,4 +398,8 @@ export const env = {
   SCRUMHUB_PUBLIC_ORIGIN: (process.env.SCRUMHUB_PUBLIC_ORIGIN || "").trim(),
   SCRUMHUB_TICKET_SLUG: (process.env.SCRUMHUB_TICKET_SLUG || "foco-mei").trim(),
   SCRUMHUB_API_KEY: normalizeEnvSecret(process.env.SCRUMHUB_API_KEY || ""),
+  SCRUMHUB_SYNC_ENABLED: (process.env.SCRUMHUB_SYNC_ENABLED || "true").trim(),
+  SCRUMHUB_SYNC_INTERVAL_MS: (
+    process.env.SCRUMHUB_SYNC_INTERVAL_MS || String(5 * 60 * 1000)
+  ).trim(),
 };

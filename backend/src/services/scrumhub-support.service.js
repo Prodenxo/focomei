@@ -29,6 +29,17 @@ async function parseJsonResponse (response, fallbackMessage) {
   return payload
 }
 
+function apiKeyHeaders (apiKey, json = false) {
+  return {
+    'X-API-Key': apiKey,
+    ...(json ? { 'Content-Type': 'application/json' } : {}),
+  }
+}
+
+function unwrapData (payload) {
+  return payload?.data ?? payload
+}
+
 export async function resolveScrumHubApiKey () {
   const fromEnv = (env.SCRUMHUB_API_KEY || '').trim()
   if (fromEnv) return fromEnv
@@ -133,5 +144,68 @@ export async function createScrumHubExternalTicket ({ fields, files = [] }) {
   })
 
   const payload = await parseJsonResponse(response, 'Erro ao criar ticket no ScrumHub.')
-  return payload?.data ?? payload
+  return unwrapData(payload)
+}
+
+async function scrumHubGet (path, fallbackMessage) {
+  const apiKey = await resolveScrumHubApiKey()
+  const response = await fetch(`${getScrumHubApiBase()}${path}`, {
+    method: 'GET',
+    headers: apiKeyHeaders(apiKey),
+  })
+  const payload = await parseJsonResponse(response, fallbackMessage)
+  return unwrapData(payload)
+}
+
+export async function listScrumHubTicketsForRequester ({ email, phone }) {
+  const params = new URLSearchParams()
+  if (email) params.set('email', String(email).trim())
+  if (phone) params.set('telefone', String(phone).replace(/\D/g, ''))
+  if (![...params.keys()].length) {
+    throw badRequest('E-mail ou telefone do solicitante não encontrado.')
+  }
+  const data = await scrumHubGet(
+    `/public/tickets/meus?${params.toString()}`,
+    'Não foi possível consultar seus chamados no ScrumHub.',
+  )
+  return Array.isArray(data) ? data : (data?.tickets || [])
+}
+
+export async function fetchScrumHubTicket (ticketId) {
+  return scrumHubGet(
+    `/tickets-pai/${encodeURIComponent(ticketId)}`,
+    'Não foi possível consultar o chamado no ScrumHub.',
+  )
+}
+
+export async function fetchScrumHubTicketTimeline (ticketId) {
+  const data = await scrumHubGet(
+    `/public/tickets/${encodeURIComponent(ticketId)}/timeline?format=flat`,
+    'Não foi possível consultar a conversa do chamado.',
+  )
+  if (Array.isArray(data)) return data
+  return data?.timeline || data?.items || data?.comentarios || []
+}
+
+export async function createScrumHubTicketComment (
+  ticketId,
+  { comentario, nomeExterno, email, phone },
+) {
+  const apiKey = await resolveScrumHubApiKey()
+  const response = await fetch(
+    `${getScrumHubApiBase()}/public/tickets/${encodeURIComponent(ticketId)}/comentarios`,
+    {
+      method: 'POST',
+      headers: apiKeyHeaders(apiKey, true),
+      body: JSON.stringify({
+        comentario: String(comentario || '').trim(),
+        nome_externo: String(nomeExterno || '').trim(),
+        email: String(email || '').trim() || undefined,
+        contato_solicitante: String(phone || '').replace(/\D/g, '') || undefined,
+        comentario_pai_id: null,
+      }),
+    },
+  )
+  const payload = await parseJsonResponse(response, 'Não foi possível responder ao chamado.')
+  return unwrapData(payload)
 }

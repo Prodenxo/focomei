@@ -14,6 +14,7 @@ export type SettingsActionLinkProps = {
   iconColor?: string
   onPress: () => void
   accessibilityLabel?: string
+  badge?: number
 }
 
 export function SettingsActionLink ({
@@ -23,6 +24,7 @@ export function SettingsActionLink ({
   iconColor,
   onPress,
   accessibilityLabel,
+  badge = 0,
 }: SettingsActionLinkProps) {
   const { isDarkMode } = useMfTheme()
   const tokens = getSiteTokens(isDarkMode)
@@ -47,6 +49,11 @@ export function SettingsActionLink ({
           <Text style={[styles.description, { color: tokens.textSecondary }]}>{description}</Text>
         ) : null}
       </View>
+      {badge > 0 ? (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>{badge > 99 ? '99+' : badge}</Text>
+        </View>
+      ) : null}
       <Ionicons name="chevron-forward" size={16} color={tokens.textMuted} />
     </Pressable>
   )
@@ -73,5 +80,19 @@ const styles = StyleSheet.create({
   description: {
     fontSize: 12,
     lineHeight: 16,
+  },
+  badge: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: 11,
+    backgroundColor: '#ef4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
   },
 })

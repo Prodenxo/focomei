@@ -38,6 +38,7 @@ import {
   subscribeAccessRestriction,
   type AccessRestriction,
 } from '@/lib/apiClient';
+import { SupportNotificationWatcher } from '@/components/support/SupportNotificationWatcher';
 
 type AccessStatus = 'checking' | 'pending' | 'ok';
 
@@ -597,6 +598,7 @@ export default function AppLayout() {
           navigateTo={navigateTo}
           showTopNav={hasGlobalNav}
         />
+        <SupportNotificationWatcher userId={user.id} />
         {!shellLocked ? (
           <SideDrawer
             visible={drawerOpen}
