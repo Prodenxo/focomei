@@ -7,7 +7,7 @@ create table if not exists public.support_ticket_agent_replies (
   scrumhub_ticket_id bigint not null,
   remote_comment_id text not null,
   agent_user_id uuid null references public.users (id) on delete set null,
-    10|  agent_name text not null,
+  agent_name text not null,
   created_at timestamptz not null default now(),
   constraint support_ticket_agent_replies_key unique (scrumhub_ticket_id, remote_comment_id)
 );

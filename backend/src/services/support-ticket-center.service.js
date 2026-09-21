@@ -171,13 +171,25 @@ export const normalizeTimelineItem = (row, agentCommentIds) => {
   }
 }
 
+/**
+ * Autoria das respostas da equipe é um reforço: sem ela a conversa ainda abre,
+ * apenas mostrando a mensagem do lado do solicitante (como o ScrumHub devolve).
+ */
 const loadAgentCommentIds = async (scrumhubTicketId, queryFn = query) => {
-  const { rows } = await queryFn(
-    `select remote_comment_id from public.support_ticket_agent_replies
-      where scrumhub_ticket_id = $1`,
-    [scrumhubTicketId],
-  )
-  return new Set(rows.map((row) => String(row.remote_comment_id)))
+  try {
+    const { rows } = await queryFn(
+      `select remote_comment_id from public.support_ticket_agent_replies
+        where scrumhub_ticket_id = $1`,
+      [scrumhubTicketId],
+    )
+    return new Set(rows.map((row) => String(row.remote_comment_id)))
+  } catch (error) {
+    console.warn(
+      '[support-ticket] não foi possível ler as respostas da equipe',
+      { ticketId: scrumhubTicketId, error: error instanceof Error ? error.message : error },
+    )
+    return new Set()
+  }
 }
 
 export const resolveSupportRequester = async (userId, accessContext = {}) => {
@@ -440,6 +452,7 @@ export const replySupportTicketAsAgent = async (agent, ticketId, comment, imagem
     imagem,
   })
 
+  // O comentário já foi publicado: falha no registro local não invalida o envio.
   const remoteCommentId = text(first(created?.id, created?.comentario_id))
   if (remoteCommentId) {
     await query(
@@ -448,7 +461,12 @@ export const replySupportTicketAsAgent = async (agent, ticketId, comment, imagem
        ) values ($1, $2, $3, $4)
        on conflict (scrumhub_ticket_id, remote_comment_id) do nothing`,
       [ticketId, remoteCommentId, agent.userId || null, agent.name || SUPPORT_AGENT_DISPLAY_NAME],
-    )
+    ).catch((error) => {
+      console.warn(
+        '[support-ticket] resposta enviada, mas a autoria da equipe não foi registrada',
+        { ticketId, error: error instanceof Error ? error.message : error },
+      )
+    })
   }
 
   const link = await getLinkByTicketId(ticketId)
