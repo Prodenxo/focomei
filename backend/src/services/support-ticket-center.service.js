@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { env } from '../config/env.js'
 import { query } from '../config/pg.js'
 import { badRequest, forbidden, notFound } from '../utils/errors.js'
 import {
@@ -17,6 +18,13 @@ const SCRUMHUB_PROJECT_ID = 39
 const COMPLETED_STATUS_ID = 127
 /** Nome exibido no ScrumHub quando a equipe responde pelo FocoMEI. */
 export const SUPPORT_AGENT_DISPLAY_NAME = 'Equipe FocoMEI'
+
+/**
+ * O aviso leva o solicitante para a central no app, nunca para o ScrumHub:
+ * a URL pública do ticket aponta para domínios internos que o cliente não acessa.
+ */
+export const supportCenterLink = () =>
+  String(env.FRONTEND_URL || 'https://focomei.com.br').replace(/\/$/, '')
 const onlyDigits = (value) => String(value || '').replace(/\D/g, '')
 const text = (value) => String(value ?? '').trim()
 const bool = (value) => value === true || value === 1 || value === '1'
@@ -708,7 +716,8 @@ export const deliverPendingSupportWhatsapp = async (
       event.title,
       '',
       event.message,
-      event.public_url ? `Acompanhe: ${event.public_url}` : null,
+      '',
+      `Responda em ${supportCenterLink()} — Configurações › Meus chamados.`,
     ].filter(Boolean).join('\n')
     try {
       await sendFn({ phone: event.requester_phone, message })

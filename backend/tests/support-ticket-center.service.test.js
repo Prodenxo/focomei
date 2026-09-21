@@ -6,6 +6,7 @@ import {
   isTeamComment,
   normalizeRemoteTicket,
   normalizeTimelineItem,
+  supportCenterLink,
   syncSupportTicketLink,
 } from '../src/services/support-ticket-center.service.js'
 
@@ -297,4 +298,35 @@ test('falha de WhatsApp é registrada sem interromper a sincronização', async 
   assert.equal(result.sent, 0)
   assert.equal(result.processed, 1)
   assert.match(updates[0].params[1], /canal indisponível/)
+})
+
+test('aviso de WhatsApp leva para o FocoMEI, nunca para a URL do ScrumHub', async () => {
+  const enviados = []
+  let firstQuery = true
+  await deliverPendingSupportWhatsapp(
+    {},
+    {
+      configuredFn: () => true,
+      sendFn: async (payload) => { enviados.push(payload) },
+      queryFn: async () => {
+        if (!firstQuery) return { rows: [] }
+        firstQuery = false
+        return {
+          rows: [{
+            id: 'event-1',
+            title: 'Nova resposta no chamado SCRUM-010',
+            message: 'A equipe respondeu.',
+            requester_phone: '5511999999999',
+            // Domínio interno que o solicitante não consegue abrir.
+            public_url: 'https://scrumhub.vercel.app/ticket/nota-7738?slug=foco-mei',
+          }],
+        }
+      },
+    },
+  )
+
+  assert.equal(enviados.length, 1)
+  assert.ok(!enviados[0].message.includes('scrumhub'))
+  assert.match(enviados[0].message, /Meus chamados/)
+  assert.match(enviados[0].message, new RegExp(supportCenterLink()))
 })
