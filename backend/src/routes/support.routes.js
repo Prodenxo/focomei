@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import multer from 'multer'
 import { requireAuth } from '../middlewares/auth.js'
+import { requireSuperAdmin } from '../middlewares/requireSuperAdmin.js'
 import {
   createScrumHubExternalTicket,
   fetchScrumHubTicketFormConfig,
@@ -8,13 +9,16 @@ import {
 import {
   commentOnOwnedSupportTicket,
   getOwnedSupportTicket,
+  getSupportTicketForAdmin,
   getUnreadSupportCount,
   importRequesterTicketsOnce,
   listSupportNotifications,
   listOwnedSupportTickets,
+  listSupportTicketsForAdmin,
   markAllSupportNotificationsRead,
   markOwnedSupportTicketRead,
   markSupportNotificationRead,
+  replySupportTicketAsAgent,
   resolveSupportRequester,
   saveSupportTicketLink,
   syncSupportTicketLink,
@@ -23,9 +27,15 @@ import { sendCreated, sendSuccess } from '../utils/response.js'
 
 const router = Router()
 
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'heic', 'heif'])
+
 const ALLOWED_EXTENSIONS = new Set([
   'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv', 'rtf', 'odt', 'ods', 'odp',
+  ...IMAGE_EXTENSIONS,
 ])
+
+const fileExtension = (file) =>
+  String(file?.originalname || '').split('.').pop()?.toLowerCase() || ''
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -34,14 +44,44 @@ const upload = multer({
     files: 10,
   },
   fileFilter: (_req, file, cb) => {
-    const ext = String(file.originalname || '').split('.').pop()?.toLowerCase() || ''
-    if (!ALLOWED_EXTENSIONS.has(ext)) {
-      cb(new Error('Tipo de arquivo não permitido. Use PDF, Word, Excel, PowerPoint, TXT, CSV, RTF ou OpenDocument.'))
+    if (!ALLOWED_EXTENSIONS.has(fileExtension(file))) {
+      cb(new Error('Tipo de arquivo não permitido. Use imagens, PDF, Word, Excel, PowerPoint, TXT, CSV, RTF ou OpenDocument.'))
       return
     }
     cb(null, true)
   },
 })
+
+/** O ScrumHub guarda a imagem do comentário como texto, então enviamos data URL. */
+const MAX_COMMENT_IMAGE_BYTES = 3 * 1024 * 1024
+
+const uploadCommentImage = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_COMMENT_IMAGE_BYTES, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    if (!IMAGE_EXTENSIONS.has(fileExtension(file))) {
+      cb(new Error('Anexe uma imagem PNG, JPG, WEBP ou GIF.'))
+      return
+    }
+    cb(null, true)
+  },
+})
+
+const resolveCommentImage = (req) => {
+  const file = req.file
+  if (file?.buffer?.length) {
+    const mime = file.mimetype || 'image/png'
+    return `data:${mime};base64,${file.buffer.toString('base64')}`
+  }
+  const inline = String(req.body?.imagem || '').trim()
+  if (!inline) return null
+  if (!/^data:image\/[a-z.+-]+;base64,/i.test(inline) && !/^https?:\/\//i.test(inline)) {
+    const error = new Error('Imagem inválida.')
+    error.status = 400
+    throw error
+  }
+  return inline
+}
 
 router.get('/ticket-form', requireAuth, async (_req, res, next) => {
   try {
@@ -163,19 +203,63 @@ router.get('/tickets/:ticketId/timeline', requireAuth, async (req, res, next) =>
   }
 })
 
-router.post('/tickets/:ticketId/comments', requireAuth, async (req, res, next) => {
+router.post(
+  '/tickets/:ticketId/comments',
+  requireAuth,
+  uploadCommentImage.single('imagem'),
+  async (req, res, next) => {
+    try {
+      const requester = await requesterFromRequest(req)
+      const comment = await commentOnOwnedSupportTicket(
+        requester,
+        parseTicketId(req.params.ticketId),
+        req.body?.comentario,
+        resolveCommentImage(req),
+      )
+      return sendCreated(res, comment, 'Resposta enviada')
+    } catch (error) {
+      return next(error)
+    }
+  },
+)
+
+router.get('/admin/tickets', requireAuth, requireSuperAdmin, async (_req, res, next) => {
   try {
-    const requester = await requesterFromRequest(req)
-    const comment = await commentOnOwnedSupportTicket(
-      requester,
-      parseTicketId(req.params.ticketId),
-      req.body?.comentario,
-    )
-    return sendCreated(res, comment, 'Resposta enviada')
+    return sendSuccess(res, { tickets: await listSupportTicketsForAdmin() })
   } catch (error) {
     return next(error)
   }
 })
+
+router.get('/admin/tickets/:ticketId', requireAuth, requireSuperAdmin, async (req, res, next) => {
+  try {
+    const data = await getSupportTicketForAdmin(parseTicketId(req.params.ticketId))
+    return sendSuccess(res, data)
+  } catch (error) {
+    return next(error)
+  }
+})
+
+router.post(
+  '/admin/tickets/:ticketId/comments',
+  requireAuth,
+  requireSuperAdmin,
+  uploadCommentImage.single('imagem'),
+  async (req, res, next) => {
+    try {
+      const agent = await requesterFromRequest(req)
+      const result = await replySupportTicketAsAgent(
+        agent,
+        parseTicketId(req.params.ticketId),
+        req.body?.comentario,
+        resolveCommentImage(req),
+      )
+      return sendCreated(res, result, 'Resposta enviada ao solicitante')
+    } catch (error) {
+      return next(error)
+    }
+  },
+)
 
 router.post('/tickets/:ticketId/read', requireAuth, async (req, res, next) => {
   try {

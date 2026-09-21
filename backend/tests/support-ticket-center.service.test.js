@@ -54,12 +54,43 @@ test('normaliza comentário externo da timeline para a conversa', () => {
       id: '9',
       type: 'comment',
       text: 'Preciso de ajuda',
+      imageUrl: null,
+      attachments: [],
       createdAt: '2026-09-21T10:00:00Z',
       authorName: 'Maria',
       authorEmail: 'maria@example.com',
       external: true,
     },
   )
+})
+
+test('imagem do comentário vira anexo visível na conversa', () => {
+  const item = normalizeTimelineItem({
+    id: 3227,
+    tipo: 'comentario',
+    texto: 'segue o print',
+    imagem: 'data:image/png;base64,iVBORw0KGgo=',
+    nome_externo: 'Maria',
+  })
+  assert.equal(item.imageUrl, 'data:image/png;base64,iVBORw0KGgo=')
+  assert.equal(item.external, true)
+})
+
+test('resposta da equipe pelo FocoMEI aparece como equipe, não como o solicitante', () => {
+  const row = {
+    id: 3230,
+    tipo: 'comentario',
+    texto: 'Já corrigimos por aqui.',
+    nome_externo: 'Equipe FocoMEI',
+  }
+  const agentIds = new Set(['3230'])
+
+  const item = normalizeTimelineItem(row, agentIds)
+  assert.equal(item.external, false)
+  assert.equal(item.authorName, 'Equipe FocoMEI')
+  // Sem o registro local, o ScrumHub devolveria isso como mensagem do próprio cliente.
+  assert.equal(normalizeTimelineItem(row).external, true)
+  assert.equal(isTeamComment(row, 'maria@example.com', agentIds), true)
 })
 
 test('nega ownership quando o vínculo não pertence ao usuário', () => {

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
+  Image,
   Modal,
   Platform,
   Pressable,
@@ -10,21 +11,28 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native'
+import * as DocumentPicker from 'expo-document-picker'
 import { Ionicons } from '@expo/vector-icons'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { MfScrollView } from '@/components/ui/MfScrollView'
 import { useMfTheme } from '@/components/ui/useMfTheme'
 import { getTechTokens } from '@/lib/techDesign'
 import { mfRadius, mfSpacing } from '@/lib/theme'
+import { SupportRichText } from '@/components/support/SupportRichText'
 import {
   commentSupportTicket,
+  getAdminSupportTicketDetail,
   getSupportTicketDetail,
+  listAdminSupportTickets,
   listSupportTickets,
   markSupportTicketRead,
+  replyAdminSupportTicket,
   type SupportTicket,
+  type SupportTicketAttachment,
   type SupportTicketDetail,
 } from '@/services/supportService'
 import { useAppToastStore } from '@/store/appToastStore'
+import { useAuthStore } from '@/store/authStore'
 import { useSupportCenterStore } from '@/store/supportCenterStore'
 
 type Props = {
@@ -65,6 +73,15 @@ const PRIORITY_LABEL: Record<string, string> = {
   urgente: 'Urgente',
 }
 
+const IMAGE_PICKER_TYPES = Platform.OS === 'web'
+  ? '.png,.jpg,.jpeg,.webp,.gif'
+  : ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+
+/** ScrumHub guarda a imagem como texto, então o backend recusa arquivos grandes. */
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024
+
+type Scope = 'mine' | 'all'
+
 export function SupportTicketCenterModal ({
   visible,
   onClose,
@@ -78,17 +95,24 @@ export function SupportTicketCenterModal ({
   const showToast = useAppToastStore((state) => state.show)
   const refreshNotifications = useSupportCenterStore((state) => state.refresh)
   const clearFocus = useSupportCenterStore((state) => state.clearFocus)
+  const role = useAuthStore((state) => state.role)
+  const isSuperAdmin = role === 'superadmin'
 
+  const [scope, setScope] = useState<Scope>('mine')
   const [tickets, setTickets] = useState<SupportTicket[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [detail, setDetail] = useState<SupportTicketDetail | null>(null)
+  const [requesterLabel, setRequesterLabel] = useState<string | null>(null)
   const [loadingList, setLoadingList] = useState(false)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [sending, setSending] = useState(false)
   const [reply, setReply] = useState('')
+  const [attachment, setAttachment] = useState<SupportTicketAttachment | null>(null)
+  const [preview, setPreview] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const mountedRef = useRef(true)
   const wasVisibleRef = useRef(false)
+  const isTeamView = scope === 'all'
 
   /** A conversa também abre por notificação, antes da lista chegar: usa o detalhe como base. */
   const selected = useMemo<SupportTicket | null>(() => {
@@ -117,6 +141,13 @@ export function SupportTicketCenterModal ({
   const loadTickets = useCallback(async (silent = false) => {
     if (!silent) setLoadingList(true)
     try {
+      if (scope === 'all') {
+        const all = await listAdminSupportTickets()
+        if (!mountedRef.current) return all
+        setTickets(all)
+        setError(null)
+        return all
+      }
       const result = await listSupportTickets()
       if (!mountedRef.current) return result.tickets
       setTickets(result.tickets)
@@ -131,14 +162,24 @@ export function SupportTicketCenterModal ({
     } finally {
       if (!silent && mountedRef.current) setLoadingList(false)
     }
-  }, [onUnreadChange])
+  }, [onUnreadChange, scope])
 
   const loadDetail = useCallback(async (ticketId: number, silent = false) => {
     if (!silent) setLoadingDetail(true)
     try {
+      if (scope === 'all') {
+        const admin = await getAdminSupportTicketDetail(ticketId)
+        if (!mountedRef.current) return
+        setDetail({ ticket: admin.ticket, timeline: admin.timeline })
+        setRequesterLabel(admin.solicitante?.nome || admin.solicitante?.email || null)
+        setError(null)
+        return
+      }
+
       const result = await getSupportTicketDetail(ticketId)
       if (!mountedRef.current) return
       setDetail(result)
+      setRequesterLabel(null)
       setError(null)
       const read = await markSupportTicketRead(ticketId)
       if (!mountedRef.current) return
@@ -154,7 +195,7 @@ export function SupportTicketCenterModal ({
     } finally {
       if (!silent && mountedRef.current) setLoadingDetail(false)
     }
-  }, [onUnreadChange, refreshNotifications])
+  }, [onUnreadChange, refreshNotifications, scope])
 
   /** Abertura da central: começa sempre pela lista atualizada. */
   useEffect(() => {
@@ -166,10 +207,36 @@ export function SupportTicketCenterModal ({
     wasVisibleRef.current = true
     setError(null)
     setReply('')
+    setAttachment(null)
     setSelectedId(null)
     setDetail(null)
+    if (scope !== 'mine') {
+      // Volta para "meus chamados"; o efeito de aba carrega a lista certa em seguida.
+      setScope('mine')
+      return
+    }
     void loadTickets()
-  }, [visible, loadTickets])
+  }, [visible, scope, loadTickets])
+
+  /** Alternar entre "meus" e "todos" recomeça pela lista da aba escolhida. */
+  const changeScope = useCallback((next: Scope) => {
+    setScope(next)
+    setSelectedId(null)
+    setDetail(null)
+    setRequesterLabel(null)
+    setReply('')
+    setAttachment(null)
+    setError(null)
+    setTickets([])
+  }, [])
+
+  const scopeRef = useRef(scope)
+  useEffect(() => {
+    if (!visible) return
+    if (scopeRef.current === scope) return
+    scopeRef.current = scope
+    void loadTickets()
+  }, [visible, scope, loadTickets])
 
   /** Notificação escolhida no sino: entra direto na conversa do chamado. */
   useEffect(() => {
@@ -196,6 +263,7 @@ export function SupportTicketCenterModal ({
     setSelectedId(ticket.scrumhubTicketId)
     setDetail(null)
     setReply('')
+    setAttachment(null)
     setError(null)
     void loadDetail(ticket.scrumhubTicketId)
   }, [loadDetail])
@@ -203,19 +271,84 @@ export function SupportTicketCenterModal ({
   const backToList = useCallback(() => {
     setSelectedId(null)
     setDetail(null)
+    setRequesterLabel(null)
     setReply('')
+    setAttachment(null)
     setError(null)
     void loadTickets(true)
   }, [loadTickets])
 
+  const pickImage = useCallback(async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: IMAGE_PICKER_TYPES,
+        copyToCacheDirectory: true,
+        multiple: false,
+      })
+      if (result.canceled) return
+      const asset = result.assets?.[0]
+      if (!asset) return
+      if ((asset.size ?? 0) > MAX_IMAGE_BYTES) {
+        showToast('A imagem precisa ter no máximo 3 MB.', 'error')
+        return
+      }
+      setAttachment({
+        uri: asset.uri,
+        name: asset.name || 'print.png',
+        type: asset.mimeType || 'image/png',
+        size: asset.size ?? null,
+      })
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'Não foi possível selecionar a imagem.',
+        'error',
+      )
+    }
+  }, [showToast])
+
+  /** Colar print direto no campo — atalho mais comum no navegador. */
+  const handlePaste = useCallback((event: ClipboardEvent) => {
+    const file = Array.from(event.clipboardData?.files || [])
+      .find((item) => item.type.startsWith('image/'))
+    if (!file) return
+    event.preventDefault()
+    if (file.size > MAX_IMAGE_BYTES) {
+      showToast('A imagem precisa ter no máximo 3 MB.', 'error')
+      return
+    }
+    setAttachment({
+      uri: URL.createObjectURL(file),
+      name: file.name || 'print.png',
+      type: file.type,
+      size: file.size,
+    })
+  }, [showToast])
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !visible || !selectedId) return
+    const listener = (event: Event) => handlePaste(event as ClipboardEvent)
+    window.addEventListener('paste', listener)
+    return () => window.removeEventListener('paste', listener)
+  }, [visible, selectedId, handlePaste])
+
   const submitReply = useCallback(async () => {
-    if (!selected || !reply.trim() || sending) return
+    if (!selected || sending) return
+    const message = reply.trim()
+    if (!message && !attachment) return
     setSending(true)
     try {
-      await commentSupportTicket(selected.scrumhubTicketId, reply.trim())
+      if (isTeamView) {
+        await replyAdminSupportTicket(selected.scrumhubTicketId, message, attachment)
+      } else {
+        await commentSupportTicket(selected.scrumhubTicketId, message, attachment)
+      }
       setReply('')
+      setAttachment(null)
       await loadDetail(selected.scrumhubTicketId, true)
-      showToast('Resposta enviada para a equipe.', 'success')
+      showToast(
+        isTeamView ? 'Resposta enviada ao solicitante.' : 'Resposta enviada para a equipe.',
+        'success',
+      )
     } catch (err) {
       showToast(
         err instanceof Error ? err.message : 'Não foi possível enviar a resposta.',
@@ -224,7 +357,7 @@ export function SupportTicketCenterModal ({
     } finally {
       if (mountedRef.current) setSending(false)
     }
-  }, [selected, reply, sending, loadDetail, showToast])
+  }, [selected, reply, attachment, sending, isTeamView, loadDetail, showToast])
 
   const styles = useMemo(
     () => createStyles(theme, tokens, isDarkMode, isDesktop),
@@ -270,7 +403,9 @@ export function SupportTicketCenterModal ({
           </View>
           <Text style={styles.emptyTitle}>Nenhum chamado por aqui</Text>
           <Text style={styles.helper}>
-            Quando você abrir um chamado, ele aparece aqui com as respostas da equipe.
+            {isTeamView
+              ? 'Assim que alguém abrir um chamado, ele aparece aqui para a equipe responder.'
+              : 'Quando você abrir um chamado, ele aparece aqui com as respostas da equipe.'}
           </Text>
         </View>
       )
@@ -310,6 +445,14 @@ export function SupportTicketCenterModal ({
                 </View>
 
                 <Text style={styles.cardTitle} numberOfLines={2}>{ticket.nome}</Text>
+
+                {isTeamView ? (
+                  <Text style={styles.cardRequester} numberOfLines={1}>
+                    {(ticket as { solicitanteNome?: string | null }).solicitanteNome
+                      || (ticket as { solicitanteEmail?: string | null }).solicitanteEmail
+                      || 'Solicitante não identificado'}
+                  </Text>
+                ) : null}
 
                 <View style={styles.chipRow}>
                   <View style={[styles.chip, { borderColor: tone, backgroundColor: `${tone}1A` }]}>
@@ -395,7 +538,11 @@ export function SupportTicketCenterModal ({
               </Text>
             </View>
           ) : timeline.map((item) => {
-            const mine = item.external
+            // Na visão da equipe os lados se invertem: quem responde somos nós.
+            const mine = isTeamView ? !item.external : item.external
+            const author = mine
+              ? (isTeamView ? 'Você (equipe)' : 'Você')
+              : item.authorName || (isTeamView ? 'Solicitante' : 'Equipe FocoMEI')
             return (
               <View
                 key={item.id}
@@ -403,16 +550,54 @@ export function SupportTicketCenterModal ({
               >
                 {!mine ? (
                   <View style={styles.avatar}>
-                    <Ionicons name="headset-outline" size={14} color={tokens.accent} />
+                    <Ionicons
+                      name={isTeamView ? 'person-outline' : 'headset-outline'}
+                      size={14}
+                      color={tokens.accent}
+                    />
                   </View>
                 ) : null}
                 <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTeam]}>
                   <Text style={[styles.bubbleAuthor, mine && styles.bubbleAuthorMine]}>
-                    {mine ? 'Você' : item.authorName || 'Equipe FocoMEI'}
+                    {author}
                   </Text>
-                  <Text style={[styles.bubbleText, mine && styles.bubbleTextMine]}>
-                    {item.text}
-                  </Text>
+                  {item.text ? (
+                    <SupportRichText
+                      value={item.text}
+                      style={[styles.bubbleText, mine && styles.bubbleTextMine] as never}
+                      linkColor={mine ? '#fff' : tokens.accent}
+                      codeColor={mine ? '#fff' : theme.textSecondary}
+                    />
+                  ) : null}
+                  {item.imageUrl ? (
+                    <Pressable
+                      onPress={() => setPreview(item.imageUrl as string)}
+                      accessibilityRole="imagebutton"
+                      accessibilityLabel="Ampliar imagem da mensagem"
+                      style={styles.bubbleImageWrap}
+                    >
+                      <Image
+                        source={{ uri: item.imageUrl }}
+                        style={styles.bubbleImage}
+                        resizeMode="cover"
+                      />
+                    </Pressable>
+                  ) : null}
+                  {(item.attachments || []).map((file) => (
+                    <View key={file.url} style={styles.attachmentChip}>
+                      <Ionicons
+                        name="document-attach-outline"
+                        size={13}
+                        color={mine ? '#fff' : theme.textSecondary}
+                      />
+                      <Text
+                        style={[styles.attachmentName, mine && styles.bubbleTextMine]}
+                        numberOfLines={1}
+                      >
+                        {file.name}
+                      </Text>
+                    </View>
+                  ))}
                   {item.createdAt ? (
                     <Text style={[styles.bubbleTime, mine && styles.bubbleTimeMine]}>
                       {formatDateTime(item.createdAt)}
@@ -424,18 +609,45 @@ export function SupportTicketCenterModal ({
           })}
         </MfScrollView>
 
-        <View style={styles.composer}>
-          {selected?.concluido ? (
+        {selected?.concluido && !isTeamView ? (
+          <View style={[styles.composerWrap, styles.composer]}>
             <View style={styles.completedBar}>
               <Ionicons name="checkmark-circle" size={18} color={theme.success} />
               <Text style={styles.completedText}>Ticket concluído pela equipe</Text>
             </View>
-          ) : (
-            <>
+          </View>
+        ) : (
+          <View style={styles.composerWrap}>
+            {attachment ? (
+              <View style={styles.attachPreview}>
+                <Image source={{ uri: attachment.uri }} style={styles.attachThumb} />
+                <Text style={styles.attachLabel} numberOfLines={1}>{attachment.name}</Text>
+                <Pressable
+                  onPress={() => setAttachment(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Remover imagem anexada"
+                  hitSlop={8}
+                >
+                  <Ionicons name="close-circle" size={20} color={theme.error} />
+                </Pressable>
+              </View>
+            ) : null}
+
+            <View style={styles.composer}>
+              <Pressable
+                onPress={() => void pickImage()}
+                accessibilityRole="button"
+                accessibilityLabel="Anexar imagem"
+                style={({ pressed }) => [styles.attachButton, pressed && styles.iconPressed]}
+              >
+                <Ionicons name="image-outline" size={20} color={tokens.accent} />
+              </Pressable>
               <TextInput
                 value={reply}
                 onChangeText={setReply}
-                placeholder="Escreva sua resposta para a equipe…"
+                placeholder={isTeamView
+                  ? 'Responder como equipe FocoMEI…'
+                  : 'Escreva sua resposta para a equipe…'}
                 placeholderTextColor={theme.placeholder}
                 multiline
                 maxLength={5000}
@@ -444,18 +656,27 @@ export function SupportTicketCenterModal ({
               />
               <Pressable
                 onPress={() => void submitReply()}
-                disabled={!reply.trim() || sending}
+                disabled={(!reply.trim() && !attachment) || sending}
                 accessibilityRole="button"
                 accessibilityLabel="Enviar resposta"
-                style={[styles.sendButton, (!reply.trim() || sending) && styles.disabled]}
+                style={[
+                  styles.sendButton,
+                  ((!reply.trim() && !attachment) || sending) && styles.disabled,
+                ]}
               >
                 {sending
                   ? <ActivityIndicator size="small" color="#fff" />
                   : <Ionicons name="arrow-up" size={20} color="#fff" />}
               </Pressable>
-            </>
-          )}
-        </View>
+            </View>
+
+            <Text style={styles.composerHint}>
+              {Platform.OS === 'web'
+                ? 'Use **negrito**, *itálico*, `código` e cole prints com Ctrl+V.'
+                : 'Use **negrito**, *itálico* e `código` para destacar.'}
+            </Text>
+          </View>
+        )}
       </>
     )
   }
@@ -484,10 +705,14 @@ export function SupportTicketCenterModal ({
               <Text style={styles.headerTitle} numberOfLines={1}>
                 {selected
                   ? selected.codigo || `Chamado #${selected.scrumhubTicketId}`
-                  : 'Meus chamados'}
+                  : (isTeamView ? 'Todos os chamados' : 'Meus chamados')}
               </Text>
               <Text style={styles.headerSubtitle} numberOfLines={1}>
-                {selected ? selected.nome : 'Acompanhe e responda a equipe FocoMEI'}
+                {selected
+                  ? (isTeamView && requesterLabel ? `${selected.nome} · ${requesterLabel}` : selected.nome)
+                  : (isTeamView
+                    ? 'Responda os solicitantes como equipe FocoMEI'
+                    : 'Acompanhe e responda a equipe FocoMEI')}
               </Text>
             </View>
 
@@ -512,8 +737,43 @@ export function SupportTicketCenterModal ({
             </Pressable>
           </View>
 
+          {isSuperAdmin && !selected ? (
+            <View style={styles.tabBar}>
+              {([
+                { key: 'mine' as Scope, label: 'Meus chamados' },
+                { key: 'all' as Scope, label: 'Todos os chamados' },
+              ]).map((tab) => {
+                const active = scope === tab.key
+                return (
+                  <Pressable
+                    key={tab.key}
+                    onPress={() => changeScope(tab.key)}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: active }}
+                    style={[styles.tab, active && styles.tabActive]}
+                  >
+                    <Text style={[styles.tabText, active && styles.tabTextActive]}>
+                      {tab.label}
+                    </Text>
+                  </Pressable>
+                )
+              })}
+            </View>
+          ) : null}
+
           {selected ? renderConversation() : renderList()}
         </SafeAreaView>
+
+        {preview ? (
+          <Pressable
+            style={styles.previewBackdrop}
+            onPress={() => setPreview(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Fechar imagem"
+          >
+            <Image source={{ uri: preview }} style={styles.previewImage} resizeMode="contain" />
+          </Pressable>
+        ) : null}
       </View>
     </Modal>
   )
@@ -642,6 +902,26 @@ function createStyles (
     },
     cardTime: { fontSize: 11, color: theme.textTertiary },
     cardTitle: { fontSize: 15, fontWeight: '700', color: theme.text, lineHeight: 20 },
+    cardRequester: { fontSize: 12, color: theme.textSecondary },
+
+    tabBar: {
+      flexDirection: 'row',
+      gap: 6,
+      paddingHorizontal: mfSpacing.md,
+      paddingTop: mfSpacing.sm,
+    },
+    tab: {
+      flex: 1,
+      alignItems: 'center',
+      paddingVertical: 9,
+      borderRadius: mfRadius.pill,
+      borderWidth: 1,
+      borderColor: tokens.insetBorder,
+      backgroundColor: inset,
+    },
+    tabActive: { borderColor: tokens.accent, backgroundColor: tokens.accentSoft },
+    tabText: { fontSize: 12, fontWeight: '700', color: theme.textSecondary },
+    tabTextActive: { color: tokens.accent },
     cardBadge: {
       minWidth: 20,
       height: 20,
@@ -732,15 +1012,73 @@ function createStyles (
     bubbleTextMine: { color: '#fff' },
     bubbleTime: { fontSize: 10, marginTop: 6, textAlign: 'right', color: theme.textTertiary },
     bubbleTimeMine: { color: 'rgba(255, 255, 255, 0.75)' },
+    bubbleImageWrap: {
+      marginTop: 8,
+      borderRadius: mfRadius.sm,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: tokens.insetBorder,
+    },
+    bubbleImage: { width: '100%', height: 170, backgroundColor: inset },
+    attachmentChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginTop: 6,
+    },
+    attachmentName: { flex: 1, fontSize: 12, color: theme.textSecondary },
+
+    previewBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(2, 10, 24, 0.9)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: mfSpacing.lg,
+    },
+    previewImage: { width: '100%', height: '100%' },
+
+    composerWrap: {
+      borderTopWidth: 1,
+      borderTopColor: tokens.divider,
+      backgroundColor: isDarkMode ? 'rgba(7, 24, 48, 0.6)' : '#FFFFFF',
+      paddingBottom: mfSpacing.sm,
+    },
+    attachPreview: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      marginHorizontal: mfSpacing.md,
+      marginTop: mfSpacing.sm,
+      padding: 8,
+      borderRadius: mfRadius.md,
+      borderWidth: 1,
+      borderColor: tokens.insetBorder,
+      backgroundColor: inset,
+    },
+    attachThumb: { width: 40, height: 40, borderRadius: mfRadius.sm },
+    attachLabel: { flex: 1, fontSize: 12, color: theme.textSecondary },
+    attachButton: {
+      width: 44,
+      height: 44,
+      borderRadius: mfRadius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: tokens.insetBorder,
+      backgroundColor: inset,
+    },
+    composerHint: {
+      fontSize: 11,
+      color: theme.textTertiary,
+      paddingHorizontal: mfSpacing.md,
+      paddingTop: 2,
+    },
 
     composer: {
       flexDirection: 'row',
       alignItems: 'flex-end',
       gap: 9,
       padding: mfSpacing.md,
-      borderTopWidth: 1,
-      borderTopColor: tokens.divider,
-      backgroundColor: isDarkMode ? 'rgba(7, 24, 48, 0.6)' : '#FFFFFF',
     },
     input: {
       flex: 1,

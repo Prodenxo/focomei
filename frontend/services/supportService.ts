@@ -45,14 +45,40 @@ export type SupportTicket = {
   unreadCount: number
 }
 
+export type SupportTimelineAttachment = {
+  url: string
+  name: string
+}
+
 export type SupportTimelineItem = {
   id: string
   type: string
   text: string
+  /** Data URL ou URL da imagem enviada junto do comentário. */
+  imageUrl?: string | null
+  attachments?: SupportTimelineAttachment[]
   createdAt?: string | null
   authorName: string
   authorEmail?: string | null
   external: boolean
+}
+
+export type SupportAdminTicket = SupportTicket & {
+  solicitanteNome?: string | null
+  solicitanteEmail?: string | null
+  vinculadoAoApp: boolean
+  ownerUnreadCount: number
+}
+
+export type SupportAdminTicketDetail = {
+  ticket: SupportTicketDetail['ticket']
+  timeline: SupportTimelineItem[]
+  solicitante: {
+    nome?: string | null
+    email?: string | null
+    telefone?: string | null
+  }
+  vinculadoAoApp: boolean
 }
 
 export type SupportNotification = {
@@ -82,7 +108,7 @@ export type SupportTicketDetail = {
 }
 
 export const mapSupportTicket = (row: Record<string, unknown>): SupportTicket => ({
-  id: String(row.id || ''),
+  id: String(row.id || row.scrumhub_ticket_id || row.scrumhubTicketId || ''),
   scrumhubTicketId: Number(row.scrumhub_ticket_id || row.scrumhubTicketId),
   codigo: (row.codigo as string | null) ?? null,
   nome: String(row.nome || 'Chamado'),
@@ -94,6 +120,7 @@ export const mapSupportTicket = (row: Record<string, unknown>): SupportTicket =>
   publicUrl: (row.public_url as string | null) ?? (row.publicUrl as string | null) ?? null,
   updatedAt: (row.last_remote_update_at as string | null)
     ?? (row.updated_at as string | null)
+    ?? (row.updatedAt as string | null)
     ?? null,
   unreadCount: Number(row.unread_count || row.unreadCount || 0),
 })
@@ -207,11 +234,71 @@ export async function getSupportTicketDetail (
   return apiClient.get<SupportTicketDetail>(`/support/tickets/${ticketId}`)
 }
 
+async function buildCommentForm (comentario: string, imagem?: SupportTicketAttachment | null) {
+  const formData = new FormData()
+  formData.append('comentario', comentario)
+  if (imagem) await appendCommentImage(formData, imagem)
+  return formData
+}
+
+async function appendCommentImage (formData: FormData, file: SupportTicketAttachment) {
+  const mimeType = file.type || 'image/png'
+  const isWeb = typeof window !== 'undefined' && typeof document !== 'undefined'
+  if (isWeb) {
+    const response = await fetch(file.uri)
+    const blob = await response.blob()
+    formData.append('imagem', new File([blob], file.name, { type: mimeType }))
+    return
+  }
+  // @ts-expect-error React Native FormData aceita { uri, name, type }
+  formData.append('imagem', { uri: file.uri, name: file.name, type: mimeType })
+}
+
 export async function commentSupportTicket (
   ticketId: number,
   comentario: string,
+  imagem?: SupportTicketAttachment | null,
 ): Promise<unknown> {
-  return apiClient.post(`/support/tickets/${ticketId}/comments`, { comentario })
+  if (!imagem) {
+    return apiClient.post(`/support/tickets/${ticketId}/comments`, { comentario })
+  }
+  return apiClient.postForm(
+    `/support/tickets/${ticketId}/comments`,
+    await buildCommentForm(comentario, imagem),
+  )
+}
+
+export async function listAdminSupportTickets (): Promise<SupportAdminTicket[]> {
+  const result = await apiClient.get<{ tickets: Record<string, unknown>[] }>(
+    '/support/admin/tickets',
+  )
+  return (result.tickets || []).map((row) => ({
+    ...mapSupportTicket(row),
+    solicitanteNome: (row.solicitanteNome as string | null) ?? null,
+    solicitanteEmail: (row.solicitanteEmail as string | null) ?? null,
+    vinculadoAoApp: Boolean(row.vinculadoAoApp),
+    ownerUnreadCount: Number(row.ownerUnreadCount || 0),
+  }))
+}
+
+export async function getAdminSupportTicketDetail (
+  ticketId: number,
+): Promise<SupportAdminTicketDetail> {
+  return apiClient.get<SupportAdminTicketDetail>(`/support/admin/tickets/${ticketId}`)
+}
+
+export async function replyAdminSupportTicket (
+  ticketId: number,
+  comentario: string,
+  imagem?: SupportTicketAttachment | null,
+): Promise<unknown> {
+  if (!imagem) {
+    return apiClient.post(`/support/admin/tickets/${ticketId}/comments`, { comentario })
+  }
+  return apiClient.postForm(
+    `/support/admin/tickets/${ticketId}/comments`,
+    await buildCommentForm(comentario, imagem),
+  )
 }
 
 export async function markSupportTicketRead (

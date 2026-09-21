@@ -178,6 +178,14 @@ export async function fetchScrumHubTicket (ticketId) {
   )
 }
 
+export async function listScrumHubProjectTickets (projetoId) {
+  const data = await scrumHubGet(
+    `/tickets-pai/projeto/${encodeURIComponent(projetoId)}`,
+    'Não foi possível listar os chamados do projeto.',
+  )
+  return Array.isArray(data) ? data : (data?.tickets || [])
+}
+
 export async function fetchScrumHubTicketTimeline (ticketId) {
   const data = await scrumHubGet(
     `/public/tickets/${encodeURIComponent(ticketId)}/timeline?format=flat`,
@@ -190,7 +198,7 @@ export async function fetchScrumHubTicketTimeline (ticketId) {
 
 export async function createScrumHubTicketComment (
   ticketId,
-  { comentario, nomeExterno, email, phone },
+  { comentario, nomeExterno, email, phone, imagem },
 ) {
   const apiKey = await resolveScrumHubApiKey()
   const response = await fetch(
@@ -203,6 +211,8 @@ export async function createScrumHubTicketComment (
         nome_externo: String(nomeExterno || '').trim(),
         email: String(email || '').trim() || undefined,
         contato_solicitante: String(phone || '').replace(/\D/g, '') || undefined,
+        // ScrumHub guarda a imagem do comentário em `comentario_img` (data URL ou URL).
+        comentario_img: String(imagem || '').trim() || undefined,
         comentario_pai_id: null,
       }),
     },

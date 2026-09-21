@@ -13,12 +13,14 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 import { apiClient } from '@/lib/apiClient'
 import {
   commentSupportTicket,
+  listAdminSupportTickets,
   listSupportNotifications,
   listSupportTickets,
   mapSupportTicket,
   markAllSupportNotificationsRead,
   markSupportNotificationRead,
   markSupportTicketRead,
+  replyAdminSupportTicket,
 } from '../supportService'
 
 const api = apiClient as jest.Mocked<typeof apiClient>
@@ -80,6 +82,46 @@ describe('supportService', () => {
     )
     expect(api.post).toHaveBeenNthCalledWith(2, '/support/tickets/7/read', {})
     expect(read.unreadCount).toBe(0)
+  })
+
+  it('superadmin lista todos os chamados com o solicitante', async () => {
+    api.get.mockResolvedValue({
+      tickets: [{
+        scrumhubTicketId: 7741,
+        codigo: 'SCRUM-011',
+        nome: 'teste',
+        concluido: true,
+        updatedAt: '2026-09-21T14:47:08Z',
+        solicitanteNome: 'Leonardo de Lima',
+        solicitanteEmail: 'leo.irak@hotmail.com',
+        vinculadoAoApp: true,
+        ownerUnreadCount: 2,
+      }],
+    })
+
+    const tickets = await listAdminSupportTickets()
+
+    expect(api.get).toHaveBeenCalledWith('/support/admin/tickets')
+    expect(tickets[0]).toMatchObject({
+      scrumhubTicketId: 7741,
+      codigo: 'SCRUM-011',
+      updatedAt: '2026-09-21T14:47:08Z',
+      solicitanteNome: 'Leonardo de Lima',
+      vinculadoAoApp: true,
+      ownerUnreadCount: 2,
+    })
+  })
+
+  it('resposta da equipe sem imagem vai como JSON na rota de admin', async () => {
+    api.post.mockResolvedValue({ notified: true })
+
+    await replyAdminSupportTicket(7741, 'Resolvido por aqui.')
+
+    expect(api.post).toHaveBeenCalledWith(
+      '/support/admin/tickets/7741/comments',
+      { comentario: 'Resolvido por aqui.' },
+    )
+    expect(api.postForm).not.toHaveBeenCalled()
   })
 
   it('lista notificações do sino com contador', async () => {

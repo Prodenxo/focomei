@@ -5,6 +5,7 @@ import {
   createScrumHubTicketComment,
   fetchScrumHubTicket,
   fetchScrumHubTicketTimeline,
+  listScrumHubProjectTickets,
   listScrumHubTicketsForRequester,
 } from './scrumhub-support.service.js'
 import {
@@ -14,6 +15,8 @@ import {
 
 const SCRUMHUB_PROJECT_ID = 39
 const COMPLETED_STATUS_ID = 127
+/** Nome exibido no ScrumHub quando a equipe responde pelo FocoMEI. */
+export const SUPPORT_AGENT_DISPLAY_NAME = 'Equipe FocoMEI'
 const onlyDigits = (value) => String(value || '').replace(/\D/g, '')
 const text = (value) => String(value ?? '').trim()
 const bool = (value) => value === true || value === 1 || value === '1'
@@ -93,6 +96,25 @@ const timelineAuthorName = (row) => text(first(
   row.author,
 )) || 'Equipe FocoMEI'
 
+const timelineImage = (row) => text(first(
+  row.imagem,
+  row.comentario_img,
+  row.imagem_url,
+  row.image,
+)) || null
+
+/** Anexos só existem na abertura do chamado; comentários carregam uma imagem única. */
+const timelineAttachments = (rows) => (Array.isArray(rows) ? rows : [])
+  .map((item) => {
+    const url = text(first(item?.url, item?.arquivo_url, item?.path, item))
+    if (!url) return null
+    return {
+      url,
+      name: text(first(item?.nome, item?.name, item?.arquivo)) || url.split('/').pop() || 'anexo',
+    }
+  })
+  .filter(Boolean)
+
 const isCommentItem = (row) => {
   const kind = text(first(row.tipo, row.type, row.event_type, row.kind)).toLowerCase()
   if (kind.includes('coment') || kind.includes('comment')) return true
@@ -114,7 +136,9 @@ const remoteEventKey = (row) => {
 }
 
 /** Comentário é da equipe por exclusão: tudo que não é do próprio solicitante notifica. */
-export const isTeamComment = (row, requesterEmail) => {
+export const isTeamComment = (row, requesterEmail, agentCommentIds) => {
+  // Resposta publicada pela própria equipe no FocoMEI vai como externa no ScrumHub.
+  if (asIdSet(agentCommentIds).has(timelineId(row))) return true
   const email = timelineAuthorEmail(row).toLowerCase()
   if (email && email === text(requesterEmail).toLowerCase()) return false
   if (row.nome_externo || row.email_externo) return false
@@ -126,17 +150,35 @@ export const isTeamComment = (row, requesterEmail) => {
 const isAberturaItem = (row) =>
   text(first(row.tipo, row.type)).toLowerCase().includes('abertura')
 
-export const normalizeTimelineItem = (row) => ({
-  id: timelineId(row) || remoteEventKey(row),
-  type: isCommentItem(row) ? 'comment' : text(first(row.tipo, row.type)) || 'event',
-  text: timelineText(row),
-  createdAt: timelineCreatedAt(row),
-  authorName: timelineAuthorName(row),
-  authorEmail: timelineAuthorEmail(row) || null,
-  external: Boolean(
-    row.nome_externo || row.email_externo || bool(row.is_externo) || isAberturaItem(row),
-  ),
-})
+/** Tolerante a `timeline.map(normalizeTimelineItem)`, que passaria o índice aqui. */
+const asIdSet = (value) => (value instanceof Set ? value : new Set())
+
+export const normalizeTimelineItem = (row, agentCommentIds) => {
+  const fromAgent = asIdSet(agentCommentIds).has(timelineId(row))
+  return {
+    id: timelineId(row) || remoteEventKey(row),
+    type: isCommentItem(row) ? 'comment' : text(first(row.tipo, row.type)) || 'event',
+    text: timelineText(row),
+    imageUrl: timelineImage(row),
+    attachments: timelineAttachments(row.anexos),
+    createdAt: timelineCreatedAt(row),
+    authorName: fromAgent ? SUPPORT_AGENT_DISPLAY_NAME : timelineAuthorName(row),
+    authorEmail: fromAgent ? null : (timelineAuthorEmail(row) || null),
+    // `external` = lado do solicitante. Resposta da equipe nunca é do solicitante.
+    external: fromAgent
+      ? false
+      : Boolean(row.nome_externo || row.email_externo || bool(row.is_externo) || isAberturaItem(row)),
+  }
+}
+
+const loadAgentCommentIds = async (scrumhubTicketId, queryFn = query) => {
+  const { rows } = await queryFn(
+    `select remote_comment_id from public.support_ticket_agent_replies
+      where scrumhub_ticket_id = $1`,
+    [scrumhubTicketId],
+  )
+  return new Set(rows.map((row) => String(row.remote_comment_id)))
+}
 
 export const resolveSupportRequester = async (userId, accessContext = {}) => {
   const { rows } = await query(
@@ -284,28 +326,144 @@ export const listOwnedSupportTickets = async (requester) => {
 
 export const getOwnedSupportTicket = async (requester, ticketId) => {
   const link = await getOwnedLink(requester.userId, ticketId)
-  const [remote, timeline] = await Promise.all([
+  const [remote, timeline, agentCommentIds] = await Promise.all([
     fetchScrumHubTicket(ticketId),
     fetchScrumHubTicketTimeline(ticketId),
+    loadAgentCommentIds(ticketId),
   ])
   return {
     link,
     ticket: normalizeRemoteTicket(remote),
-    timeline: timeline.map(normalizeTimelineItem),
+    timeline: timeline.map((row) => normalizeTimelineItem(row, agentCommentIds)),
   }
 }
 
-export const commentOnOwnedSupportTicket = async (requester, ticketId, comment) => {
+/** Mensagem vazia só é aceita quando existe imagem: print sozinho já comunica. */
+const assertCommentPayload = (comment, imagem) => {
   const message = text(comment)
-  if (!message) throw badRequest('Escreva uma mensagem para responder ao chamado.')
+  if (!message && !text(imagem)) {
+    throw badRequest('Escreva uma mensagem ou anexe uma imagem.')
+  }
   if (message.length > 5000) throw badRequest('A resposta deve ter no máximo 5000 caracteres.')
+  return message
+}
+
+export const commentOnOwnedSupportTicket = async (requester, ticketId, comment, imagem = null) => {
+  const message = assertCommentPayload(comment, imagem)
   await getOwnedLink(requester.userId, ticketId)
   return createScrumHubTicketComment(ticketId, {
-    comentario: message,
+    comentario: message || '(imagem)',
     nomeExterno: requester.name,
     email: requester.email,
     phone: requester.phone,
+    imagem,
   })
+}
+
+const getLinkByTicketId = async (scrumhubTicketId) => {
+  const { rows } = await query(
+    'select * from public.support_ticket_links where scrumhub_ticket_id = $1 limit 1',
+    [scrumhubTicketId],
+  )
+  return rows[0] || null
+}
+
+/** Superadmin enxerga todo o projeto 39, inclusive chamados abertos fora do FocoMEI. */
+export const listSupportTicketsForAdmin = async () => {
+  const remoteTickets = await listScrumHubProjectTickets(SCRUMHUB_PROJECT_ID)
+  const { rows: links } = await query(
+    `select l.scrumhub_ticket_id, l.user_id, l.requester_name, l.requester_email,
+            count(e.id) filter (where e.read_at is null)::integer as owner_unread_count
+       from public.support_ticket_links l
+       left join public.support_ticket_events e on e.ticket_link_id = l.id
+      group by l.id`,
+  )
+  const linkByTicket = new Map(links.map((row) => [Number(row.scrumhub_ticket_id), row]))
+
+  return remoteTickets
+    .map((row) => {
+      const ticket = normalizeRemoteTicket(row)
+      if (!ticket) return null
+      const link = linkByTicket.get(ticket.scrumhubTicketId) || null
+      return {
+        ...ticket,
+        solicitanteNome: text(first(row.nome_solicitante, link?.requester_name)) || null,
+        solicitanteEmail: text(first(row.email_solicitante, link?.requester_email)) || null,
+        vinculadoAoApp: Boolean(link),
+        ownerUnreadCount: link?.owner_unread_count || 0,
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))
+}
+
+export const getSupportTicketForAdmin = async (ticketId) => {
+  const [remote, timeline, agentCommentIds, link] = await Promise.all([
+    fetchScrumHubTicket(ticketId),
+    fetchScrumHubTicketTimeline(ticketId),
+    loadAgentCommentIds(ticketId),
+    getLinkByTicketId(ticketId),
+  ])
+  const ticket = normalizeRemoteTicket(remote)
+  if (!ticket) throw notFound('Chamado não encontrado.')
+  if (ticket.projetoId !== null && ticket.projetoId !== SCRUMHUB_PROJECT_ID) {
+    throw forbidden('Chamado não pertence ao projeto Foco MEI.')
+  }
+  return {
+    ticket,
+    // Para a equipe, os lados se invertem: a resposta da equipe é que fica à direita.
+    timeline: timeline.map((row) => normalizeTimelineItem(row, agentCommentIds)),
+    solicitante: {
+      nome: text(first(remote?.nome_solicitante, link?.requester_name)) || null,
+      email: text(first(remote?.email_solicitante, link?.requester_email)) || null,
+      telefone: onlyDigits(first(remote?.contato_solicitante, link?.requester_phone)) || null,
+    },
+    vinculadoAoApp: Boolean(link),
+  }
+}
+
+/**
+ * Publica a resposta da equipe e avisa o solicitante (badge + WhatsApp).
+ * A API pública só cria comentário externo, então o autor real fica no banco local.
+ */
+export const replySupportTicketAsAgent = async (agent, ticketId, comment, imagem = null) => {
+  const message = assertCommentPayload(comment, imagem)
+  const remoteTicket = normalizeRemoteTicket(await fetchScrumHubTicket(ticketId))
+  if (!remoteTicket) throw notFound('Chamado não encontrado.')
+  if (remoteTicket.projetoId !== null && remoteTicket.projetoId !== SCRUMHUB_PROJECT_ID) {
+    throw forbidden('Chamado não pertence ao projeto Foco MEI.')
+  }
+
+  const created = await createScrumHubTicketComment(ticketId, {
+    comentario: message || '(imagem)',
+    nomeExterno: SUPPORT_AGENT_DISPLAY_NAME,
+    imagem,
+  })
+
+  const remoteCommentId = text(first(created?.id, created?.comentario_id))
+  if (remoteCommentId) {
+    await query(
+      `insert into public.support_ticket_agent_replies (
+         scrumhub_ticket_id, remote_comment_id, agent_user_id, agent_name
+       ) values ($1, $2, $3, $4)
+       on conflict (scrumhub_ticket_id, remote_comment_id) do nothing`,
+      [ticketId, remoteCommentId, agent.userId || null, agent.name || SUPPORT_AGENT_DISPLAY_NAME],
+    )
+  }
+
+  const link = await getLinkByTicketId(ticketId)
+  if (link) {
+    await insertSupportEvent(link, {
+      key: remoteCommentId ? `comment:${remoteCommentId}` : `comment:agent:${Date.now()}`,
+      type: 'comment',
+      title: `Nova resposta no chamado ${link.codigo || `#${ticketId}`}`,
+      message: (message || 'A equipe enviou uma imagem.').slice(0, 500),
+      remoteCommentId: remoteCommentId || null,
+      remoteCreatedAt: new Date().toISOString(),
+    })
+  }
+
+  return { comment: created, notified: Boolean(link) }
 }
 
 export const getUnreadSupportCount = async (userId) => {
@@ -395,9 +553,10 @@ export const syncSupportTicketLink = async (link, dependencies = {}) => {
   const queryFn = dependencies.queryFn || query
   const fetchTicketFn = dependencies.fetchTicketFn || fetchScrumHubTicket
   const fetchTimelineFn = dependencies.fetchTimelineFn || fetchScrumHubTicketTimeline
-  const [remotePayload, timeline] = await Promise.all([
+  const [remotePayload, timeline, agentCommentIds] = await Promise.all([
     fetchTicketFn(link.scrumhub_ticket_id),
     fetchTimelineFn(link.scrumhub_ticket_id),
+    loadAgentCommentIds(link.scrumhub_ticket_id, queryFn).catch(() => new Set()),
   ])
   const remote = normalizeRemoteTicket(remotePayload)
   if (!remote) throw badRequest('Resposta inválida do chamado no ScrumHub.')
@@ -412,7 +571,7 @@ export const syncSupportTicketLink = async (link, dependencies = {}) => {
   if (link.last_synced_at) {
     for (const row of comments) {
       const key = remoteEventKey(row)
-      if (knownKeys.has(key) || !isTeamComment(row, link.requester_email)) continue
+      if (knownKeys.has(key) || !isTeamComment(row, link.requester_email, agentCommentIds)) continue
       const created = await insertSupportEvent(link, {
         key,
         type: 'comment',
