@@ -12,7 +12,9 @@ import {
   importRequesterTicketsOnce,
   listSupportNotifications,
   listOwnedSupportTickets,
+  markAllSupportNotificationsRead,
   markOwnedSupportTicketRead,
+  markSupportNotificationRead,
   resolveSupportRequester,
   saveSupportTicketLink,
   syncSupportTicketLink,
@@ -96,7 +98,25 @@ router.get('/tickets/unread-count', requireAuth, async (req, res, next) => {
 router.get('/tickets/notifications', requireAuth, async (req, res, next) => {
   try {
     const notifications = await listSupportNotifications(req.user?.id, req.query?.limit)
-    return sendSuccess(res, { notifications })
+    const unreadCount = await getUnreadSupportCount(req.user?.id)
+    return sendSuccess(res, { notifications, unreadCount })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+router.post('/tickets/notifications/read-all', requireAuth, async (req, res, next) => {
+  try {
+    return sendSuccess(res, await markAllSupportNotificationsRead(req.user?.id))
+  } catch (error) {
+    return next(error)
+  }
+})
+
+router.post('/tickets/notifications/:eventId/read', requireAuth, async (req, res, next) => {
+  try {
+    const data = await markSupportNotificationRead(req.user?.id, req.params.eventId)
+    return sendSuccess(res, data)
   } catch (error) {
     return next(error)
   }

@@ -113,20 +113,13 @@ const remoteEventKey = (row) => {
     .slice(0, 32)}`
 }
 
-const isTeamComment = (row, requesterEmail) => {
+/** Comentário é da equipe por exclusão: tudo que não é do próprio solicitante notifica. */
+export const isTeamComment = (row, requesterEmail) => {
   const email = timelineAuthorEmail(row).toLowerCase()
   if (email && email === text(requesterEmail).toLowerCase()) return false
   if (row.nome_externo || row.email_externo) return false
   if (bool(row.is_externo) || text(row.origem).toLowerCase().includes('extern')) return false
-  return Boolean(
-    row.user_id
-    || row.usuario_id
-    || row.created_by
-    || row.usuario
-    || row.user
-    || text(row.origem).toLowerCase().includes('intern')
-    || text(row.tipo_autor).toLowerCase().includes('equipe'),
-  )
+  return true
 }
 
 export const normalizeTimelineItem = (row) => ({
@@ -319,6 +312,31 @@ export const getUnreadSupportCount = async (userId) => {
   return rows[0]?.unread_count || 0
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export const markSupportNotificationRead = async (userId, eventId) => {
+  if (!UUID_RE.test(String(eventId || ''))) {
+    throw badRequest('Notificação inválida.')
+  }
+  await query(
+    `update public.support_ticket_events
+        set read_at = coalesce(read_at, now())
+      where id = $1 and user_id = $2`,
+    [eventId, userId],
+  )
+  return { unreadCount: await getUnreadSupportCount(userId) }
+}
+
+export const markAllSupportNotificationsRead = async (userId) => {
+  await query(
+    `update public.support_ticket_events
+        set read_at = now()
+      where user_id = $1 and read_at is null`,
+    [userId],
+  )
+  return { unreadCount: 0 }
+}
+
 export const listSupportNotifications = async (userId, limit = 20) => {
   const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 100)
   const { rows } = await query(
@@ -451,8 +469,10 @@ export const syncSupportTicketLink = async (link, dependencies = {}) => {
 
 export const syncOpenSupportTickets = async ({ limit = 100 } = {}) => {
   const { rows } = await query(
+    // Concluídos recentes continuam no ciclo: a equipe ainda comenta depois de fechar.
     `select * from public.support_ticket_links
       where concluido = false
+         or updated_at > now() - interval '14 days'
       order by last_synced_at nulls first, updated_at asc
       limit $1`,
     [limit],

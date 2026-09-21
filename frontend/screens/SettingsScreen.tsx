@@ -43,8 +43,7 @@ import { SettingsProfileField } from "../components/settings/SettingsProfileFiel
 import { SettingsPhoneField } from "../components/settings/SettingsPhoneField";
 import { SettingsActionLink } from "../components/settings/SettingsActionLink";
 import { SupportTicketModal } from "../components/support/SupportTicketModal";
-import { SupportTicketCenterModal } from "../components/support/SupportTicketCenterModal";
-import { getSupportUnreadCount } from "../services/supportService";
+import { useSupportCenterStore } from "../store/supportCenterStore";
 import { SignOutHeaderButton } from "../components/settings/SignOutHeaderButton";
 import { MfAppHeader } from "../components/ui/MfAppHeader";
 import { useMfTheme } from "../components/ui/useMfTheme";
@@ -81,8 +80,9 @@ export default function SettingsScreen() {
     useState<boolean>(false);
   const [checkingIntegration, setCheckingIntegration] = useState<boolean>(true);
   const [supportTicketOpen, setSupportTicketOpen] = useState<boolean>(false);
-  const [supportCenterOpen, setSupportCenterOpen] = useState<boolean>(false);
-  const [supportUnreadCount, setSupportUnreadCount] = useState(0);
+  const supportUnreadCount = useSupportCenterStore((state) => state.unreadCount);
+  const openSupportCenter = useSupportCenterStore((state) => state.openCenter);
+  const refreshSupportNotifications = useSupportCenterStore((state) => state.refresh);
   const router = useRouter();
   const [resolvedRole, setResolvedRole] = useState<UserRole | null>(null);
   const [googleDialog, setGoogleDialog] = useState<GoogleDialogState>(null);
@@ -121,22 +121,8 @@ export default function SettingsScreen() {
   }, [user?.email]);
 
   useEffect(() => {
-    let active = true;
-    const loadUnread = async () => {
-      try {
-        const count = await getSupportUnreadCount();
-        if (active) setSupportUnreadCount(count);
-      } catch {
-        /* suporte não deve bloquear a tela de configurações */
-      }
-    };
-    void loadUnread();
-    const timer = setInterval(loadUnread, 60_000);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, [user?.id]);
+    void refreshSupportNotifications();
+  }, [user?.id, refreshSupportNotifications]);
 
   useEffect(() => {
     checkGoogleAgendaIntegration();
@@ -695,7 +681,7 @@ export default function SettingsScreen() {
               description="Acompanhe respostas e converse com o suporte"
               icon="chatbox-ellipses-outline"
               badge={supportUnreadCount}
-              onPress={() => setSupportCenterOpen(true)}
+              onPress={() => openSupportCenter()}
             />
             <SettingsActionLink
               title="Abrir chamado"
@@ -753,12 +739,6 @@ export default function SettingsScreen() {
         userEmail={user?.email}
         userName={displayName || user?.email}
         userPhone={phone}
-      />
-
-      <SupportTicketCenterModal
-        visible={supportCenterOpen}
-        onClose={() => setSupportCenterOpen(false)}
-        onUnreadChange={setSupportUnreadCount}
       />
 
       <MfConfirmDialog

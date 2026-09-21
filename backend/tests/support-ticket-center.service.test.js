@@ -121,6 +121,52 @@ test('sync é idempotente e só cria evento para comentário novo da equipe', as
   assert.equal(insert.params[3], 'comment')
 })
 
+test('comentário da equipe sem autor identificado ainda notifica', async () => {
+  const calls = []
+  const result = await syncSupportTicketLink(baseLink, {
+    fetchTicketFn: async () => ({ id: 321, nome: 'Dúvida', projeto_id: 39, is_externo: 1 }),
+    fetchTimelineFn: async () => [
+      { id: 1, tipo: 'comentario', comentario: 'Mensagem antiga' },
+      { id: 7, tipo: 'comentario', comentario: 'Já verificamos aqui' },
+    ],
+    queryFn: async (sql, params) => {
+      calls.push({ sql, params })
+      if (sql.includes('insert into public.support_ticket_events')) {
+        return { rows: [{ id: 'event-7' }] }
+      }
+      return { rows: [] }
+    },
+  })
+
+  assert.equal(result.createdEvents, 1)
+  const insert = calls.find((call) => call.sql.includes('support_ticket_events'))
+  assert.equal(insert.params[2], 'comment:7')
+})
+
+test('comentário do próprio solicitante não vira notificação', async () => {
+  let inserted = false
+  const result = await syncSupportTicketLink(baseLink, {
+    fetchTicketFn: async () => ({ id: 321, nome: 'Dúvida', projeto_id: 39, is_externo: 1 }),
+    fetchTimelineFn: async () => [
+      { id: 1, tipo: 'comentario', comentario: 'Mensagem antiga' },
+      {
+        id: 8,
+        tipo: 'comentario',
+        comentario: 'Segue o anexo',
+        nome_externo: 'Cliente',
+        email_externo: 'cliente@exemplo.com',
+      },
+    ],
+    queryFn: async (sql) => {
+      if (sql.includes('insert into public.support_ticket_events')) inserted = true
+      return { rows: [] }
+    },
+  })
+
+  assert.equal(inserted, false)
+  assert.equal(result.createdEvents, 0)
+})
+
 test('primeiro sync só estabelece baseline, sem notificar histórico', async () => {
   let inserted = false
   const result = await syncSupportTicketLink(

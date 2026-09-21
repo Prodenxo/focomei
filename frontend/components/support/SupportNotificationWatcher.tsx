@@ -1,15 +1,12 @@
 import { useEffect, useRef } from 'react'
-import {
-  getSupportUnreadCount,
-  listSupportNotifications,
-} from '@/services/supportService'
 import { useAppToastStore } from '@/store/appToastStore'
+import { useSupportCenterStore } from '@/store/supportCenterStore'
 
 type Props = {
   userId?: string | null
 }
 
-/** Aviso efêmero global; a central em Configurações mantém o histórico e o badge. */
+/** Mantém badge e histórico do sino em dia e avisa no app quando chega novidade. */
 export function SupportNotificationWatcher ({ userId }: Props) {
   const showToast = useAppToastStore((state) => state.show)
   const previousRef = useRef<number | null>(null)
@@ -17,35 +14,29 @@ export function SupportNotificationWatcher ({ userId }: Props) {
   useEffect(() => {
     if (!userId) {
       previousRef.current = null
+      useSupportCenterStore.getState().reset()
       return
     }
+
     let active = true
     const check = async () => {
-      try {
-        const [count, notifications] = await Promise.all([
-          getSupportUnreadCount(),
-          listSupportNotifications(),
-        ])
-        if (!active) return
-        const previous = previousRef.current
-        if (count > 0 && (previous === null || count > previous)) {
-          const latestUnread = notifications.find((item) => !item.readAt)
-          showToast(
-            latestUnread?.eventType === 'completed'
-              ? 'Ticket concluído'
-              : latestUnread?.title || (
-                count === 1
-                  ? 'Você tem uma nova atualização em um chamado.'
-                  : `Você tem ${count} atualizações novas em chamados.`
-              ),
-            latestUnread?.eventType === 'completed' ? 'success' : 'info',
-          )
-        }
-        previousRef.current = count
-      } catch {
-        /* a verificação de suporte nunca bloqueia o uso do app */
+      await useSupportCenterStore.getState().refresh()
+      if (!active) return
+
+      const { unreadCount, notifications } = useSupportCenterStore.getState()
+      const previous = previousRef.current
+      if (unreadCount > 0 && previous !== null && unreadCount > previous) {
+        const latest = notifications.find((item) => !item.readAt)
+        showToast(
+          latest?.eventType === 'completed'
+            ? `Ticket concluído${latest.codigo ? ` · ${latest.codigo}` : ''}`
+            : latest?.title || 'Você tem uma nova atualização em um chamado.',
+          latest?.eventType === 'completed' ? 'success' : 'info',
+        )
       }
+      previousRef.current = unreadCount
     }
+
     void check()
     const timer = setInterval(check, 60_000)
     return () => {

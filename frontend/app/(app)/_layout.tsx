@@ -39,6 +39,7 @@ import {
   type AccessRestriction,
 } from '@/lib/apiClient';
 import { SupportNotificationWatcher } from '@/components/support/SupportNotificationWatcher';
+import { SupportCenterHost } from '@/components/support/SupportCenterHost';
 
 type AccessStatus = 'checking' | 'pending' | 'ok';
 
@@ -599,6 +600,7 @@ export default function AppLayout() {
           showTopNav={hasGlobalNav}
         />
         <SupportNotificationWatcher userId={user.id} />
+        <SupportCenterHost />
         {!shellLocked ? (
           <SideDrawer
             visible={drawerOpen}

@@ -168,20 +168,37 @@ export async function getSupportUnreadCount (): Promise<number> {
   return Number(result.unreadCount || 0)
 }
 
-export async function listSupportNotifications (): Promise<SupportNotification[]> {
+export async function listSupportNotifications (): Promise<{
+  notifications: SupportNotification[]
+  unreadCount: number
+}> {
   const result = await apiClient.get<{
     notifications: Record<string, unknown>[]
+    unreadCount: number
   }>('/support/tickets/notifications?limit=20')
-  return (result.notifications || []).map((row) => ({
-    id: String(row.id),
-    eventType: row.event_type === 'completed' ? 'completed' : 'comment',
-    title: String(row.title || 'Atualização no chamado'),
-    message: String(row.message || ''),
-    readAt: (row.read_at as string | null) ?? null,
-    createdAt: String(row.created_at || ''),
-    scrumhubTicketId: Number(row.scrumhub_ticket_id),
-    codigo: (row.codigo as string | null) ?? null,
-  }))
+  return {
+    unreadCount: Number(result.unreadCount || 0),
+    notifications: (result.notifications || []).map((row) => ({
+      id: String(row.id),
+      eventType: row.event_type === 'completed' ? 'completed' : 'comment',
+      title: String(row.title || 'Atualização no chamado'),
+      message: String(row.message || ''),
+      readAt: (row.read_at as string | null) ?? null,
+      createdAt: String(row.created_at || ''),
+      scrumhubTicketId: Number(row.scrumhub_ticket_id),
+      codigo: (row.codigo as string | null) ?? null,
+    })),
+  }
+}
+
+export async function markSupportNotificationRead (
+  eventId: string,
+): Promise<{ unreadCount: number }> {
+  return apiClient.post(`/support/tickets/notifications/${eventId}/read`, {})
+}
+
+export async function markAllSupportNotificationsRead (): Promise<{ unreadCount: number }> {
+  return apiClient.post('/support/tickets/notifications/read-all', {})
 }
 
 export async function getSupportTicketDetail (

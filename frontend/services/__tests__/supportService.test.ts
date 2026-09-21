@@ -13,8 +13,11 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 import { apiClient } from '@/lib/apiClient'
 import {
   commentSupportTicket,
+  listSupportNotifications,
   listSupportTickets,
   mapSupportTicket,
+  markAllSupportNotificationsRead,
+  markSupportNotificationRead,
   markSupportTicketRead,
 } from '../supportService'
 
@@ -77,5 +80,56 @@ describe('supportService', () => {
     )
     expect(api.post).toHaveBeenNthCalledWith(2, '/support/tickets/7/read', {})
     expect(read.unreadCount).toBe(0)
+  })
+
+  it('lista notificações do sino com contador', async () => {
+    api.get.mockResolvedValue({
+      unreadCount: 2,
+      notifications: [{
+        id: 'evt-1',
+        event_type: 'comment',
+        title: 'Nova resposta da equipe',
+        message: 'Já verificamos aqui',
+        read_at: null,
+        created_at: '2026-09-21T12:00:00Z',
+        scrumhub_ticket_id: 7,
+        codigo: 'FOCO-7',
+      }],
+    })
+
+    const result = await listSupportNotifications()
+
+    expect(api.get).toHaveBeenCalledWith('/support/tickets/notifications?limit=20')
+    expect(result.unreadCount).toBe(2)
+    expect(result.notifications[0]).toEqual({
+      id: 'evt-1',
+      eventType: 'comment',
+      title: 'Nova resposta da equipe',
+      message: 'Já verificamos aqui',
+      readAt: null,
+      createdAt: '2026-09-21T12:00:00Z',
+      scrumhubTicketId: 7,
+      codigo: 'FOCO-7',
+    })
+  })
+
+  it('marca notificação individual e todas como lidas', async () => {
+    api.post
+      .mockResolvedValueOnce({ unreadCount: 1 })
+      .mockResolvedValueOnce({ unreadCount: 0 })
+
+    expect(await markSupportNotificationRead('evt-1')).toEqual({ unreadCount: 1 })
+    expect(await markAllSupportNotificationsRead()).toEqual({ unreadCount: 0 })
+
+    expect(api.post).toHaveBeenNthCalledWith(
+      1,
+      '/support/tickets/notifications/evt-1/read',
+      {},
+    )
+    expect(api.post).toHaveBeenNthCalledWith(
+      2,
+      '/support/tickets/notifications/read-all',
+      {},
+    )
   })
 })
