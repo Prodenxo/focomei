@@ -4,6 +4,7 @@ import {
   buildCatalogClienteMetadataJson,
   catalogClienteHasNfeEndereco,
   catalogClienteHasTomadorEndereco,
+  formatTelefoneLookup,
   parseCatalogClienteFiscalMeta,
   validateCatalogClienteNfeFields,
 } from '../meiCatalogClienteFiscal'
@@ -84,4 +85,61 @@ describe('meiCatalogClienteFiscal', () => {
     expect(prefill.tomadorEmail).toBe('tomador@exemplo.com')
     expect(prefill.tomadorEndereco.descricaoCidade).toBe('São Paulo')
   })
+
+  it('guarda inscrição municipal e telefone no cadastro e devolve na emissão', () => {
+    const metadata_json = buildCatalogClienteMetadataJson({
+      inscricaoMunicipal: ' 123456/001 ',
+      telefone: ' (41) 99999-8888 ',
+      endereco: getDefaultNfeDestinatarioEndereco(),
+    })
+    expect(metadata_json?.inscricaoMunicipal).toBe('123456/001')
+    expect(metadata_json?.telefone).toBe('(41) 99999-8888')
+
+    const meta = parseCatalogClienteFiscalMeta(metadata_json)
+    expect(meta.inscricaoMunicipal).toBe('123456/001')
+    expect(meta.telefone).toBe('(41) 99999-8888')
+
+    const prefill = applyCatalogClienteToNfseForm({
+      id: '1',
+      document_type: 'NFSE',
+      documento: '98765432000188',
+      nome: 'Cliente LTDA',
+      metadata_json,
+    })
+    expect(prefill.tomadorInscricaoMunicipal).toBe('123456/001')
+    expect(prefill.tomadorTelefone).toBe('(41) 99999-8888')
+  })
+
+  it('cliente antigo sem os campos novos continua válido', () => {
+    const meta = parseCatalogClienteFiscalMeta({ indIEDest: '9' })
+    expect(meta.inscricaoMunicipal).toBeUndefined()
+    expect(meta.telefone).toBeUndefined()
+
+    const prefill = applyCatalogClienteToNfseForm({
+      id: '1',
+      document_type: 'NFSE',
+      documento: '98765432000188',
+      nome: 'Cliente Antigo',
+      metadata_json: { indIEDest: '9' },
+    })
+    expect(prefill.tomadorInscricaoMunicipal).toBe('')
+    expect(prefill.tomadorTelefone).toBe('')
+  })
+
+  it('campos em branco não sujam o metadata do cadastro', () => {
+    const metadata_json = buildCatalogClienteMetadataJson({
+      inscricaoMunicipal: '   ',
+      telefone: '',
+      endereco: getDefaultNfeDestinatarioEndereco(),
+    })
+    expect(metadata_json?.inscricaoMunicipal).toBeUndefined()
+    expect(metadata_json?.telefone).toBeUndefined()
+  })
+
+  it('telefone da Receita vira string editável; incompleto é ignorado', () => {
+    expect(formatTelefoneLookup({ ddd: '41', numero: '999998888' })).toBe('41999998888')
+    expect(formatTelefoneLookup({ ddd: '', numero: '999998888' })).toBe('')
+    expect(formatTelefoneLookup(null)).toBe('')
+  })
 })
+

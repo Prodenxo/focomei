@@ -14,6 +14,7 @@ import { buildClienteCatalogLabel } from '../lib/meiFormatters'
 import {
   buildCatalogClienteMetadataJson,
   enderecoFromCnpjLookup,
+  formatTelefoneLookup,
   mergeEnderecoFromCepLookup,
   parseCatalogClienteFiscalMeta,
   validateCatalogClienteNfeFields,
@@ -98,6 +99,8 @@ type FormState = {
   email: string
   documentTypes: Array<'NFSE' | 'NFE' | 'NFCE'>
   indIEDest: DestinatarioIndIeDest
+  inscricaoMunicipal: string
+  telefone: string
   endereco: NfeDestinatarioEnderecoForm
 }
 
@@ -107,6 +110,8 @@ const emptyForm = (): FormState => ({
   email: '',
   documentTypes: ['NFSE'],
   indIEDest: DEFAULT_DESTINATARIO_IND_IE_DEST,
+  inscricaoMunicipal: '',
+  telefone: '',
   endereco: getDefaultNfeDestinatarioEndereco(),
 })
 
@@ -238,6 +243,8 @@ export default function MeiCatalogoClientesModal ({
         (t): t is 'NFSE' | 'NFE' | 'NFCE' => t === 'NFSE' || t === 'NFE' || t === 'NFCE',
       ),
       indIEDest: fiscal.indIEDest ?? DEFAULT_DESTINATARIO_IND_IE_DEST,
+      inscricaoMunicipal: fiscal.inscricaoMunicipal ?? '',
+      telefone: fiscal.telefone ?? '',
       endereco: fiscal.endereco ?? getDefaultNfeDestinatarioEndereco(),
     })
     setFormVisible(true)
@@ -267,6 +274,8 @@ export default function MeiCatalogoClientesModal ({
         setForm((f) => ({
           ...f,
           indIEDest: meta.indIEDest ?? f.indIEDest,
+          inscricaoMunicipal: meta.inscricaoMunicipal ?? f.inscricaoMunicipal,
+          telefone: meta.telefone ?? f.telefone,
           endereco: meta.endereco ?? f.endereco,
         }))
       }
@@ -285,6 +294,9 @@ export default function MeiCatalogoClientesModal ({
         ...f,
         nome: f.nome.trim() || data.razaoSocial || f.nome,
         email: f.email.trim() || data.email || f.email,
+        telefone: f.telefone.trim() || formatTelefoneLookup(data.telefone),
+        inscricaoMunicipal:
+          f.inscricaoMunicipal.trim() || String(data.inscricaoMunicipal ?? '').trim(),
         endereco: enderecoFromCnpjLookup(data),
       }))
       showToast('Endereço preenchido pela Receita Federal.', 'success')
@@ -349,6 +361,8 @@ export default function MeiCatalogoClientesModal ({
     try {
       const metadata_json = buildCatalogClienteMetadataJson({
         ...(wantsNfeLike ? { indIEDest: form.indIEDest } : {}),
+        inscricaoMunicipal: form.inscricaoMunicipal,
+        telefone: form.telefone,
         endereco: form.endereco,
       })
       await syncCatalogoClienteDocumentTypes({
@@ -527,6 +541,19 @@ export default function MeiCatalogoClientesModal ({
           onChangeText={(t) => setForm((f) => ({ ...f, email: t }))}
           keyboardType="email-address"
           autoCapitalize="none"
+        />
+        <MeiFormField
+          label="Telefone"
+          placeholder="opcional — (00) 00000-0000"
+          value={form.telefone}
+          onChangeText={(t) => setForm((f) => ({ ...f, telefone: t }))}
+          keyboardType="phone-pad"
+        />
+        <MeiFormField
+          label="Inscrição municipal"
+          placeholder="opcional — exigida por algumas prefeituras"
+          value={form.inscricaoMunicipal}
+          onChangeText={(t) => setForm((f) => ({ ...f, inscricaoMunicipal: t }))}
         />
         <MeiFormSectionLabel>Tipos deste cliente (pode marcar os dois)</MeiFormSectionLabel>
         <MeiTypeMultiChips

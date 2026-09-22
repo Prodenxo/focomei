@@ -1909,6 +1909,7 @@ function MeiScreenContent() {
         prestadorRazaoSocial: '',
         prestadorEmail: '',
         prestadorInscricaoMunicipal: '',
+        prestadorTelefone: '',
         prestadorEndereco: {
           logradouro: '',
           numero: '',
@@ -2334,6 +2335,9 @@ function MeiScreenContent() {
         tomadorCpfCnpj: formatDocument(digits),
         tomadorRazaoSocial: f.tomadorRazaoSocial?.trim() || prefill.tomadorRazaoSocial,
         tomadorEmail: f.tomadorEmail?.trim() || prefill.tomadorEmail,
+        tomadorInscricaoMunicipal:
+          f.tomadorInscricaoMunicipal?.trim() || prefill.tomadorInscricaoMunicipal,
+        tomadorTelefone: f.tomadorTelefone?.trim() || prefill.tomadorTelefone,
         tomadorEndereco: prefill.tomadorEndereco,
       }));
       lastTomadorLookupDocRef.current = digits;
@@ -2349,6 +2353,9 @@ function MeiScreenContent() {
         tomadorCpfCnpj: formatDocument(digits),
         tomadorRazaoSocial: f.tomadorRazaoSocial?.trim() || prefill.tomadorRazaoSocial,
         tomadorEmail: f.tomadorEmail?.trim() || prefill.tomadorEmail,
+        tomadorInscricaoMunicipal:
+          f.tomadorInscricaoMunicipal?.trim() || prefill.tomadorInscricaoMunicipal,
+        tomadorTelefone: f.tomadorTelefone?.trim() || prefill.tomadorTelefone,
         tomadorEndereco: prefill.tomadorEndereco,
       }));
       lastTomadorLookupDocRef.current = digits;
@@ -2375,6 +2382,8 @@ function MeiScreenContent() {
           : '',
         tomadorRazaoSocial: prefill.tomadorRazaoSocial,
         tomadorEmail: prefill.tomadorEmail,
+        tomadorInscricaoMunicipal: prefill.tomadorInscricaoMunicipal,
+        tomadorTelefone: prefill.tomadorTelefone,
         tomadorEndereco: prefill.tomadorEndereco,
       }));
       lastTomadorLookupDocRef.current = normalizeDoc(prefill.tomadorCpfCnpj);
@@ -2470,6 +2479,9 @@ function MeiScreenContent() {
               tomadorRazaoSocial:
                 nfseForm.tomadorRazaoSocial?.trim() || prefill.tomadorRazaoSocial,
               tomadorEmail: nfseForm.tomadorEmail?.trim() || prefill.tomadorEmail,
+              tomadorInscricaoMunicipal:
+                nfseForm.tomadorInscricaoMunicipal?.trim() || prefill.tomadorInscricaoMunicipal,
+              tomadorTelefone: nfseForm.tomadorTelefone?.trim() || prefill.tomadorTelefone,
               tomadorEndereco: prefill.tomadorEndereco,
             };
             setNfseForm(formToEmit);
@@ -4454,6 +4466,25 @@ function MeiScreenContent() {
                     }}
                   />
                   <MeiFormField
+                    label="Inscrição municipal prestador"
+                    placeholder="Opcional — exigida por algumas prefeituras"
+                    value={nfseForm.prestadorInscricaoMunicipal ?? ''}
+                    onChangeText={(t) => {
+                      touchNfsePrestadorFields();
+                      setNfseForm((f) => ({ ...f, prestadorInscricaoMunicipal: t }));
+                    }}
+                  />
+                  <MeiFormField
+                    label="Telefone prestador"
+                    placeholder="Opcional — (00) 00000-0000"
+                    value={nfseForm.prestadorTelefone ?? ''}
+                    keyboardType="phone-pad"
+                    onChangeText={(t) => {
+                      touchNfsePrestadorFields();
+                      setNfseForm((f) => ({ ...f, prestadorTelefone: t }));
+                    }}
+                  />
+                  <MeiFormField
                     label="Logradouro prestador"
                     required
                     placeholder="Rua, número"
@@ -4581,6 +4612,19 @@ function MeiScreenContent() {
                     keyboardType="email-address"
                     autoCapitalize="none"
                   />
+                  <MeiFormField
+                    label="Inscrição municipal tomador"
+                    placeholder="Opcional — exigida por algumas empresas"
+                    value={nfseForm.tomadorInscricaoMunicipal ?? ''}
+                    onChangeText={(t) => setNfseForm((f) => ({ ...f, tomadorInscricaoMunicipal: t }))}
+                  />
+                  <MeiFormField
+                    label="Telefone tomador"
+                    placeholder="Opcional — (00) 00000-0000"
+                    value={nfseForm.tomadorTelefone ?? ''}
+                    keyboardType="phone-pad"
+                    onChangeText={(t) => setNfseForm((f) => ({ ...f, tomadorTelefone: t }))}
+                  />
                   {normalizeDoc(nfseForm.tomadorCpfCnpj ?? '').length === 14
                   && nfseForm.tomadorEndereco?.logradouro?.trim()
                   && nfseForm.tomadorEndereco?.descricaoCidade?.trim() ? (
@@ -4664,6 +4708,17 @@ function MeiScreenContent() {
                     value={String(nfseForm.servico?.aliquota ?? '')}
                     onChangeText={(t) => setNfseForm((f) => ({ ...f, servico: { ...f.servico, aliquota: t } }))}
                     keyboardType="decimal-pad"
+                  />
+                  <MeiFormField
+                    label="NBS (opcional)"
+                    placeholder="9 dígitos — não é exigido do MEI"
+                    hint="Deixe em branco para o sistema sugerir pelo código do serviço."
+                    value={String(nfseForm.servico?.codigoNbs ?? '')}
+                    onChangeText={(t) => setNfseForm((f) => ({
+                      ...f,
+                      servico: { ...f.servico, codigoNbs: t.replace(/\D/g, '').slice(0, 9) },
+                    }))}
+                    keyboardType="numeric"
                   />
                   <MeiFormField
                     label="Valor do serviço"

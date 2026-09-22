@@ -13,6 +13,9 @@ import {
 
 export interface MeiCatalogClienteFiscalMeta {
   indIEDest?: DestinatarioIndIeDest | string;
+  /** Exigida por algumas prefeituras quando o tomador é PJ. */
+  inscricaoMunicipal?: string;
+  telefone?: string;
   endereco?: Partial<NfeDestinatarioEnderecoForm>;
 }
 
@@ -68,6 +71,16 @@ export function isTomadorEnderecoComplete(
 /**
  * Busca tomador NFS-e no catálogo ou na Receita quando o endereço ainda não foi preenchido.
  */
+/** `{ ddd, numero }` da Receita vira string editável no formulário. */
+export function formatTelefoneLookup(
+  telefone: { ddd?: string | null; numero?: string | null } | null | undefined,
+): string {
+  const ddd = normalizeDoc(String(telefone?.ddd ?? ''));
+  const numero = normalizeDoc(String(telefone?.numero ?? ''));
+  if (ddd.length !== 2 || numero.length < 8) return '';
+  return `${ddd}${numero}`;
+}
+
 export async function resolveNfseTomadorByCnpj(
   cnpjMasked: string,
   catalogClientes: NfseCatalogCliente[],
@@ -75,6 +88,8 @@ export async function resolveNfseTomadorByCnpj(
 ): Promise<{
   tomadorRazaoSocial: string;
   tomadorEmail: string;
+  tomadorInscricaoMunicipal: string;
+  tomadorTelefone: string;
   tomadorEndereco: NfeDestinatarioEnderecoForm;
 } | null> {
   const digits = normalizeDoc(cnpjMasked);
@@ -95,6 +110,11 @@ export async function resolveNfseTomadorByCnpj(
       tomadorRazaoSocial:
         catalogPrefill?.tomadorRazaoSocial || String(data.razaoSocial ?? '').trim(),
       tomadorEmail: catalogPrefill?.tomadorEmail || String(data.email ?? '').trim(),
+      tomadorInscricaoMunicipal:
+        catalogPrefill?.tomadorInscricaoMunicipal
+        || String(data.inscricaoMunicipal ?? '').trim(),
+      tomadorTelefone:
+        catalogPrefill?.tomadorTelefone || formatTelefoneLookup(data.telefone),
       tomadorEndereco: enderecoFromCnpjLookup(data),
     };
   } catch {
@@ -115,6 +135,10 @@ export function parseCatalogClienteFiscalMeta(
     ...(metadata.indIEDest != null
       ? { indIEDest: normalizeDestinatarioIndIeDest(metadata.indIEDest) }
       : {}),
+    ...(metadata.inscricaoMunicipal != null
+      ? { inscricaoMunicipal: String(metadata.inscricaoMunicipal).trim() }
+      : {}),
+    ...(metadata.telefone != null ? { telefone: String(metadata.telefone).trim() } : {}),
     endereco: {
       cep: normalizeDoc(String(rawEndereco.cep ?? '')).slice(0, 8),
       logradouro: String(rawEndereco.logradouro ?? base.logradouro).trim(),
@@ -133,10 +157,16 @@ export function parseCatalogClienteFiscalMeta(
 
 export function buildCatalogClienteMetadataJson(input: {
   indIEDest?: DestinatarioIndIeDest;
+  inscricaoMunicipal?: string;
+  telefone?: string;
   endereco?: NfeDestinatarioEnderecoForm;
 }): Record<string, unknown> | undefined {
   const meta: Record<string, unknown> = {};
   if (input.indIEDest) meta.indIEDest = input.indIEDest;
+  if (input.inscricaoMunicipal?.trim()) {
+    meta.inscricaoMunicipal = input.inscricaoMunicipal.trim();
+  }
+  if (input.telefone?.trim()) meta.telefone = input.telefone.trim();
   const e = input.endereco;
   if (e) {
     const endereco = {
@@ -194,6 +224,8 @@ export function applyCatalogClienteToNfseForm(
   tomadorCpfCnpj: string;
   tomadorRazaoSocial: string;
   tomadorEmail: string;
+  tomadorInscricaoMunicipal: string;
+  tomadorTelefone: string;
   tomadorEndereco: NfeDestinatarioEnderecoForm;
 } {
   const meta = parseCatalogClienteFiscalMeta(item.metadata_json ?? undefined);
@@ -202,6 +234,8 @@ export function applyCatalogClienteToNfseForm(
     tomadorCpfCnpj: docDigits,
     tomadorRazaoSocial: String(item.nome ?? '').trim(),
     tomadorEmail: String(item.email ?? '').trim(),
+    tomadorInscricaoMunicipal: meta.inscricaoMunicipal ?? '',
+    tomadorTelefone: meta.telefone ?? '',
     tomadorEndereco: meta.endereco ?? getDefaultNfeDestinatarioEndereco(),
   };
 }

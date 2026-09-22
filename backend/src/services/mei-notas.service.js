@@ -525,7 +525,33 @@ const buildTomadorEnderecoFromInput = (input) => {
   return buildPartyEnderecoFromInput({ ...flatFromPayload, ...enderecoInput });
 };
 
-const buildPayloadFromInput = (input, userId) => {
+/** IM varia por município (pode ter ponto/barra/letra) — só normaliza espaços. */
+const buildInscricaoMunicipalFromInput = (value) => {
+  const text = value == null ? '' : String(value).trim();
+  return text || null;
+};
+
+/**
+ * Telefone no formato PlugNotas (`{ ddd, numero }`). Aceita string mascarada,
+ * com ou sem +55, ou objeto já separado.
+ */
+const buildTelefoneFromInput = (value) => {
+  if (!value) return null;
+
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    const ddd = normalizeDoc(value.ddd).slice(0, 2);
+    const numero = normalizeDoc(value.numero);
+    if (ddd.length !== 2 || numero.length < 8 || numero.length > 9) return null;
+    return { ddd, numero };
+  }
+
+  let digits = normalizeDoc(value);
+  if (digits.length > 11 && digits.startsWith('55')) digits = digits.slice(2);
+  if (digits.length !== 10 && digits.length !== 11) return null;
+  return { ddd: digits.slice(0, 2), numero: digits.slice(2) };
+};
+
+export const buildPayloadFromInput = (input, userId) => {
   const idIntegracao = input?.idIntegracao || `mei-${userId}-${Date.now()}`;
   const prestadorDoc = normalizeDoc(
     input?.prestador?.cpfCnpj
@@ -548,7 +574,13 @@ const buildPayloadFromInput = (input, userId) => {
   const tomadorEndereco = buildTomadorEnderecoFromInput(input);
 
   const prestadorBase = { ...(input?.prestador || {}) };
+  /** Normalizados abaixo — o valor cru do cadastro não vai direto para o emissor. */
   delete prestadorBase.inscricaoMunicipal;
+  delete prestadorBase.telefone;
+
+  const tomadorBase = { ...(input?.tomador || {}) };
+  delete tomadorBase.inscricaoMunicipal;
+  delete tomadorBase.telefone;
 
   const payload = prune({
     idIntegracao,
@@ -561,13 +593,25 @@ const buildPayloadFromInput = (input, userId) => {
       cpfCnpj: prestadorDoc || input?.prestador?.cpfCnpj || null,
       razaoSocial: input?.prestador?.razaoSocial || input?.prestadorRazaoSocial || null,
       email: input?.prestador?.email || input?.prestadorEmail || null,
+      inscricaoMunicipal: buildInscricaoMunicipalFromInput(
+        input?.prestador?.inscricaoMunicipal ?? input?.prestadorInscricaoMunicipal
+      ),
+      telefone: buildTelefoneFromInput(
+        input?.prestador?.telefone ?? input?.prestadorTelefone
+      ),
       endereco: prestadorEndereco
     }),
     tomador: prune({
-      ...(input?.tomador || {}),
+      ...tomadorBase,
       cpfCnpj: tomadorDoc || input?.tomador?.cpfCnpj || null,
       razaoSocial: input?.tomador?.razaoSocial || input?.tomadorRazaoSocial || null,
       email: input?.tomador?.email || input?.tomadorEmail || null,
+      inscricaoMunicipal: buildInscricaoMunicipalFromInput(
+        input?.tomador?.inscricaoMunicipal ?? input?.tomadorInscricaoMunicipal
+      ),
+      telefone: buildTelefoneFromInput(
+        input?.tomador?.telefone ?? input?.tomadorTelefone
+      ),
       endereco: tomadorEndereco
     }),
     cidadePrestacao: prune(input?.cidadePrestacao || null),

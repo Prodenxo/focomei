@@ -97,12 +97,16 @@ export interface NfseServicoInput {
   cnae: string;
   /** Opcional — MEI/Simples Nacional: o backend não repassa alíquota ISS na NFS-e. */
   aliquota?: string | number;
+  /** Opcional — não é exigido do MEI. Em branco, o backend sugere pelo código LC 116. */
+  codigoNbs?: string;
   valorServico: string | number;
 }
 
 export interface EmitirNfseInput {
   prestadorCpfCnpj: string;
   prestadorInscricaoMunicipal?: string;
+  /** Aceita máscara; o backend converte para `{ ddd, numero }`. */
+  prestadorTelefone?: string;
   prestadorRazaoSocial?: string;
   prestadorEmail?: string;
   prestadorEndereco?: {
@@ -118,6 +122,9 @@ export interface EmitirNfseInput {
   tomadorCpfCnpj?: string;
   tomadorRazaoSocial?: string;
   tomadorEmail?: string;
+  tomadorInscricaoMunicipal?: string;
+  /** Aceita máscara; o backend converte para `{ ddd, numero }`. */
+  tomadorTelefone?: string;
   tomadorEndereco?: {
     logradouro?: string;
     numero?: string;
