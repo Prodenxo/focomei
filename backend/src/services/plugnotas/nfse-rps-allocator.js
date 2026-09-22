@@ -1,5 +1,9 @@
 import { consultarEmpresaPlugNotas } from './empresa.service.js';
 import {
+  consumeFiscalNumeracaoOverride,
+  readFiscalNumeracaoOverride,
+} from './fiscal-numeracao-override.js';
+import {
   queryAuthoritativeNfseRpsMaxUsed,
   readPlugnotasNfseNextRpsFromEmpresa,
   readRpsFromNfseEmitPayload,
@@ -162,6 +166,10 @@ export async function queryKnownNfseRpsMax(getDb, cnpj, localMax = 0) {
 
 /**
  * Próximo DPS seguro: histórico PlugNotas + GET empresa fresco (nunca pula só por Postgres inflado).
+ *
+ * Exceção: numeração corrigida à mão pelo usuário vence o histórico uma vez (ver
+ * `fiscal-numeracao-override.js`). Se o número estiver mesmo ocupado, o retry de
+ * E0014 na emissão descarta o override e volta à regra automática.
  * @param {() => import('@supabase/supabase-js').SupabaseClient} getDb
  * @param {string} cnpj
  * @param {number} localMax
@@ -182,10 +190,21 @@ export async function allocateNfseRpsForEmit(getDb, cnpj, localMax = 0, empresaJ
 
   const empresaNext = readPlugnotasNfseNextRpsFromEmpresa(empresaJsonFresh);
   const empresaNumero = empresaNext?.numero >= 1 ? empresaNext.numero : 0;
-  const safeNext = Math.max(
+  const override = await readFiscalNumeracaoOverride(getDb, {
+    cnpj: normalizedCnpj,
+    documentType: 'nfse',
+  });
+  const automaticNext = Math.max(
     historyMax + 1,
     empresaNumero >= 1 ? empresaNumero : 1,
   );
+  const safeNext = override?.numero ?? automaticNext;
+  if (override) {
+    await consumeFiscalNumeracaoOverride(getDb, {
+      cnpj: normalizedCnpj,
+      documentType: 'nfse',
+    });
+  }
   const targetFloor = safeNext - 1;
   const counterBefore = await readNfseRpsCounterLast(getDb, normalizedCnpj);
 
@@ -199,6 +218,7 @@ export async function allocateNfseRpsForEmit(getDb, cnpj, localMax = 0, empresaJ
     cnpj: `${normalizedCnpj.slice(0, 2)}***${normalizedCnpj.slice(-4)}`,
     historyMax,
     empresaNumero: empresaNumero || null,
+    manualNumero: override?.numero ?? null,
     counterBefore,
     safeNext,
     targetFloor,
@@ -207,7 +227,7 @@ export async function allocateNfseRpsForEmit(getDb, cnpj, localMax = 0, empresaJ
 
   return {
     numero,
-    serie: String(empresaNext?.serie ?? '1').trim() || '1',
+    serie: String(override?.serie ?? empresaNext?.serie ?? '1').trim() || '1',
     lote: parsePositiveInt(empresaNext?.lote, 1),
     floor: targetFloor,
     empresaJson: empresaJsonFresh,

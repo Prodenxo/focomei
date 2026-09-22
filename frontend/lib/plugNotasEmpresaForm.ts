@@ -54,17 +54,6 @@ const clampRpsInt = (value: unknown, fallback: number): number => {
   return fallback;
 };
 
-/** Converte o próximo número configurado no emissor para o último já utilizado. */
-export const rpsNextToLastEmitted = (nextNumero: unknown): number =>
-  Math.max(0, clampRpsInt(nextNumero, 1) - 1);
-
-/** O usuário informa o último utilizado; PlugNotas precisa receber o próximo. */
-export const rpsLastEmittedToNext = (lastNumero: unknown): number => {
-  const parsed = Number.parseInt(String(lastNumero ?? ''), 10);
-  const safeLast = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-  return safeLast + 1;
-};
-
 export function isPlugnotasRpsSerieNotRegisteredMessage(message: string): boolean {
   const m = String(message || '')
     .toLowerCase()

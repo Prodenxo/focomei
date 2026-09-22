@@ -423,6 +423,46 @@ export async function consultarEmpresaFiscal(cnpj: string): Promise<EmpresaFisca
   );
 }
 
+export type NumeracaoFiscalDocumentType = 'NFSE' | 'NFE';
+
+export interface NumeracaoFiscalEntry {
+  /** Número que sairá na próxima nota. */
+  proximoNumero: number;
+  ultimoUtilizado: number;
+  /** Maior número já visto no PlugNotas e no histórico local. */
+  historicoMaximo: number;
+  serie: string;
+  /** Correção manual gravada e ainda não consumida por uma emissão. */
+  ajusteManualPendente: boolean;
+}
+
+export interface NumeracaoFiscalData {
+  cnpj: string;
+  nfse: NumeracaoFiscalEntry;
+  nfe: NumeracaoFiscalEntry;
+}
+
+export async function consultarNumeracaoFiscal(cnpj: string): Promise<NumeracaoFiscalData> {
+  return await apiClient.get<NumeracaoFiscalData>(
+    `/mei-notas/setup/numeracao?cpfCnpj=${encodeURIComponent(cnpj)}`
+  );
+}
+
+/** Informa o número da última nota emitida; a próxima sai com o seguinte. */
+export async function definirNumeracaoFiscal(input: {
+  cnpj: string;
+  documentType: NumeracaoFiscalDocumentType;
+  ultimoUtilizado: number;
+  serie?: string;
+}): Promise<NumeracaoFiscalData> {
+  return await apiClient.put<NumeracaoFiscalData>('/mei-notas/setup/numeracao', {
+    cpfCnpj: input.cnpj,
+    documentType: input.documentType,
+    ultimoUtilizado: input.ultimoUtilizado,
+    ...(input.serie ? { serie: input.serie } : {}),
+  });
+}
+
 export interface CnpjLookupCnae {
   codigo: string;
   descricao: string | null;

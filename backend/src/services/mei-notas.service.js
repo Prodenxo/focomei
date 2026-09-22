@@ -19,11 +19,13 @@ import {
   isNfseRpsDuplicateRejectionLoose,
   isPlugnotasNfseRpsNumeroJaUtilizadoError,
   queryAuthoritativeNfseRpsMaxUsed,
+  readPlugnotasNfseNextRpsFromEmpresa,
   readRpsNumeroFromNfseHistoryRow,
   readRpsNumeroFromNfsePlugnotasBody,
   readRpsFromNfseEmitPayload,
   resolveNfseRpsLocalMaxFromHistory,
 } from './plugnotas/plugnotas-empresa-rps-heal.js';
+import { consultarEmpresaPlugNotas } from './plugnotas/empresa.service.js';
 import {
   advancePlugnotasNfeNumeracaoAfterEmit,
   applyPlugnotasNfeNumeracaoToEmitPayload,
@@ -34,6 +36,7 @@ import {
   queryAuthoritativeNfeMaxUsed,
   readNfeNumeroFromHistoryRow,
   readNfeNumeroFromPlugnotasBody,
+  readPlugnotasNfeNextFromEmpresa,
   resolveNextNfeNumeroFromSources,
   syncPlugnotasNfeNumeracaoBeforeEmit,
 } from './plugnotas/plugnotas-empresa-nfe-heal.js';
@@ -43,6 +46,11 @@ import {
   forceNfseRpsCounterFloor,
   setNfseRpsCounterLast,
 } from './plugnotas/nfse-rps-allocator.js';
+import {
+  consumeFiscalNumeracaoOverride,
+  readFiscalNumeracaoOverride,
+  setFiscalNumeracaoOverride,
+} from './plugnotas/fiscal-numeracao-override.js';
 import {
   ensureMeiNfsePlugnotasCadastroBeforeEmit,
   rethrowIfPlugnotasEmpresaNaoCadastrada,
@@ -1652,11 +1660,25 @@ const emitNfeWithAutoNumeracaoRecovery = async (
   let response;
   let emitSerie = 1;
 
+  /** Vale só na primeira tentativa: em duplicidade o retry volta à numeração automática. */
+  const manual = await readFiscalNumeracaoOverride(getDb, {
+    cnpj: cnpjEmitente,
+    documentType: 'nfe',
+  });
+  if (manual) {
+    await consumeFiscalNumeracaoOverride(getDb, {
+      cnpj: cnpjEmitente,
+      documentType: 'nfe',
+    });
+  }
+
   for (let attempt = 0; attempt < NFE_EMIT_DUPLICIDADE_RETRY_MAX; attempt += 1) {
     emitPayload = { ...basePayload };
     const numeracao = await ensurePlugnotasNfeNumeracaoBeforeEmit(cnpjEmitente, {
       localMaxNumero: localMax,
       relatorioMaxNumero: prep.relatorioMax ?? 0,
+      forcedNumero: attempt === 0 ? manual?.numero : null,
+      forcedSerie: attempt === 0 ? manual?.serie ?? null : null,
       userId,
     });
     if (numeracao?.serie !== undefined && numeracao?.serie !== null) {
@@ -1795,6 +1817,100 @@ const queryMaxRpsNumeroEmitted = async (userId, cnpjPrestador) => {
     if (numero > maxKnown) maxKnown = numero;
   }
   return resolveNfseRpsLocalMaxFromHistory({ maxKnownNumero: maxKnown });
+};
+
+const assertCnpjEmpresa = (cpfCnpj) => {
+  const cnpj = normalizeDoc(cpfCnpj);
+  if (cnpj.length !== 14) {
+    throw badRequest('Informe o CNPJ da empresa com 14 dígitos para consultar a numeração.');
+  }
+  return cnpj;
+};
+
+/**
+ * Numeração de NFS-e (DPS/RPS) e NF-e: o que sai na próxima nota, o maior número
+ * já visto no histórico e a correção manual ainda não consumida.
+ * @param {string} userId
+ * @param {string} cpfCnpj
+ */
+export const consultarNumeracaoFiscal = async (userId, cpfCnpj) => {
+  const cnpj = assertCnpjEmpresa(cpfCnpj);
+
+  let empresaJson = null;
+  try {
+    empresaJson = await consultarEmpresaPlugNotas(cnpj);
+  } catch (error) {
+    console.warn('[fiscal-numeracao] GET empresa falhou na consulta de numeração', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  const [nfseLocalMax, nfeLocalMax] = await Promise.all([
+    queryMaxRpsNumeroEmitted(userId, cnpj),
+    queryMaxNfeNumeroEmitted(userId, cnpj),
+  ]);
+
+  const [nfseHistorico, nfeHistorico, nfseManual, nfeManual] = await Promise.all([
+    queryAuthoritativeNfseRpsMaxUsed(cnpj, nfseLocalMax ?? 0),
+    queryAuthoritativeNfeMaxUsed(cnpj, nfeLocalMax ?? 0),
+    readFiscalNumeracaoOverride(getDb, { cnpj, documentType: DOCUMENT_TYPE_NFSE }),
+    readFiscalNumeracaoOverride(getDb, { cnpj, documentType: DOCUMENT_TYPE_NFE }),
+  ]);
+
+  const nfseEmpresa = readPlugnotasNfseNextRpsFromEmpresa(empresaJson);
+  const nfeEmpresa = empresaJson ? readPlugnotasNfeNextFromEmpresa(empresaJson) : null;
+
+  const buildEntry = (historicoMax, manual, empresaNumero, serie) => {
+    const historico = parsePositiveIntLocal(historicoMax, 0);
+    const automatico = Math.max(historico + 1, parsePositiveIntLocal(empresaNumero, 0) || 1);
+    const proximo = manual?.numero ?? automatico;
+    return {
+      proximoNumero: proximo,
+      ultimoUtilizado: Math.max(proximo - 1, 0),
+      historicoMaximo: historico,
+      serie: String(manual?.serie ?? serie ?? '1').trim() || '1',
+      ajusteManualPendente: Boolean(manual),
+    };
+  };
+
+  return {
+    cnpj,
+    nfse: buildEntry(nfseHistorico, nfseManual, nfseEmpresa?.numero, nfseEmpresa?.serie),
+    nfe: buildEntry(nfeHistorico, nfeManual, nfeEmpresa?.numero, nfeEmpresa?.serie),
+  };
+};
+
+/**
+ * Grava a numeração informada à mão. O usuário digita o último número utilizado;
+ * a próxima nota sai com o seguinte, mesmo que o histórico esteja acima disso.
+ * @param {string} userId
+ * @param {{ cpfCnpj?: string, documentType?: string, ultimoUtilizado?: number|string }} input
+ */
+export const definirNumeracaoFiscal = async (userId, input = {}) => {
+  const cnpj = assertCnpjEmpresa(input.cpfCnpj);
+  const documentType = normalizeDocumentType(input.documentType);
+  if (documentType !== DOCUMENT_TYPE_NFSE && documentType !== DOCUMENT_TYPE_NFE) {
+    throw badRequest('Tipo de documento inválido para numeração (use NFS-e ou NF-e).');
+  }
+
+  const ultimo = Number.parseInt(String(input.ultimoUtilizado ?? ''), 10);
+  if (!Number.isFinite(ultimo) || ultimo < 0) {
+    throw badRequest('Informe o número da última nota emitida (0 ou maior).');
+  }
+
+  const nextNumero = ultimo + 1;
+  const registrado = await setFiscalNumeracaoOverride(getDb, {
+    cnpj,
+    documentType,
+    nextNumero,
+    serie: input.serie ?? null,
+    userId,
+  });
+  if (!registrado) {
+    throw badRequest('Não foi possível gravar a numeração informada. Tente novamente em instantes.');
+  }
+
+  return await consultarNumeracaoFiscal(userId, cnpj);
 };
 
 const mapInsertRecordError = (error) => {

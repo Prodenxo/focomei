@@ -3,8 +3,6 @@ import {
   empresaFiscalToCompanyForm,
   getDefaultPlugNotasCompanyForm,
   getPlugNotasCompanyValidationMessage,
-  rpsLastEmittedToNext,
-  rpsNextToLastEmitted,
 } from '../plugNotasEmpresaForm';
 
 describe('buildPlugNotasEmpresaPayload', () => {
@@ -78,23 +76,15 @@ describe('buildPlugNotasEmpresaPayload', () => {
     expect(getPlugNotasCompanyValidationMessage(form)).toMatch(/NFC-e exige CSC/i);
   });
 
-  it('converte o último RPS informado para o próximo número do emissor', () => {
-    expect(rpsLastEmittedToNext('125')).toBe(126);
-    expect(rpsLastEmittedToNext('0')).toBe(1);
-    expect(rpsNextToLastEmitted(126)).toBe(125);
-    expect(rpsNextToLastEmitted(1)).toBe(0);
-  });
-
-  it('carrega o próximo RPS salvo e permite exibir o último utilizado', () => {
+  it('carrega o próximo RPS já configurado no emissor', () => {
     const form = empresaFiscalToCompanyForm({
       nfse: { ativo: true, config: { rps: { numero: 43, serie: '1', lote: 1 } } },
     });
 
     expect(form.rpsNumero).toBe(43);
-    expect(rpsNextToLastEmitted(form.rpsNumero)).toBe(42);
   });
 
-  it('envia para PlugNotas o número seguinte ao último informado', () => {
+  it('envia o próximo RPS do formulário para o PlugNotas', () => {
     const form = {
       ...getDefaultPlugNotasCompanyForm(),
       razaoSocial: 'Empresa Teste LTDA',
@@ -106,7 +96,7 @@ describe('buildPlugNotasEmpresaPayload', () => {
       codigoCidade: '3550308',
       descricaoCidade: 'São Paulo',
       estado: 'SP',
-      rpsNumero: rpsLastEmittedToNext(99),
+      rpsNumero: 100,
     };
 
     const payload = buildPlugNotasEmpresaPayload({

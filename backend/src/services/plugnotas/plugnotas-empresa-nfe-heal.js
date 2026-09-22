@@ -580,12 +580,14 @@ export async function ensurePlugnotasNfeNumeracaoBeforeEmit(cnpjInput, opts = {}
   }
 
   const fromEmpresa = empresaJson ? readPlugnotasNfeNextFromEmpresa(empresaJson) : null;
-  const safeNext = resolveNextNfeNumeroFromSources({
+  /** Numeração corrigida à mão pelo usuário vence o histórico (ver `fiscal-numeracao-override.js`). */
+  const forcedNumero = parsePositiveInt(opts.forcedNumero, 0);
+  const safeNext = forcedNumero || resolveNextNfeNumeroFromSources({
     empresaNumero: fromEmpresa?.numero,
     localMaxNumero: localMax,
     periodoMaxNumero: relatorioMax,
   });
-  const serie = fromEmpresa?.serie ?? 1;
+  const serie = opts.forcedSerie ?? fromEmpresa?.serie ?? 1;
 
   await syncPlugnotasNfeNumeracaoBeforeEmit(
     cnpj,
@@ -603,6 +605,7 @@ export async function ensurePlugnotasNfeNumeracaoBeforeEmit(cnpjInput, opts = {}
     numero: safeNext,
     localMax,
     relatorioMax,
+    manualNumero: forcedNumero || null,
     empresaNumero: fromEmpresa?.numero ?? null,
   });
 

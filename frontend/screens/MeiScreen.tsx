@@ -74,8 +74,12 @@ import {
   cadastrarPlugNotasEmpresa,
   atualizarPlugNotasEmpresa,
   consultarEmpresaFiscal,
+  consultarNumeracaoFiscal,
+  definirNumeracaoFiscal,
   lookupCnpj,
   type EmpresaFiscalData,
+  type NumeracaoFiscalData,
+  type NumeracaoFiscalDocumentType,
   type EmpresaFiscalEndereco,
   type NfseRecord,
   type DocumentType,
@@ -110,8 +114,6 @@ import {
   getPlugNotasCompanyValidationMessage,
   buildPlugNotasEmpresaPayload,
   empresaFiscalToCompanyForm,
-  rpsLastEmittedToNext,
-  rpsNextToLastEmitted,
   type PlugNotasCompanyForm,
 } from '../lib/plugNotasEmpresaForm';
 import {
@@ -549,6 +551,13 @@ function MeiScreenContent() {
   const [pendingImportCnaes, setPendingImportCnaes] = useState<CnpjLookupCnaeItem[]>([]);
   const offerCnaeImportRef = useRef(false);
   const [isEditingEmpresa, setIsEditingEmpresa] = useState(false);
+  const [numeracaoFiscal, setNumeracaoFiscal] = useState<NumeracaoFiscalData | null>(null);
+  const [numeracaoLoading, setNumeracaoLoading] = useState(false);
+  const [numeracaoSaving, setNumeracaoSaving] = useState<NumeracaoFiscalDocumentType | null>(null);
+  const [numeracaoInput, setNumeracaoInput] = useState<Record<NumeracaoFiscalDocumentType, string>>({
+    NFSE: '',
+    NFE: '',
+  });
 
   // Emitir nota
   const [emitirNotaVisible, setEmitirNotaVisible] = useState(false);
@@ -2698,6 +2707,126 @@ function MeiScreenContent() {
     setPlugNotasCompanyForm(getDefaultPlugNotasCompanyForm());
   };
 
+  const applyNumeracaoFiscal = useCallback((data: NumeracaoFiscalData) => {
+    setNumeracaoFiscal(data);
+    setNumeracaoInput({
+      NFSE: String(data.nfse.ultimoUtilizado),
+      NFE: String(data.nfe.ultimoUtilizado),
+    });
+  }, []);
+
+  useEffect(() => {
+    const digits = normalizeDoc(plugNotasCnpj);
+    if (!showPlugNotasEmpresaForm || digits.length !== 14 || !empresaFiscal?.cpfCnpj) {
+      return;
+    }
+    let cancelled = false;
+    setNumeracaoLoading(true);
+    consultarNumeracaoFiscal(digits)
+      .then((data) => { if (!cancelled) applyNumeracaoFiscal(data); })
+      .catch(() => { if (!cancelled) setNumeracaoFiscal(null); })
+      .finally(() => { if (!cancelled) setNumeracaoLoading(false); });
+    return () => { cancelled = true; };
+  }, [applyNumeracaoFiscal, empresaFiscal?.cpfCnpj, plugNotasCnpj, showPlugNotasEmpresaForm]);
+
+  const handleSalvarNumeracao = useCallback(async (documentType: NumeracaoFiscalDocumentType) => {
+    const digits = normalizeDoc(plugNotasCnpj);
+    if (digits.length !== 14) {
+      showToast('Informe um CNPJ válido antes de ajustar a numeração.', 'error');
+      return;
+    }
+
+    const ultimo = Number.parseInt(numeracaoInput[documentType].replace(/\D/g, ''), 10);
+    if (!Number.isFinite(ultimo) || ultimo < 0) {
+      showToast('Informe o número da última nota emitida.', 'error');
+      return;
+    }
+
+    const atual = documentType === 'NFSE' ? numeracaoFiscal?.nfse : numeracaoFiscal?.nfe;
+    const historico = atual?.historicoMaximo ?? 0;
+    if (historico > 0 && ultimo < historico) {
+      const label = documentType === 'NFSE' ? 'DPS/RPS' : 'NF-e';
+      const confirmado = await confirmDialog({
+        title: 'Numeração abaixo do histórico',
+        message: `Já encontramos a nota ${historico} (${label}) no histórico do emissor. `
+          + `Se continuar, a próxima sairá com o número ${ultimo + 1}. `
+          + 'Se esse número já estiver ocupado, o sistema avança sozinho até achar um livre.',
+        confirmLabel: 'Usar assim mesmo',
+      });
+      if (!confirmado) return;
+    }
+
+    setNumeracaoSaving(documentType);
+    try {
+      const data = await definirNumeracaoFiscal({ cnpj: digits, documentType, ultimoUtilizado: ultimo });
+      applyNumeracaoFiscal(data);
+      showToast('Numeração salva. A próxima nota já sai com esse número.', 'success');
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'Falha ao salvar a numeração.', 'error');
+    } finally {
+      setNumeracaoSaving(null);
+    }
+  }, [applyNumeracaoFiscal, numeracaoFiscal, numeracaoInput, plugNotasCnpj, showToast]);
+
+  const renderNumeracaoLinha = (documentType: NumeracaoFiscalDocumentType) => {
+    const atual = documentType === 'NFSE' ? numeracaoFiscal?.nfse : numeracaoFiscal?.nfe;
+    const salvando = numeracaoSaving === documentType;
+
+    return (
+      <View key={documentType}>
+        <Text style={[styles.label, { fontSize: 13 }]}>
+          {documentType === 'NFSE'
+            ? 'Último DPS/RPS emitido (NFS-e)'
+            : 'Último número emitido (NF-e)'}
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          <TextInput
+            style={[styles.input, { flex: 1 }]}
+            placeholder="Ex.: 125"
+            placeholderTextColor={theme.placeholder}
+            value={numeracaoInput[documentType]}
+            onChangeText={(value) => setNumeracaoInput((prev) => ({
+              ...prev,
+              [documentType]: value.replace(/\D/g, ''),
+            }))}
+            keyboardType="numeric"
+            editable={!salvando}
+          />
+          <TouchableOpacity
+            style={{
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              borderRadius: 8,
+              backgroundColor: theme.primary,
+              opacity: salvando ? 0.6 : 1,
+            }}
+            onPress={() => handleSalvarNumeracao(documentType)}
+            disabled={salvando}
+          >
+            {salvando ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 13 }}>Salvar</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+        <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 4, lineHeight: 16 }}>
+          {atual
+            ? `A próxima nota sai com o número ${atual.proximoNumero}.`
+            : 'Numeração ainda não consultada no emissor.'}
+          {atual && atual.historicoMaximo > 0
+            ? ` Maior número já registrado no emissor: ${atual.historicoMaximo}.`
+            : ''}
+        </Text>
+        {atual?.ajusteManualPendente ? (
+          <Text style={{ fontSize: 11, color: theme.warning, marginTop: 2, lineHeight: 16 }}>
+            Ajuste manual salvo — vale na próxima emissão.
+          </Text>
+        ) : null}
+      </View>
+    );
+  };
+
   const handlePlugNotasEmpresaSubmit = async () => {
     const cnpjNorm = normalizeDoc(plugNotasCnpj);
     if (cnpjNorm.length !== 14) {
@@ -4029,24 +4158,21 @@ function MeiScreenContent() {
                   />
                 </View>
 
-                {documentosPermitidos.nfse ? (
+                {empresaFiscal?.cpfCnpj ? (
                   <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Último RPS/DPS utilizado</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Ex.: 125"
-                      placeholderTextColor={theme.placeholder}
-                      value={String(rpsNextToLastEmitted(plugNotasCompanyForm.rpsNumero))}
-                      onChangeText={(value) => updatePlugNotasCompanyForm({
-                        rpsNumero: rpsLastEmittedToNext(value.replace(/\D/g, '')),
-                      })}
-                      keyboardType="numeric"
-                    />
-                    <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 4, lineHeight: 16 }}>
-                      Informe o número da última nota emitida. A próxima usará o RPS/DPS{' '}
-                      {plugNotasCompanyForm.rpsNumero}. O sistema não reduz abaixo de uma numeração
-                      já encontrada no histórico.
+                    <Text style={styles.label}>Numeração das notas</Text>
+                    <Text style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 10, lineHeight: 18 }}>
+                      Informe o número da última nota que você emitiu. A próxima sai com o número
+                      seguinte, mesmo que o emissor tenha registrado uma numeração maior.
                     </Text>
+                    {numeracaoLoading && !numeracaoFiscal ? (
+                      <ActivityIndicator size="small" color={theme.primary} />
+                    ) : (
+                      <View style={{ gap: 14 }}>
+                        {documentosPermitidos.nfse ? renderNumeracaoLinha('NFSE') : null}
+                        {documentosPermitidos.nfe ? renderNumeracaoLinha('NFE') : null}
+                      </View>
+                    )}
                   </View>
                 ) : null}
 
