@@ -2403,6 +2403,7 @@ function MeiScreenContent() {
         destinatarioRazaoSocial: prefill.destinatarioRazaoSocial,
         destinatarioEmail: prefill.destinatarioEmail,
         destinatarioIndIEDest: prefill.destinatarioIndIEDest,
+        destinatarioInscricaoEstadual: prefill.destinatarioInscricaoEstadual,
         destinatarioEndereco: prefill.destinatarioEndereco,
       }));
       if (emitirNotaType === 'NFE' && !catalogClienteHasNfeEndereco(item)) {

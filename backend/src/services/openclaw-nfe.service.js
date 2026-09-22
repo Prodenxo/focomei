@@ -517,13 +517,33 @@ const resolveDestinatarioNfe = async (userId, payload) => {
   }
 
   const doc = tomador.tomadorCpfCnpj;
-  const consumidorFinal = doc.length === 11 || String(catalogo?.metadata_json?.indIEDest || '9') === '9';
+  /**
+   * CPF é sempre não contribuinte. Para CNPJ vale a situação salva no cadastro:
+   * forçar '9' em cliente contribuinte faz a SEFAZ recusar por IE não informada.
+   */
+  const indIEDestCadastro = String(catalogo?.metadata_json?.indIEDest || '9');
+  const indIEDest = doc.length === 11 ? '9' : indIEDestCadastro;
+  const ieCadastro = normalizeDoc(catalogo?.metadata_json?.inscricaoEstadual || '');
+  const consumidorFinal = indIEDest === '9';
+
+  if (indIEDest === '1' && !ieCadastro) {
+    throw badRequest(
+      `Cliente ${tomador.tomadorRazaoSocial} está marcado como contribuinte de ICMS, mas o cadastro não tem a Inscrição Estadual.`,
+      {
+        code: 'NFE_DESTINATARIO_IE_MISSING',
+        catalogoClienteId: catalogo?.id,
+        botHint:
+          'Peça a Inscrição Estadual do cliente e cadastre na app em Clientes → editar → Inscrição Estadual.',
+      },
+    );
+  }
 
   return {
     cpfCnpj: doc,
     razaoSocial: tomador.tomadorRazaoSocial,
     ...(tomador.tomadorEmail ? { email: tomador.tomadorEmail } : {}),
-    indIEDest: '9',
+    indIEDest,
+    ...(indIEDest === '1' ? { inscricaoEstadual: ieCadastro } : {}),
     endereco,
     consumidorFinal,
     catalogoClienteId: catalogo?.id,
@@ -676,6 +696,9 @@ export const buildOpenclawNfeEmitInput = async (userId, payload = {}) => {
       razaoSocial: destinatario.razaoSocial,
       ...(destinatario.email ? { email: destinatario.email } : {}),
       indIEDest: destinatario.indIEDest,
+      ...(destinatario.inscricaoEstadual
+        ? { inscricaoEstadual: destinatario.inscricaoEstadual }
+        : {}),
       endereco: destinatario.endereco,
     },
     consumidorFinal: destinatario.consumidorFinal,

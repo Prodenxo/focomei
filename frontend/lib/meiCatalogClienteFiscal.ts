@@ -1,37 +1,47 @@
-import type { CnpjLookupData, NfseTomadorEnderecoLookup } from '../services/meiNotasService';
-import type { NfseCatalogCliente } from '../services/meiNotasService';
+import type {
+  CnpjLookupData,
+  NfseTomadorEnderecoLookup,
+} from "../services/meiNotasService";
+import type { NfseCatalogCliente } from "../services/meiNotasService";
 import {
   DEFAULT_DESTINATARIO_IND_IE_DEST,
   normalizeDestinatarioIndIeDest,
   type DestinatarioIndIeDest,
-} from './meiNfeDestinatarioIe';
+} from "./meiNfeDestinatarioIe";
 import {
   getDefaultNfeDestinatarioEndereco,
   getDestinatarioEnderecoValidationMessage,
   type NfeDestinatarioEnderecoForm,
-} from './meiNfeDestinatarioEndereco';
+} from "./meiNfeDestinatarioEndereco";
 
 export interface MeiCatalogClienteFiscalMeta {
   indIEDest?: DestinatarioIndIeDest | string;
+  /** IE do cliente — obrigatória na NF-e quando ele é contribuinte de ICMS. */
+  inscricaoEstadual?: string;
   /** Exigida por algumas prefeituras quando o tomador é PJ. */
   inscricaoMunicipal?: string;
   telefone?: string;
   endereco?: Partial<NfeDestinatarioEnderecoForm>;
 }
 
-const normalizeDoc = (value: string) => value.replace(/\D/g, '');
+const normalizeDoc = (value: string) => value.replace(/\D/g, "");
 
-export function enderecoFromCnpjLookup(data: CnpjLookupData): NfeDestinatarioEnderecoForm {
+export function enderecoFromCnpjLookup(
+  data: CnpjLookupData,
+): NfeDestinatarioEnderecoForm {
   const e = data.endereco;
   return {
-    cep: normalizeDoc(String(e?.cep ?? '')).slice(0, 8),
-    logradouro: String(e?.logradouro ?? '').trim(),
-    numero: String(e?.numero ?? '').trim() || 'S/N',
-    complemento: String(e?.complemento ?? '').trim(),
-    bairro: String(e?.bairro ?? '').trim(),
-    codigoCidade: normalizeDoc(String(e?.codigoCidade ?? '')).slice(0, 7),
-    descricaoCidade: String(e?.descricaoCidade ?? '').trim(),
-    estado: String(e?.estado ?? '').trim().toUpperCase().slice(0, 2),
+    cep: normalizeDoc(String(e?.cep ?? "")).slice(0, 8),
+    logradouro: String(e?.logradouro ?? "").trim(),
+    numero: String(e?.numero ?? "").trim() || "S/N",
+    complemento: String(e?.complemento ?? "").trim(),
+    bairro: String(e?.bairro ?? "").trim(),
+    codigoCidade: normalizeDoc(String(e?.codigoCidade ?? "")).slice(0, 7),
+    descricaoCidade: String(e?.descricaoCidade ?? "").trim(),
+    estado: String(e?.estado ?? "")
+      .trim()
+      .toUpperCase()
+      .slice(0, 2),
   };
 }
 
@@ -42,9 +52,13 @@ export function mergeEnderecoFromCepLookup(
   if (!lookup) return current;
   return {
     cep: lookup.cep ? normalizeDoc(lookup.cep).slice(0, 8) : current.cep,
-    logradouro: lookup.logradouro?.trim() ? lookup.logradouro.trim() : current.logradouro,
+    logradouro: lookup.logradouro?.trim()
+      ? lookup.logradouro.trim()
+      : current.logradouro,
     numero: current.numero,
-    complemento: lookup.complemento?.trim() ? lookup.complemento.trim() : current.complemento,
+    complemento: lookup.complemento?.trim()
+      ? lookup.complemento.trim()
+      : current.complemento,
     bairro: lookup.bairro?.trim() ? lookup.bairro.trim() : current.bairro,
     codigoCidade: lookup.codigoCidade
       ? normalizeDoc(String(lookup.codigoCidade)).slice(0, 7)
@@ -65,7 +79,9 @@ export function isTomadorEnderecoComplete(
     ...getDefaultNfeDestinatarioEndereco(),
     ...(endereco || {}),
   };
-  return getDestinatarioEnderecoValidationMessage(merged, 'NFS-e (tomador)') === null;
+  return (
+    getDestinatarioEnderecoValidationMessage(merged, "NFS-e (tomador)") === null
+  );
 }
 
 /**
@@ -75,9 +91,9 @@ export function isTomadorEnderecoComplete(
 export function formatTelefoneLookup(
   telefone: { ddd?: string | null; numero?: string | null } | null | undefined,
 ): string {
-  const ddd = normalizeDoc(String(telefone?.ddd ?? ''));
-  const numero = normalizeDoc(String(telefone?.numero ?? ''));
-  if (ddd.length !== 2 || numero.length < 8) return '';
+  const ddd = normalizeDoc(String(telefone?.ddd ?? ""));
+  const numero = normalizeDoc(String(telefone?.numero ?? ""));
+  if (ddd.length !== 2 || numero.length < 8) return "";
   return `${ddd}${numero}`;
 }
 
@@ -96,23 +112,27 @@ export async function resolveNfseTomadorByCnpj(
   if (digits.length !== 14) return null;
 
   const fromCatalog = catalogClientes.find(
-    (item) => normalizeDoc(item.documento || '') === digits,
+    (item) => normalizeDoc(item.documento || "") === digits,
   );
   if (fromCatalog && catalogClienteHasTomadorEndereco(fromCatalog)) {
     return applyCatalogClienteToNfseForm(fromCatalog);
   }
 
-  const catalogPrefill = fromCatalog ? applyCatalogClienteToNfseForm(fromCatalog) : null;
+  const catalogPrefill = fromCatalog
+    ? applyCatalogClienteToNfseForm(fromCatalog)
+    : null;
 
   try {
     const data = await lookupCnpjFn(digits);
     return {
       tomadorRazaoSocial:
-        catalogPrefill?.tomadorRazaoSocial || String(data.razaoSocial ?? '').trim(),
-      tomadorEmail: catalogPrefill?.tomadorEmail || String(data.email ?? '').trim(),
+        catalogPrefill?.tomadorRazaoSocial ||
+        String(data.razaoSocial ?? "").trim(),
+      tomadorEmail:
+        catalogPrefill?.tomadorEmail || String(data.email ?? "").trim(),
       tomadorInscricaoMunicipal:
-        catalogPrefill?.tomadorInscricaoMunicipal
-        || String(data.inscricaoMunicipal ?? '').trim(),
+        catalogPrefill?.tomadorInscricaoMunicipal ||
+        String(data.inscricaoMunicipal ?? "").trim(),
       tomadorTelefone:
         catalogPrefill?.tomadorTelefone || formatTelefoneLookup(data.telefone),
       tomadorEndereco: enderecoFromCnpjLookup(data),
@@ -125,9 +145,9 @@ export async function resolveNfseTomadorByCnpj(
 export function parseCatalogClienteFiscalMeta(
   metadata: Record<string, unknown> | null | undefined,
 ): MeiCatalogClienteFiscalMeta {
-  if (!metadata || typeof metadata !== 'object') return {};
+  if (!metadata || typeof metadata !== "object") return {};
   const rawEndereco =
-    metadata.endereco && typeof metadata.endereco === 'object'
+    metadata.endereco && typeof metadata.endereco === "object"
       ? (metadata.endereco as Record<string, unknown>)
       : {};
   const base = getDefaultNfeDestinatarioEndereco();
@@ -135,18 +155,28 @@ export function parseCatalogClienteFiscalMeta(
     ...(metadata.indIEDest != null
       ? { indIEDest: normalizeDestinatarioIndIeDest(metadata.indIEDest) }
       : {}),
+    ...(metadata.inscricaoEstadual != null
+      ? { inscricaoEstadual: normalizeDoc(String(metadata.inscricaoEstadual)) }
+      : {}),
     ...(metadata.inscricaoMunicipal != null
       ? { inscricaoMunicipal: String(metadata.inscricaoMunicipal).trim() }
       : {}),
-    ...(metadata.telefone != null ? { telefone: String(metadata.telefone).trim() } : {}),
+    ...(metadata.telefone != null
+      ? { telefone: String(metadata.telefone).trim() }
+      : {}),
     endereco: {
-      cep: normalizeDoc(String(rawEndereco.cep ?? '')).slice(0, 8),
+      cep: normalizeDoc(String(rawEndereco.cep ?? "")).slice(0, 8),
       logradouro: String(rawEndereco.logradouro ?? base.logradouro).trim(),
       numero: String(rawEndereco.numero ?? base.numero).trim(),
       complemento: String(rawEndereco.complemento ?? base.complemento).trim(),
       bairro: String(rawEndereco.bairro ?? base.bairro).trim(),
-      codigoCidade: normalizeDoc(String(rawEndereco.codigoCidade ?? '')).slice(0, 7),
-      descricaoCidade: String(rawEndereco.descricaoCidade ?? base.descricaoCidade).trim(),
+      codigoCidade: normalizeDoc(String(rawEndereco.codigoCidade ?? "")).slice(
+        0,
+        7,
+      ),
+      descricaoCidade: String(
+        rawEndereco.descricaoCidade ?? base.descricaoCidade,
+      ).trim(),
       estado: String(rawEndereco.estado ?? base.estado)
         .trim()
         .toUpperCase()
@@ -157,12 +187,17 @@ export function parseCatalogClienteFiscalMeta(
 
 export function buildCatalogClienteMetadataJson(input: {
   indIEDest?: DestinatarioIndIeDest;
+  inscricaoEstadual?: string;
   inscricaoMunicipal?: string;
   telefone?: string;
   endereco?: NfeDestinatarioEnderecoForm;
 }): Record<string, unknown> | undefined {
   const meta: Record<string, unknown> = {};
   if (input.indIEDest) meta.indIEDest = input.indIEDest;
+  /** IE só faz sentido para contribuinte — nos demais a SEFAZ recusa o campo preenchido. */
+  if (input.indIEDest === '1' && normalizeDoc(input.inscricaoEstadual ?? '')) {
+    meta.inscricaoEstadual = normalizeDoc(input.inscricaoEstadual ?? '');
+  }
   if (input.inscricaoMunicipal?.trim()) {
     meta.inscricaoMunicipal = input.inscricaoMunicipal.trim();
   }
@@ -175,16 +210,24 @@ export function buildCatalogClienteMetadataJson(input: {
       ...(e.numero.trim() ? { numero: e.numero.trim() } : {}),
       ...(e.complemento.trim() ? { complemento: e.complemento.trim() } : {}),
       ...(e.bairro.trim() ? { bairro: e.bairro.trim() } : {}),
-      ...(normalizeDoc(e.codigoCidade) ? { codigoCidade: normalizeDoc(e.codigoCidade).slice(0, 7) } : {}),
-      ...(e.descricaoCidade.trim() ? { descricaoCidade: e.descricaoCidade.trim() } : {}),
-      ...(e.estado.trim() ? { estado: e.estado.trim().toUpperCase().slice(0, 2) } : {}),
+      ...(normalizeDoc(e.codigoCidade)
+        ? { codigoCidade: normalizeDoc(e.codigoCidade).slice(0, 7) }
+        : {}),
+      ...(e.descricaoCidade.trim()
+        ? { descricaoCidade: e.descricaoCidade.trim() }
+        : {}),
+      ...(e.estado.trim()
+        ? { estado: e.estado.trim().toUpperCase().slice(0, 2) }
+        : {}),
     };
     if (Object.keys(endereco).length) meta.endereco = endereco;
   }
   return Object.keys(meta).length ? meta : undefined;
 }
 
-export function catalogClienteHasNfeEndereco(item: NfseCatalogCliente): boolean {
+export function catalogClienteHasNfeEndereco(
+  item: NfseCatalogCliente,
+): boolean {
   const meta = parseCatalogClienteFiscalMeta(item.metadata_json ?? undefined);
   const e = meta.endereco ?? getDefaultNfeDestinatarioEndereco();
   return (
@@ -198,29 +241,27 @@ export function catalogClienteHasNfeEndereco(item: NfseCatalogCliente): boolean 
   );
 }
 
-export function applyCatalogClienteToNfeForm(
-  item: NfseCatalogCliente,
-): {
+export function applyCatalogClienteToNfeForm(item: NfseCatalogCliente): {
   destinatarioCpfCnpj: string;
   destinatarioRazaoSocial: string;
   destinatarioEmail: string;
   destinatarioIndIEDest: DestinatarioIndIeDest;
+  destinatarioInscricaoEstadual: string;
   destinatarioEndereco: NfeDestinatarioEnderecoForm;
 } {
   const meta = parseCatalogClienteFiscalMeta(item.metadata_json ?? undefined);
-  const docDigits = normalizeDoc(item.documento ?? '');
+  const docDigits = normalizeDoc(item.documento ?? "");
   return {
     destinatarioCpfCnpj: docDigits,
-    destinatarioRazaoSocial: String(item.nome ?? '').trim(),
-    destinatarioEmail: String(item.email ?? '').trim(),
+    destinatarioRazaoSocial: String(item.nome ?? "").trim(),
+    destinatarioEmail: String(item.email ?? "").trim(),
     destinatarioIndIEDest: meta.indIEDest ?? DEFAULT_DESTINATARIO_IND_IE_DEST,
+    destinatarioInscricaoEstadual: meta.inscricaoEstadual ?? '',
     destinatarioEndereco: meta.endereco ?? getDefaultNfeDestinatarioEndereco(),
   };
 }
 
-export function applyCatalogClienteToNfseForm(
-  item: NfseCatalogCliente,
-): {
+export function applyCatalogClienteToNfseForm(item: NfseCatalogCliente): {
   tomadorCpfCnpj: string;
   tomadorRazaoSocial: string;
   tomadorEmail: string;
@@ -229,18 +270,20 @@ export function applyCatalogClienteToNfseForm(
   tomadorEndereco: NfeDestinatarioEnderecoForm;
 } {
   const meta = parseCatalogClienteFiscalMeta(item.metadata_json ?? undefined);
-  const docDigits = normalizeDoc(item.documento ?? '');
+  const docDigits = normalizeDoc(item.documento ?? "");
   return {
     tomadorCpfCnpj: docDigits,
-    tomadorRazaoSocial: String(item.nome ?? '').trim(),
-    tomadorEmail: String(item.email ?? '').trim(),
-    tomadorInscricaoMunicipal: meta.inscricaoMunicipal ?? '',
-    tomadorTelefone: meta.telefone ?? '',
+    tomadorRazaoSocial: String(item.nome ?? "").trim(),
+    tomadorEmail: String(item.email ?? "").trim(),
+    tomadorInscricaoMunicipal: meta.inscricaoMunicipal ?? "",
+    tomadorTelefone: meta.telefone ?? "",
     tomadorEndereco: meta.endereco ?? getDefaultNfeDestinatarioEndereco(),
   };
 }
 
-export function catalogClienteHasTomadorEndereco(item: NfseCatalogCliente): boolean {
+export function catalogClienteHasTomadorEndereco(
+  item: NfseCatalogCliente,
+): boolean {
   return catalogClienteHasNfeEndereco(item);
 }
 
@@ -250,25 +293,28 @@ export function validateCatalogClienteNfseTomadorFields(
   endereco: NfeDestinatarioEnderecoForm,
 ): string | null {
   if (normalizeDoc(documento).length !== 14) return null;
-  return getDestinatarioEnderecoValidationMessage(endereco, 'NFS-e (tomador)');
+  return getDestinatarioEnderecoValidationMessage(endereco, "NFS-e (tomador)");
 }
 
 export function validateCatalogClienteNfeFields(
   documentType: string,
   endereco: NfeDestinatarioEnderecoForm,
 ): string | null {
-  if (documentType !== 'NFE') return null;
+  if (documentType !== "NFE") return null;
   const cep = normalizeDoc(endereco.cep);
   if (cep.length !== 8) {
-    return 'Para cliente NF-e, informe o CEP (8 dígitos). Dica: ao digitar o CNPJ, buscamos o endereço automaticamente.';
+    return "Para cliente NF-e, informe o CEP (8 dígitos). Dica: ao digitar o CNPJ, buscamos o endereço automaticamente.";
   }
-  if (!endereco.logradouro.trim()) return 'Informe o logradouro do cliente NF-e.';
-  if (!endereco.numero.trim()) return 'Informe o número do endereço do cliente NF-e.';
-  if (!endereco.bairro.trim()) return 'Informe o bairro do cliente NF-e.';
+  if (!endereco.logradouro.trim())
+    return "Informe o logradouro do cliente NF-e.";
+  if (!endereco.numero.trim())
+    return "Informe o número do endereço do cliente NF-e.";
+  if (!endereco.bairro.trim()) return "Informe o bairro do cliente NF-e.";
   if (normalizeDoc(endereco.codigoCidade).length !== 7) {
-    return 'Informe o código IBGE da cidade (7 dígitos).';
+    return "Informe o código IBGE da cidade (7 dígitos).";
   }
-  if (!endereco.descricaoCidade.trim()) return 'Informe a cidade do cliente NF-e.';
-  if (endereco.estado.trim().length !== 2) return 'Informe a UF (2 letras).';
+  if (!endereco.descricaoCidade.trim())
+    return "Informe a cidade do cliente NF-e.";
+  if (endereco.estado.trim().length !== 2) return "Informe a UF (2 letras).";
   return null;
 }

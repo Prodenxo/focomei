@@ -136,6 +136,47 @@ describe('meiCatalogClienteFiscal', () => {
     expect(metadata_json?.telefone).toBeUndefined()
   })
 
+  it('guarda a IE do cliente contribuinte e devolve na emissão', () => {
+    const metadata_json = buildCatalogClienteMetadataJson({
+      indIEDest: '1',
+      inscricaoEstadual: '20.643.227-5',
+      endereco: getDefaultNfeDestinatarioEndereco(),
+    })
+    expect(metadata_json?.inscricaoEstadual).toBe('206432275')
+
+    const prefill = applyCatalogClienteToNfeForm({
+      id: '1',
+      document_type: 'NFE',
+      documento: '55495135000167',
+      nome: 'BARRAMARES BEACH RESTAURANTE LTDA',
+      metadata_json,
+    })
+    expect(prefill.destinatarioIndIEDest).toBe('1')
+    expect(prefill.destinatarioInscricaoEstadual).toBe('206432275')
+  })
+
+  it('IE não é gravada para quem não é contribuinte', () => {
+    for (const indIEDest of ['9', '2'] as const) {
+      const metadata_json = buildCatalogClienteMetadataJson({
+        indIEDest,
+        inscricaoEstadual: '206432275',
+        endereco: getDefaultNfeDestinatarioEndereco(),
+      })
+      expect(metadata_json?.inscricaoEstadual).toBeUndefined()
+    }
+  })
+
+  it('cliente antigo sem IE no cadastro continua válido', () => {
+    const prefill = applyCatalogClienteToNfeForm({
+      id: '1',
+      document_type: 'NFE',
+      documento: '55495135000167',
+      nome: 'Cliente Antigo',
+      metadata_json: { indIEDest: '9' },
+    })
+    expect(prefill.destinatarioInscricaoEstadual).toBe('')
+  })
+
   it('telefone da Receita vira string editável; incompleto é ignorado', () => {
     expect(formatTelefoneLookup({ ddd: '41', numero: '999998888' })).toBe('41999998888')
     expect(formatTelefoneLookup({ ddd: '', numero: '999998888' })).toBe('')
