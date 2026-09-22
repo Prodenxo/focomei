@@ -574,24 +574,35 @@ const resolveProdutoNfeFromSpec = async (userId, payload, spec = {}) => {
   return resolveProdutoNfe(userId, merged);
 };
 
+/**
+ * Venda para outro estado usa as taxas cadastradas; venda interna normaliza o CFOP
+ * para 5xxx. CFOP 6xxx de catálogo legado é preservado como está.
+ */
+export const applyNfeItemFiscalContext = (item, interestadualCtx) => {
+  if (interestadualCtx?.interestadual) {
+    return applyInterestadualTaxasToItem(item, interestadualCtx.taxas);
+  }
+  const cfop = item?.cfop ? String(item.cfop) : '';
+  if (cfop.startsWith('6')) return item;
+  if (!cfop || cfop.startsWith('5')) {
+    return { ...item, cfop: onlyDigits(cfop || '5102', 4) || '5102' };
+  }
+  return item;
+};
+
 const buildNfeItemFromCatalog = async (userId, payload, spec, interestadualCtx) => {
   const produto = await resolveProdutoNfeFromSpec(userId, payload, spec);
   const valorUnitario = parseValorReais(
     spec?.valorUnitario ?? spec?.valor ?? spec?.valorReais ?? payload?.valorUnitario ?? payload?.valor,
   );
   const quantidade = parseQuantidade(spec?.quantidade ?? spec?.qtd ?? payload?.quantidade ?? payload?.qtd);
-  let item = mapCatalogProdutoToNfeItem(produto, {
-    quantidade,
-    valorUnitario: (valorUnitario ?? Number(produto.valor_sugerido)) || 0,
-  });
-
-  if (interestadual.interestadual) {
-    item = applyInterestadualTaxasToItem(item, interestadualCtx.taxas);
-  } else if (item.cfop && String(item.cfop).startsWith('6')) {
-    /* catálogo legado CFOP 6xxx em venda interna */
-  } else if (!item.cfop || String(item.cfop).startsWith('5')) {
-    item = { ...item, cfop: onlyDigits(item.cfop || '5102', 4) || '5102' };
-  }
+  const item = applyNfeItemFiscalContext(
+    mapCatalogProdutoToNfeItem(produto, {
+      quantidade,
+      valorUnitario: (valorUnitario ?? Number(produto.valor_sugerido)) || 0,
+    }),
+    interestadualCtx,
+  );
 
   return { item, produto };
 };
