@@ -253,20 +253,34 @@ function hasServicoArrayInObj(obj: Record<string, unknown>): boolean {
   return s != null
 }
 
+function hasItensArrayInObj(obj: Record<string, unknown>): boolean {
+  const i = obj.itens ?? obj.items
+  return i != null
+}
+
+/** NFS-e e NF-e contam no limite MEI; NFC-e fica de fora. */
 export function isDocumentTypeMeiLimiteRelevante(documentType: string | null | undefined): boolean {
   const dt = String(documentType ?? '').trim().toUpperCase()
-  return dt === 'NFSE'
+  return dt === 'NFSE' || dt === 'NFE'
 }
 
 export function isNfseDocumento(record: NfseRecord): boolean {
   const dt = String(record.document_type ?? '').trim().toUpperCase()
-  if (dt !== '') {
-    return isDocumentTypeMeiLimiteRelevante(record.document_type)
-  }
+  if (dt !== '') return dt === 'NFSE'
   const p = resolverPayloadJsonDaNota(record)
   if (p && hasServicoArrayInObj(p)) return true
   const resp = resolverResponseJsonDaNota(record)
   return Boolean(resp && hasServicoArrayInObj(resp))
+}
+
+/** Nota que entra no somatório: NFS-e, NF-e ou legado sem tipo. */
+export function isDocumentoLimiteMei(record: NfseRecord): boolean {
+  const dt = String(record.document_type ?? '').trim()
+  if (dt !== '') return isDocumentTypeMeiLimiteRelevante(dt)
+  const p = resolverPayloadJsonDaNota(record)
+  if (p && (hasServicoArrayInObj(p) || hasItensArrayInObj(p))) return true
+  const resp = resolverResponseJsonDaNota(record)
+  return Boolean(resp && (hasServicoArrayInObj(resp) || hasItensArrayInObj(resp)))
 }
 
 function valorLimiteDeItemServico(item: Record<string, unknown>): number | null {
@@ -321,6 +335,84 @@ export function extrairValorLimiteMeiDaNota(record: NfseRecord): number | null {
   return extrairValorTotalServicosDeObjeto(payload)
 }
 
+function valorUnitarioDeItemProduto(item: Record<string, unknown>): number | null {
+  const vu = item.valorUnitario
+  if (vu && typeof vu === 'object' && !Array.isArray(vu)) {
+    const v = vu as { comercial?: unknown; tributavel?: unknown }
+    const c = parseValorMonetarioBr(v.comercial)
+    if (c !== null && c >= 0) return c
+    const t = parseValorMonetarioBr(v.tributavel)
+    if (t !== null && t >= 0) return t
+  }
+  return parseValorMonetarioBr(vu)
+}
+
+function quantidadeDeItemProduto(item: Record<string, unknown>): number | null {
+  const q = item.quantidade
+  if (q && typeof q === 'object' && !Array.isArray(q)) {
+    const v = q as { comercial?: unknown; tributavel?: unknown }
+    const c = parseValorMonetarioBr(v.comercial)
+    if (c !== null && c >= 0) return c
+    const t = parseValorMonetarioBr(v.tributavel)
+    if (t !== null && t >= 0) return t
+  }
+  return parseValorMonetarioBr(q)
+}
+
+function valorLimiteDeItemProduto(item: Record<string, unknown>): number | null {
+  const direct = parseValorMonetarioBr(item.valor)
+  if (direct !== null && direct >= 0) return direct
+  const quantidade = quantidadeDeItemProduto(item)
+  const unitario = valorUnitarioDeItemProduto(item)
+  if (quantidade !== null && unitario !== null) {
+    const total = quantidade * unitario
+    return Number.isFinite(total) && total >= 0 ? total : null
+  }
+  return null
+}
+
+/** Total de uma NF-e: valor autorizado no retorno ou a soma dos itens do payload. */
+export function extrairValorTotalProdutosDeObjeto(
+  raw: Record<string, unknown> | null,
+): number | null {
+  if (!raw) return null
+  const topLevel = parseValorMonetarioBr(raw.valorTotal ?? raw.valorNota ?? raw.valor)
+  if (topLevel !== null && topLevel >= 0) return topLevel
+  let itens = raw.itens ?? raw.items
+  if (itens && !Array.isArray(itens)) {
+    itens = [itens]
+  }
+  if (!Array.isArray(itens)) return null
+  let sum = 0
+  let any = false
+  for (const item of itens) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue
+    const n = valorLimiteDeItemProduto(item as Record<string, unknown>)
+    if (n !== null) {
+      sum += n
+      any = true
+    }
+  }
+  return any ? sum : null
+}
+
+function extrairValorProdutosDaNota(record: NfseRecord): number | null {
+  const resp = resolverResponseJsonDaNota(record)
+  if (resp) {
+    const fromResp = extrairValorTotalProdutosDeObjeto(resp)
+    if (fromResp !== null) return fromResp
+  }
+  return extrairValorTotalProdutosDeObjeto(resolverPayloadJsonDaNota(record))
+}
+
+/** Valor que a nota soma no limite, conforme o modelo do documento. */
+export function extrairValorParaLimiteMei(record: NfseRecord): number | null {
+  const dt = String(record.document_type ?? '').trim().toUpperCase()
+  if (dt === 'NFE') return extrairValorProdutosDaNota(record)
+  if (dt === 'NFSE') return extrairValorLimiteMeiDaNota(record)
+  return extrairValorLimiteMeiDaNota(record) ?? extrairValorProdutosDaNota(record)
+}
+
 export function anoCivilFromIsoCreatedAt(createdAt: string | undefined | null): number | null {
   if (!createdAt) return null
   const parsed = new Date(createdAt)
@@ -349,7 +441,7 @@ export function resolverDataEmissaoDaNota(record: NfseRecord): string | null {
   return parseDateIso(record.created_at) ?? parseDateIso(r.createdAt)
 }
 
-export function somarNfseAutorizadasNoAnoCivil(
+export function somarNotasAutorizadasNoAnoCivil(
   records: NfseRecord[],
   options: { anoCivil: number },
 ): { total: number; notasConsideradas: number } {
@@ -357,11 +449,11 @@ export function somarNfseAutorizadasNoAnoCivil(
   let total = 0
   let notasConsideradas = 0
   for (const record of records) {
-    if (!isNfseDocumento(record)) continue
+    if (!isDocumentoLimiteMei(record)) continue
     if (!nfseDeveEntrarNoSomatórioLimite(record.status)) continue
     const y = anoCivilFromIsoCreatedAt(resolverDataEmissaoDaNota(record))
     if (y !== anoCivil) continue
-    const valor = extrairValorLimiteMeiDaNota(record)
+    const valor = extrairValorParaLimiteMei(record)
     if (valor === null) continue
     total += valor
     notasConsideradas += 1
@@ -394,7 +486,7 @@ export function computeMeiLimiteProgresso(
   if (options.agregadoServidor !== undefined) {
     total = options.agregadoServidor.totalUtilizadoReais
     notasConsideradas = options.agregadoServidor.notasConsideradas
-    const local = somarNfseAutorizadasNoAnoCivil(records, { anoCivil: options.anoCivil })
+    const local = somarNotasAutorizadasNoAnoCivil(records, { anoCivil: options.anoCivil })
     if (local.notasConsideradas === 0 && total > 0) {
       total = 0
       notasConsideradas = 0
@@ -403,7 +495,7 @@ export function computeMeiLimiteProgresso(
       notasConsideradas = local.notasConsideradas
     }
   } else {
-    const s = somarNfseAutorizadasNoAnoCivil(records, { anoCivil: options.anoCivil })
+    const s = somarNotasAutorizadasNoAnoCivil(records, { anoCivil: options.anoCivil })
     total = s.total
     notasConsideradas = s.notasConsideradas
   }

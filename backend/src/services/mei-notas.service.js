@@ -2699,7 +2699,7 @@ const clampAnoCivilLimite = (value) => {
 /**
  * Agrega faturamento MEI no ano civil a partir de `payload_json` na tabela `mei_nfse`
  * (paridade com o cliente em `meiLimiteFaturamento.ts`).
- * FR-GUIA-FISC-17: consulta só linhas `document_type` NFSE ou legado `null`; NFE/NFCE não entram no somatório.
+ * Consulta linhas `document_type` NFSE, NFE ou legado `null`; NFCE não entra no somatório.
  * Notas arquivadas na UI entram no total (arquivar ≠ cancelar); só status cancelado/rejeitado fica de fora.
  * @param {string} userId
  * @param {number} anoCivil
@@ -2717,7 +2717,9 @@ export const agregarLimiteFaturamento = async (userId, anoCivil) => {
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(MEI_LIMITE_AGG_QUERY_LIMIT);
-  query = query.or(`document_type.eq.${DOCUMENT_TYPE_NFSE},document_type.is.null`);
+  query = query.or(
+    `document_type.eq.${DOCUMENT_TYPE_NFSE},document_type.eq.${DOCUMENT_TYPE_NFE},document_type.is.null`,
+  );
   const { data, error } = await query;
   if (error) throw badRequest(error.message);
   const { total, notasConsideradas } = agregarLimiteMeiDasLinhas(data || [], safeYear);

@@ -108,7 +108,7 @@ export function LimiteFaturamentoCard({
 
       {isEmpty ? (
         <p className="mt-5 text-sm text-[var(--text-muted)]">
-          Ainda não há NFS-e autorizadas neste ano para calcular o progresso. Quando emitir, o total aparece aqui.
+          Ainda não há notas autorizadas neste ano para calcular o progresso. Quando emitir, o total aparece aqui.
         </p>
       ) : null}
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   computeMeiLimiteProgresso,
-  somarNfseAutorizadasNoAnoCivil,
+  somarNotasAutorizadasNoAnoCivil,
 } from '../lib/meiLimiteFaturamento.js';
 import { getLimiteReferenciaReaisParaAno } from '../lib/meiLimiteFaturamentoConfig.js';
 
@@ -17,14 +17,30 @@ function nfse({ id, status, valor, createdAt }) {
   };
 }
 
-test('soma apenas NFS-e autorizadas do ano civil', () => {
+function nfe({ id, status, valor, createdAt, documentType = 'NFE' }) {
+  return {
+    id,
+    status,
+    document_type: documentType,
+    created_at: createdAt,
+    payload_json: {
+      itens: [{
+        valor,
+        quantidade: { comercial: 1 },
+        valorUnitario: { comercial: valor },
+      }],
+    },
+  };
+}
+
+test('soma apenas notas autorizadas do ano civil', () => {
   const notas = [
     nfse({ id: '1', status: 'CONCLUIDO', valor: 1000, createdAt: '2026-02-10T12:00:00Z' }),
     nfse({ id: '2', status: 'CONCLUIDO', valor: 500, createdAt: '2026-07-01T12:00:00Z' }),
     nfse({ id: '3', status: 'CONCLUIDO', valor: 900, createdAt: '2025-11-01T12:00:00Z' }),
   ];
   assert.deepEqual(
-    somarNfseAutorizadasNoAnoCivil(notas, { anoCivil: 2026 }),
+    somarNotasAutorizadasNoAnoCivil(notas, { anoCivil: 2026 }),
     { total: 1500, notasConsideradas: 2 },
   );
 });
@@ -38,25 +54,52 @@ test('nota cancelada, rejeitada ou em cancelamento sai do somatório', () => {
     nfse({ id: '5', status: 'PROCESSANDO', valor: 5000, createdAt: '2026-06-10T12:00:00Z' }),
   ];
   assert.deepEqual(
-    somarNfseAutorizadasNoAnoCivil(notas, { anoCivil: 2026 }),
+    somarNotasAutorizadasNoAnoCivil(notas, { anoCivil: 2026 }),
     { total: 1000, notasConsideradas: 1 },
   );
 });
 
-test('NF-e e NFC-e não entram no limite MEI', () => {
+test('NF-e entra no limite pelos itens; NFC-e fica de fora', () => {
   const notas = [
-    {
-      id: 'nfe',
-      status: 'CONCLUIDO',
-      document_type: 'NFE',
-      created_at: '2026-02-10T12:00:00Z',
-      payload_json: { itens: [{ valor: 7000 }] },
-    },
     nfse({ id: 'nfse', status: 'CONCLUIDO', valor: 1000, createdAt: '2026-02-10T12:00:00Z' }),
+    nfe({ id: 'nfe', status: 'CONCLUIDO', valor: 700, createdAt: '2026-02-10T12:00:00Z' }),
+    nfe({
+      id: 'nfce',
+      status: 'CONCLUIDO',
+      valor: 5000,
+      createdAt: '2026-02-10T12:00:00Z',
+      documentType: 'NFCE',
+    }),
   ];
   assert.deepEqual(
-    somarNfseAutorizadasNoAnoCivil(notas, { anoCivil: 2026 }),
-    { total: 1000, notasConsideradas: 1 },
+    somarNotasAutorizadasNoAnoCivil(notas, { anoCivil: 2026 }),
+    { total: 1700, notasConsideradas: 2 },
+  );
+});
+
+test('NF-e usa o valor autorizado do retorno quando existe', () => {
+  const nota = {
+    id: 'nfe',
+    status: 'CONCLUIDO',
+    document_type: 'NFE',
+    created_at: '2026-02-10T12:00:00Z',
+    payload_json: { itens: [{ valor: 10 }] },
+    response_json: { valor: 12, dataAutorizacao: '2026-02-10T12:00:00Z' },
+  };
+  assert.deepEqual(
+    somarNotasAutorizadasNoAnoCivil([nota], { anoCivil: 2026 }),
+    { total: 12, notasConsideradas: 1 },
+  );
+});
+
+test('NF-e cancelada sai do somatório', () => {
+  const notas = [
+    nfe({ id: '1', status: 'CONCLUIDO', valor: 700, createdAt: '2026-02-10T12:00:00Z' }),
+    nfe({ id: '2', status: 'CANCELADO', valor: 900, createdAt: '2026-03-10T12:00:00Z' }),
+  ];
+  assert.deepEqual(
+    somarNotasAutorizadasNoAnoCivil(notas, { anoCivil: 2026 }),
+    { total: 700, notasConsideradas: 1 },
   );
 });
 

@@ -137,7 +137,7 @@ export function MeiLimiteFaturamentoCard({
         <>
           {isEmpty ? (
             <Text style={styles.emptyText}>
-              Ainda não há NFS-e autorizadas neste ano para calcular o progresso. Quando emitir, o total aparece aqui.
+              Ainda não há notas autorizadas neste ano para calcular o progresso. Quando emitir, o total aparece aqui.
             </Text>
           ) : null}
 
@@ -186,7 +186,7 @@ export function MeiLimiteFaturamentoCard({
           <View style={styles.baseSection}>
             <Text style={styles.baseLine}>
               <Text style={styles.baseLabel}>Base (MVP): </Text>
-              soma das NFS-e com emissão concluída nesta conta no ano civil {anoCivil}. NF-e e NFC-e não entram neste total.
+              soma das NFS-e e NF-e com emissão concluída nesta conta no ano civil {anoCivil}. NFC-e não entra neste total.
             </Text>
             <Pressable
               onPress={() => setBaseOpen((o) => !o)}
@@ -201,7 +201,7 @@ export function MeiLimiteFaturamentoCard({
             {baseOpen ? (
               <View style={styles.basePanel}>
                 <Text style={styles.basePanelText}>
-                  Total das NFS-e autorizadas por esta conta no ano civil, comparado ao limite de referência configurado.
+                  Total das notas autorizadas por esta conta no ano civil, comparado ao limite de referência configurado.
                   Notas arquivadas entram no total. Só notas em processamento ou canceladas ficam de fora.
                 </Text>
                 <Text style={[styles.basePanelText, styles.basePanelTextSpaced]}>

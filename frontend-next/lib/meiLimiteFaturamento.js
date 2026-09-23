@@ -6,9 +6,10 @@ import { getNfseStatusKey, normalizePayloadJson } from './notaFiscalDisplay.js';
 
 export const MEI_LIMITE_ANO_CIVIL_TZ = 'America/Sao_Paulo';
 
-/** Só NFS-e conta no limite MEI; NF-e e NFC-e ficam de fora. */
+/** NFS-e e NF-e contam no limite MEI; NFC-e fica de fora. */
 export function isDocumentTypeMeiLimiteRelevante(documentType) {
-  return String(documentType ?? '').trim().toUpperCase() === 'NFSE';
+  const dt = String(documentType ?? '').trim().toUpperCase();
+  return dt === 'NFSE' || dt === 'NFE';
 }
 
 /** Cancelada, rejeitada ou em processamento não soma — apenas autorizada. */
@@ -28,13 +29,18 @@ function temServico(obj) {
   return (obj?.servico ?? obj?.servicos) != null;
 }
 
-export function isNfseDocumento(record) {
+function temItens(obj) {
+  return (obj?.itens ?? obj?.items) != null;
+}
+
+/** Nota que entra no somatório: NFS-e, NF-e ou legado sem tipo. */
+export function isDocumentoLimiteMei(record) {
   const dt = String(record?.document_type ?? record?.documentType ?? '').trim();
   if (dt !== '') return isDocumentTypeMeiLimiteRelevante(dt);
   const payload = resolverPayloadJsonDaNota(record);
-  if (payload && temServico(payload)) return true;
+  if (payload && (temServico(payload) || temItens(payload))) return true;
   const resp = resolverResponseJsonDaNota(record);
-  return Boolean(resp && temServico(resp));
+  return Boolean(resp && (temServico(resp) || temItens(resp)));
 }
 
 export function parseValorMonetarioBr(value) {
@@ -93,13 +99,87 @@ export function extrairValorTotalServicosDeObjeto(raw) {
   return any ? sum : null;
 }
 
-export function extrairValorLimiteMeiDaNota(record) {
+function valorUnitarioDeItemProduto(item) {
+  const vu = item.valorUnitario;
+  if (vu && typeof vu === 'object' && !Array.isArray(vu)) {
+    const c = parseValorMonetarioBr(vu.comercial);
+    if (c !== null && c >= 0) return c;
+    const t = parseValorMonetarioBr(vu.tributavel);
+    if (t !== null && t >= 0) return t;
+  }
+  return parseValorMonetarioBr(vu);
+}
+
+function quantidadeDeItemProduto(item) {
+  const q = item.quantidade;
+  if (q && typeof q === 'object' && !Array.isArray(q)) {
+    const c = parseValorMonetarioBr(q.comercial);
+    if (c !== null && c >= 0) return c;
+    const t = parseValorMonetarioBr(q.tributavel);
+    if (t !== null && t >= 0) return t;
+  }
+  return parseValorMonetarioBr(q);
+}
+
+function valorLimiteDeItemProduto(item) {
+  const direct = parseValorMonetarioBr(item.valor);
+  if (direct !== null && direct >= 0) return direct;
+  const quantidade = quantidadeDeItemProduto(item);
+  const unitario = valorUnitarioDeItemProduto(item);
+  if (quantidade !== null && unitario !== null) {
+    const total = quantidade * unitario;
+    return Number.isFinite(total) && total >= 0 ? total : null;
+  }
+  return null;
+}
+
+/** Total de uma NF-e: valor autorizado no retorno ou a soma dos itens do payload. */
+export function extrairValorTotalProdutosDeObjeto(raw) {
+  if (!raw) return null;
+  const topLevel = parseValorMonetarioBr(raw.valorTotal ?? raw.valorNota ?? raw.valor);
+  if (topLevel !== null && topLevel >= 0) return topLevel;
+
+  let itens = raw.itens ?? raw.items;
+  if (itens && !Array.isArray(itens)) itens = [itens];
+  if (!Array.isArray(itens)) return null;
+
+  let sum = 0;
+  let any = false;
+  for (const item of itens) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const n = valorLimiteDeItemProduto(item);
+    if (n !== null) {
+      sum += n;
+      any = true;
+    }
+  }
+  return any ? sum : null;
+}
+
+function extrairValorServicosDaNota(record) {
   const resp = resolverResponseJsonDaNota(record);
   if (resp) {
     const fromResp = extrairValorTotalServicosDeObjeto(resp);
     if (fromResp !== null) return fromResp;
   }
   return extrairValorTotalServicosDeObjeto(resolverPayloadJsonDaNota(record));
+}
+
+function extrairValorProdutosDaNota(record) {
+  const resp = resolverResponseJsonDaNota(record);
+  if (resp) {
+    const fromResp = extrairValorTotalProdutosDeObjeto(resp);
+    if (fromResp !== null) return fromResp;
+  }
+  return extrairValorTotalProdutosDeObjeto(resolverPayloadJsonDaNota(record));
+}
+
+/** Valor que a nota soma no limite, conforme o modelo do documento. */
+export function extrairValorLimiteMeiDaNota(record) {
+  const dt = String(record?.document_type ?? record?.documentType ?? '').trim().toUpperCase();
+  if (dt === 'NFE') return extrairValorProdutosDaNota(record);
+  if (dt === 'NFSE') return extrairValorServicosDaNota(record);
+  return extrairValorServicosDaNota(record) ?? extrairValorProdutosDaNota(record);
 }
 
 const FISCAL_AUTH_DATE_FIELD_KEYS = ['dataAutorizacao', 'dataAutorizacaoNfse'];
@@ -191,12 +271,12 @@ export function anoCivilFromIsoCreatedAt(createdAt) {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Soma as NFS-e autorizadas do ano civil — canceladas e rejeitadas ficam de fora. */
-export function somarNfseAutorizadasNoAnoCivil(records, { anoCivil }) {
+/** Soma as notas autorizadas do ano civil — canceladas e rejeitadas ficam de fora. */
+export function somarNotasAutorizadasNoAnoCivil(records, { anoCivil }) {
   let total = 0;
   let notasConsideradas = 0;
   for (const record of records || []) {
-    if (!isNfseDocumento(record)) continue;
+    if (!isDocumentoLimiteMei(record)) continue;
     if (!nfseDeveEntrarNoSomatorioLimite(record?.status)) continue;
     if (anoCivilFromIsoCreatedAt(resolverDataEmissaoDaNota(record)) !== anoCivil) continue;
     const valor = extrairValorLimiteMeiDaNota(record);
@@ -234,7 +314,7 @@ export function computeMeiLimiteProgresso(records, options) {
 
   let total;
   let notasConsideradas;
-  const local = somarNfseAutorizadasNoAnoCivil(records, { anoCivil: options.anoCivil });
+  const local = somarNotasAutorizadasNoAnoCivil(records, { anoCivil: options.anoCivil });
 
   if (options.agregadoServidor !== undefined) {
     total = options.agregadoServidor.totalUtilizadoReais;
