@@ -8,6 +8,7 @@ import { useAuth } from '@/context/AuthProvider';
 import { BrandWordmark } from '@/components/brand/BrandLogo';
 import { validateStrongPassword } from '@/lib/passwordPolicy';
 import { validateInviteTokenPublic } from '@/lib/invitesService';
+import { APP_HOME_HREF } from '@/lib/appRoutes';
 
 function RegisterForm() {
   const router = useRouter();
@@ -25,7 +26,7 @@ function RegisterForm() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!booting && isAuthenticated) router.replace('/');
+    if (!booting && isAuthenticated) router.replace(APP_HOME_HREF);
   }, [booting, isAuthenticated, router]);
 
   useEffect(() => {

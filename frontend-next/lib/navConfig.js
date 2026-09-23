@@ -7,10 +7,11 @@ import {
   Receipt,
   Wallet,
 } from 'lucide-react';
+import { APP_HOME_HREF, isAppHomePath } from '@/lib/appRoutes';
 
 /** Mapeamento Expo → Next.js (rotas explícitas de migração). */
 export const NAV_ITEMS = [
-  { id: 'dashboard', label: 'Visão geral', href: '/', icon: Home },
+  { id: 'dashboard', label: 'Visão geral', href: APP_HOME_HREF, icon: Home },
   { id: 'transacoes', label: 'Transações', href: '/transacoes', icon: Receipt },
   { id: 'contas', label: 'Contas', href: '/contas', icon: Wallet },
   { id: 'conta-global', label: 'Conta global', href: '/conta-global', icon: Globe },
@@ -27,6 +28,6 @@ export const NAV_ITEMS = [
 ];
 
 export function isNavActive(pathname, href) {
-  if (href === '/') return pathname === '/';
+  if (href === APP_HOME_HREF) return isAppHomePath(pathname);
   return pathname === href || pathname.startsWith(`${href}/`);
 }

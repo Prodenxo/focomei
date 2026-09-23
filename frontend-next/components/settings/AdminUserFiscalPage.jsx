@@ -160,8 +160,8 @@ export function AdminUserFiscalPage({ userId }) {
             {parcelamentos.length === 0 ? <EmptyPanel title="Nenhum parcelamento" /> : (
               <ul className="divide-y divide-[var(--card-border)]">
                 {parcelamentos.map((item, index) => (
-                  <li key={item.numero || index} className="flex items-center justify-between gap-3 py-3">
-                    <div><p className="text-sm font-medium">Nº {item.numero || '—'} · {item.modalidade || 'Modalidade não informada'}</p><p className="text-xs text-[var(--text-muted)]">{item.situacao || 'Sem situação'} · {formatDateBR(item.dataPedido)}</p></div>
+                  <li key={item.numero || index} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0"><p className="break-words text-sm font-medium">Nº {item.numero || '—'} · {item.modalidade || 'Modalidade não informada'}</p><p className="text-xs text-[var(--text-muted)]">{item.situacao || 'Sem situação'} · {formatDateBR(item.dataPedido)}</p></div>
                     {item.numero ? <button type="button" disabled={Boolean(acting)} onClick={() => void run(`installment-${item.numero}`, async () => {
                       const blob = await downloadAdminParcelamentoPdf(userId, item.numero, { cnpj: certificate?.documento, modalidade: item.modalidade });
                       saveBlob(blob, `parcelamento-${item.numero}.pdf`);

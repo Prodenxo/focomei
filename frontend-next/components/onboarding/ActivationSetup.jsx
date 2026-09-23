@@ -10,6 +10,7 @@ import { resolveMeiBillingHref } from '@/lib/meiBillingGate';
 import { setSessionActivationSkipped } from '@/lib/activationSession';
 import { LoadingPanel } from '@/components/ui/LoadingPanel';
 import { useAuth } from '@/context/AuthProvider';
+import { APP_HOME_HREF } from '@/lib/appRoutes';
 
 export function ActivationSetup() {
   const router = useRouter();
@@ -32,7 +33,7 @@ export function ActivationSetup() {
     setPayload(data);
     setLoading(false);
     if (!data || isActivationCoreComplete(data)) {
-      router.replace('/');
+      router.replace(APP_HOME_HREF);
     }
   }, [mei, role, router, userId]);
 
@@ -103,7 +104,7 @@ export function ActivationSetup() {
         className="text-sm text-[var(--text-muted)] underline"
         onClick={() => {
           setSessionActivationSkipped(true);
-          router.replace('/');
+          router.replace(APP_HOME_HREF);
         }}
       >
         Pular por agora

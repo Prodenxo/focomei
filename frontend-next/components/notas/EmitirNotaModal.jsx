@@ -771,8 +771,8 @@ export function EmitirNotaModal({
 
   // Renderização
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
-      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-[20px] border border-[var(--card-border)] bg-[var(--card-bg)] shadow-[var(--shadow-card)]">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4" role="dialog" aria-modal="true">
+      <div className="flex max-h-[100dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-[20px] border border-[var(--card-border)] bg-[var(--card-bg)] shadow-[var(--shadow-card)] sm:max-h-[90vh] sm:rounded-[20px]">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--card-border)] px-5 py-4">
           <div>
@@ -787,9 +787,9 @@ export function EmitirNotaModal({
         </div>
 
         {/* Step indicator */}
-        <div className="flex items-center justify-between border-b border-[var(--card-border)] bg-[var(--canvas)] px-5 py-3">
+        <div className="app-scrollbar flex shrink-0 items-center justify-between gap-3 overflow-x-auto border-b border-[var(--card-border)] bg-[var(--canvas)] px-4 py-3 sm:px-5">
           {STEPS.map((s, idx) => (
-            <div key={s.id} className="flex items-center">
+            <div key={s.id} className="flex shrink-0 items-center">
               <div
                 className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium ${
                   idx < currentStepIndex
@@ -810,7 +810,7 @@ export function EmitirNotaModal({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
           {successData ? (
             <div className="flex flex-col items-center gap-4 py-8 text-center">
               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
@@ -954,7 +954,7 @@ export function EmitirNotaModal({
 
         {/* Footer */}
         {!successData && (
-          <div className="flex items-center justify-between border-t border-[var(--card-border)] px-5 py-4">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--card-border)] px-4 py-3 sm:px-5 sm:py-4">
             <button
               onClick={step === 'tipo' ? onClose : goBack}
               className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-[var(--card-border)] bg-[var(--card-bg)] px-4 text-sm font-semibold text-[var(--text-primary)] hover:bg-[var(--canvas)]"

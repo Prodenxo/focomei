@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { APP_HOME_HREF } from '@/lib/appRoutes';
 
 export function MigrationStub({ title, expoRoute }) {
   return (
@@ -14,7 +15,7 @@ export function MigrationStub({ title, expoRoute }) {
         </p>
       ) : null}
       <Link
-        href="/"
+        href={APP_HOME_HREF}
         className="mt-6 inline-flex rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
       >
         Voltar à Visão geral

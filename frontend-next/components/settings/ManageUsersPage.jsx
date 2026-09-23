@@ -533,7 +533,7 @@ export function ManageUsersPage() {
   ];
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-4 pb-8">
+    <div className="mx-auto flex min-w-0 max-w-5xl flex-col gap-4 pb-8">
       <BackLink />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -633,14 +633,14 @@ export function ManageUsersPage() {
                   const isSelf = u.id === userId;
                   return (
                   <li key={u.id} className="flex flex-col gap-3 py-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
+                    <div className="min-w-0">
                       <p className="font-medium text-[var(--text-primary)]">
                         {u.displayName || u.email}
                         {isSelf ? (
                           <span className="ml-2 text-xs font-normal text-[var(--text-muted)]">(você)</span>
                         ) : null}
                       </p>
-                      <p className="text-xs text-[var(--text-muted)]">
+                      <p className="break-words text-xs text-[var(--text-muted)]">
                         {u.email} · {u.role}
                         {u.mei ? ' · fiscal' : ''}
                         {u.status === false ? ' · bloqueado' : ''}
@@ -703,9 +703,9 @@ export function ManageUsersPage() {
                   : null;
                 return (
                 <li key={inv.id} className="flex items-center justify-between gap-3 py-3">
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm font-medium">{inv.invited_email || 'Convite reutilizável'}</p>
-                    <p className="text-xs text-[var(--text-muted)]">
+                    <p className="break-words text-xs text-[var(--text-muted)]">
                       {empresaLabel ? `${empresaLabel} · ` : ''}
                       Expira {inv.expires_at ? new Date(inv.expires_at).toLocaleDateString('pt-BR') : '—'}
                     </p>
@@ -1030,7 +1030,7 @@ export function ManageUsersPage() {
 
       {editingEmpresa ? (
         <ModalShell title={`Editar empresa — ${editingEmpresa.empresa}`} onClose={() => setEditingEmpresa(null)} wide>
-          <div className="grid max-h-[65vh] gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2">
             {[
               ['empresa', 'Nome interno'],
               ['razao_social', 'Razão social'],
@@ -1158,9 +1158,9 @@ function LinkIconBtn({ label, href, icon: Icon }) {
 
 function ModalShell({ title, onClose, children, wide = false }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4" role="dialog" aria-modal="true" onClick={onClose}>
-      <div className={`w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} max-h-[90vh] overflow-y-auto rounded-[16px] border border-[var(--card-border)] bg-[var(--card-bg)] p-5 shadow-xl`} onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className={`app-scrollbar w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} max-h-[100dvh] overflow-y-auto rounded-t-[16px] border border-[var(--card-border)] bg-[var(--card-bg)] p-4 shadow-xl sm:max-h-[90vh] sm:rounded-[16px] sm:p-5`} onClick={(e) => e.stopPropagation()}>
+        <h3 className="break-words pr-2 text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
         <div className="mt-4">{children}</div>
       </div>
     </div>
@@ -1169,9 +1169,9 @@ function ModalShell({ title, onClose, children, wide = false }) {
 
 function ModalActions({ onCancel, onConfirm, confirmLabel, disabled }) {
   return (
-    <div className="mt-4 flex justify-end gap-2">
-      <button type="button" onClick={onCancel} className="h-9 rounded-[10px] border px-3 text-xs font-semibold">Cancelar</button>
-      <button type="button" onClick={onConfirm} disabled={disabled} className="h-9 rounded-[10px] bg-[var(--accent)] px-3 text-xs font-semibold text-white disabled:opacity-50">{confirmLabel}</button>
+    <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+      <button type="button" onClick={onCancel} className="min-h-10 rounded-[10px] border px-3 text-xs font-semibold">Cancelar</button>
+      <button type="button" onClick={onConfirm} disabled={disabled} className="min-h-10 rounded-[10px] bg-[var(--accent)] px-3 text-xs font-semibold text-white disabled:opacity-50">{confirmLabel}</button>
     </div>
   );
 }

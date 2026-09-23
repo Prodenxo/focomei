@@ -29,15 +29,15 @@ function TicketList({ tickets, admin, onOpen }) {
     return <EmptyPanel icon={MessageSquare} title="Nenhum chamado por aqui" description={admin ? 'Os chamados do projeto aparecerão aqui.' : 'Abra um chamado para conversar com a equipe.'} />;
   }
   return (
-    <ul className="space-y-2 p-4">
+    <ul className="space-y-2 p-3 sm:p-4">
       {tickets.map((ticket) => (
         <li key={ticket.scrumhubTicketId}>
           <button type="button" onClick={() => onOpen(ticket.scrumhubTicketId)} className="flex w-full items-start gap-3 rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] p-4 text-left hover:bg-[var(--canvas)]">
             <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${ticket.concluido ? 'bg-emerald-500' : 'bg-[var(--accent)]'}`} />
             <span className="min-w-0 flex-1">
-              <span className="flex items-center justify-between gap-2">
-                <span className="text-xs font-bold text-[var(--accent)]">{ticket.codigo || `#${ticket.scrumhubTicketId}`}</span>
-                <span className="text-xs text-[var(--text-muted)]">{formatSupportDate(ticket.updatedAt, true)}</span>
+              <span className="flex flex-wrap items-center justify-between gap-2">
+                <span className="break-all text-xs font-bold text-[var(--accent)]">{ticket.codigo || `#${ticket.scrumhubTicketId}`}</span>
+                <span className="shrink-0 text-xs text-[var(--text-muted)]">{formatSupportDate(ticket.updatedAt, true)}</span>
               </span>
               <span className="mt-1 block font-semibold text-[var(--text-primary)]">{ticket.nome}</span>
               {admin ? <span className="block text-xs text-[var(--text-muted)]">{ticket.solicitanteNome || ticket.solicitanteEmail || 'Solicitante não identificado'}</span> : null}
@@ -117,7 +117,7 @@ function Timeline({ detail, admin, onReload }) {
         <form onSubmit={send} className="border-t border-[var(--card-border)] p-3">
           {error ? <p role="alert" className="mb-2 text-xs text-red-600">{error}</p> : null}
           {image ? <div className="mb-2 flex items-center justify-between rounded-lg bg-[var(--canvas)] p-2 text-xs"><span className="truncate">{image.name}</span><button type="button" onClick={() => setImage(null)} aria-label="Remover imagem"><X className="h-4 w-4" /></button></div> : null}
-          <div className="flex items-end gap-2">
+          <div className="flex min-w-0 items-end gap-2">
             <label className="inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-[var(--card-border)]" aria-label="Anexar imagem">
               <ImagePlus className="h-5 w-5 text-[var(--accent)]" />
               <input type="file" accept=".png,.jpg,.jpeg,.webp,.gif" className="sr-only" onChange={(event) => {
@@ -127,7 +127,7 @@ function Timeline({ detail, admin, onReload }) {
                 event.target.value = '';
               }} />
             </label>
-            <textarea value={message} onChange={(event) => setMessage(event.target.value)} maxLength={5000} rows={2} className="min-h-11 flex-1 resize-none rounded-xl border border-[var(--card-border)] bg-[var(--canvas)] p-3 text-sm" placeholder={admin ? 'Responder ao solicitante…' : 'Responder à equipe…'} aria-label="Resposta do chamado" />
+            <textarea value={message} onChange={(event) => setMessage(event.target.value)} maxLength={5000} rows={2} className="min-h-11 min-w-0 flex-1 resize-none rounded-xl border border-[var(--card-border)] bg-[var(--canvas)] p-3 text-sm" placeholder={admin ? 'Responder ao solicitante…' : 'Responder à equipe…'} aria-label="Resposta do chamado" />
             <button type="submit" disabled={sending || (!message.trim() && !image)} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--accent)] text-white disabled:opacity-40" aria-label="Enviar resposta">
               {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
             </button>
@@ -200,7 +200,7 @@ export function SupportCenterModal() {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="support-title">
-      <section className="flex h-[96vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl border border-[var(--card-border)] bg-[var(--card-bg)] shadow-2xl sm:h-[88vh] sm:rounded-2xl">
+      <section className="flex h-[100dvh] w-full max-w-3xl flex-col overflow-hidden border border-[var(--card-border)] bg-[var(--card-bg)] shadow-2xl sm:h-[88vh] sm:rounded-2xl">
         <header className="flex items-center gap-3 border-b border-[var(--card-border)] p-4">
           {view !== 'list' ? <button type="button" onClick={() => { setView('list'); setSelectedId(null); setDetail(null); }} className="rounded-lg p-2 hover:bg-[var(--canvas)]" aria-label="Voltar"><ArrowLeft className="h-5 w-5" /></button> : <Headphones className="h-5 w-5 text-[var(--accent)]" />}
           <div className="min-w-0 flex-1"><h2 id="support-title" className="truncate font-semibold text-[var(--text-primary)]">{view === 'form' ? 'Abrir chamado' : view === 'detail' ? (detail?.ticket?.codigo || 'Conversa do chamado') : admin ? 'Todos os chamados' : 'Meus chamados'}</h2><p className="truncate text-xs text-[var(--text-muted)]">{detail?.ticket?.nome || 'Acompanhe e converse com a equipe FocoMEI'}</p></div>
@@ -208,7 +208,7 @@ export function SupportCenterModal() {
           <button type="button" onClick={closeCenter} className="rounded-lg p-2 hover:bg-[var(--canvas)]" aria-label="Fechar central de suporte"><X className="h-5 w-5" /></button>
         </header>
         {role === 'superadmin' && view === 'list' ? <div className="grid grid-cols-2 gap-1 border-b border-[var(--card-border)] p-2">{['mine', 'all'].map((item) => <button key={item} type="button" onClick={() => setScope(item)} className={`rounded-xl px-3 py-2 text-sm font-semibold ${scope === item ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-muted)]'}`}>{item === 'mine' ? 'Meus chamados' : 'Todos os chamados'}</button>)}</div> : null}
-        {view === 'form' ? <div className="overflow-y-auto"><SupportTicketForm onCancel={() => setView('list')} onCreated={() => { setView('list'); loadList(); }} /></div> : loading ? <div className="flex flex-1 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-[var(--accent)]" aria-label="Carregando" /></div> : error ? <div className="p-4"><ErrorPanel message={error} onRetry={view === 'detail' ? loadDetail : loadList} /></div> : view === 'detail' && detail ? <Timeline detail={detail} admin={admin} onReload={loadDetail} /> : <div className="min-h-0 flex-1 overflow-y-auto"><div className="flex justify-end gap-2 px-4 pt-4">{scope === 'mine' ? <><button type="button" onClick={async () => { await importSupportTickets(); loadList(); }} className="rounded-xl border border-[var(--card-border)] px-3 py-2 text-xs font-semibold">Importar antigos</button><button type="button" onClick={() => setView('form')} className="inline-flex items-center gap-1 rounded-xl bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white"><Plus className="h-4 w-4" /> Abrir chamado</button></> : null}</div><TicketList tickets={tickets} admin={admin} onOpen={openTicket} /></div>}
+        {view === 'form' ? <div className="min-h-0 overflow-y-auto"><SupportTicketForm onCancel={() => setView('list')} onCreated={() => { setView('list'); loadList(); }} /></div> : loading ? <div className="flex flex-1 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-[var(--accent)]" aria-label="Carregando" /></div> : error ? <div className="p-4"><ErrorPanel message={error} onRetry={view === 'detail' ? loadDetail : loadList} /></div> : view === 'detail' && detail ? <Timeline detail={detail} admin={admin} onReload={loadDetail} /> : <div className="min-h-0 flex-1 overflow-y-auto"><div className="flex flex-wrap justify-end gap-2 px-3 pt-3 sm:px-4 sm:pt-4">{scope === 'mine' ? <><button type="button" onClick={async () => { await importSupportTickets(); loadList(); }} className="rounded-xl border border-[var(--card-border)] px-3 py-2 text-xs font-semibold">Importar antigos</button><button type="button" onClick={() => setView('form')} className="inline-flex items-center gap-1 rounded-xl bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white"><Plus className="h-4 w-4" /> Abrir chamado</button></> : null}</div><TicketList tickets={tickets} admin={admin} onOpen={openTicket} /></div>}
       </section>
     </div>
   );

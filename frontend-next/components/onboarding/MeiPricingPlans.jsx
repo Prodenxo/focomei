@@ -11,6 +11,7 @@ import {
 import { fetchMeiBillingGateStatus } from '@/lib/meiBillingGate';
 import { stashMeiContractPendingSession } from '@/lib/meiContractPendingSession';
 import { LoadingPanel } from '@/components/ui/LoadingPanel';
+import { APP_HOME_HREF } from '@/lib/appRoutes';
 
 const formatBrl = (n) =>
   n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 });
@@ -30,7 +31,7 @@ export function MeiPricingPlans() {
     try {
       const status = await fetchMeiBillingGateStatus(role, mei, userId);
       if (!status) {
-        router.replace('/');
+        router.replace(APP_HOME_HREF);
         return;
       }
       if (status.packages?.length) setPackages(status.packages);
@@ -40,7 +41,7 @@ export function MeiPricingPlans() {
         return;
       }
       if (!status.required) {
-        router.replace('/');
+        router.replace(APP_HOME_HREF);
         return;
       }
     } catch {
@@ -80,7 +81,7 @@ export function MeiPricingPlans() {
 
       const data = await confirmSelfServeMeiPlan(pack.meiSlots);
       if (data?.activated) {
-        router.replace('/');
+        router.replace(APP_HOME_HREF);
         return;
       }
       stashMeiContractPendingSession(userId, {

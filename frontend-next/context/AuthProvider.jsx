@@ -14,6 +14,7 @@ import { apiClient } from '@/lib/apiClient';
 import { unwrapAuthSession } from '@/lib/authApi';
 import { acceptInviteRequest } from '@/lib/invitesService';
 import { updateDisplayName as apiUpdateDisplayName, updatePhone as apiUpdatePhone } from '@/lib/profileApi';
+import { APP_HOME_HREF } from '@/lib/appRoutes';
 import {
   backupLocalAdminSnapshot,
   buildLocalUser,
@@ -153,7 +154,7 @@ export function AuthProvider({ children }) {
       password,
     });
     persistSnapshot(buildSnapshotFromSignInResult(result, emailInput));
-    router.replace('/');
+    router.replace(APP_HOME_HREF);
   }, [persistSnapshot, router]);
 
   const signUp = useCallback(async ({ email: emailInput, password, phone: phoneInput, displayName: name, inviteToken }) => {
@@ -174,7 +175,7 @@ export function AuthProvider({ children }) {
           /* cadastro ok */
         }
       }
-      router.replace('/');
+      router.replace(APP_HOME_HREF);
       return { needsEmailConfirmation: false };
     }
 
@@ -208,7 +209,7 @@ export function AuthProvider({ children }) {
       const result = await apiClient.post('/auth/impersonate', { userId: targetUserId });
       persistSnapshot(buildSnapshotFromSignInResult(result, result.user?.email || snap.user?.email));
       setIsImpersonating(true);
-      router.replace('/');
+      router.replace(APP_HOME_HREF);
     } catch (err) {
       clearLocalAdminBackup();
       throw err;

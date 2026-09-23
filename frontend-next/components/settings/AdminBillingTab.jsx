@@ -165,7 +165,7 @@ export function AdminBillingTab({ empresas, initialEmpresaId, stripeReturn, onFe
   };
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {[
           ['Ativos', summary?.total],
@@ -215,7 +215,7 @@ export function AdminBillingTab({ empresas, initialEmpresaId, stripeReturn, onFe
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0">
                 <p className="font-semibold">{item.empresaName}</p>
-                <p className="text-xs text-[var(--text-muted)]">{item.ownerDisplayName || item.ownerEmail || 'Admin não identificado'} · {item.meiSlots} vagas · {money(item.valueNumeric)}</p>
+                <p className="break-words text-xs text-[var(--text-muted)]">{item.ownerDisplayName || item.ownerEmail || 'Admin não identificado'} · {item.meiSlots} vagas · {money(item.valueNumeric)}</p>
                 <p className="mt-1 text-xs text-[var(--text-muted)]">Aprovado em {dateTime(item.approvedAt || item.createdAt)} · {item.releasedByLabel}</p>
                 {item.contratoError ? <p className="mt-2 text-xs text-red-600">{item.contratoError}</p> : null}
               </div>
@@ -315,16 +315,16 @@ function EmpresaBillingModal({ empresa, funis, initialFunilId, onClose, onFeedba
 
   return (
     <>
-      <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-3 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="billing-title">
-        <div className="mx-auto w-full max-w-3xl rounded-[18px] border border-[var(--card-border)] bg-[var(--card-bg)] shadow-xl">
+      <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-labelledby="billing-title">
+        <div className="flex max-h-[100dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-[18px] border border-[var(--card-border)] bg-[var(--card-bg)] shadow-xl sm:max-h-[90vh] sm:rounded-[18px]">
           <header className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-[var(--card-border)] bg-[var(--card-bg)] p-4">
             <div>
-              <h2 id="billing-title" className="font-semibold">Cobrança MEI — {empresa.nome_fantasia || empresa.empresa}</h2>
+              <h2 id="billing-title" className="break-words font-semibold">Cobrança MEI — {empresa.nome_fantasia || empresa.empresa}</h2>
               <p className="text-xs text-[var(--text-muted)]">Stripe, PIX, contrato e limite da empresa</p>
             </div>
             <button type="button" onClick={onClose} aria-label="Fechar cobrança" className="rounded-full p-2 hover:bg-[var(--canvas)]"><X className="h-4 w-4" /></button>
           </header>
-          <div className="space-y-5 p-4">
+          <div className="app-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
             <section className="grid gap-3 sm:grid-cols-3">
               <AppSelect label="Pacote" value={slots} onChange={setSlots} options={MEI_PUBLIC_PACKAGES.map((pkg) => ({ value: String(pkg.meiSlots), label: `${pkg.label} — ${money(pkg.total)}/mês` }))} />
               <AppSelect label="Cobrança" value={timing} onChange={setTiming} options={[{ value: 'checkout', label: 'Link de pagamento' }, { value: 'next_cycle', label: 'Próxima fatura' }]} />
@@ -345,7 +345,7 @@ function EmpresaBillingModal({ empresa, funis, initialFunilId, onClose, onFeedba
             {checkoutUrl ? (
               <div className="rounded-[12px] border border-emerald-300 bg-emerald-50 p-3 text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
                 <p className="break-all text-xs">{checkoutUrl}</p>
-                <div className="mt-2 flex gap-2">
+                <div className="mt-2 flex flex-wrap gap-2">
                   <button type="button" onClick={() => void navigator.clipboard.writeText(checkoutUrl)} className="inline-flex items-center gap-1 text-xs font-semibold"><Copy className="h-3.5 w-3.5" /> Copiar</button>
                   <a href={checkoutUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-semibold"><ExternalLink className="h-3.5 w-3.5" /> Abrir</a>
                 </div>

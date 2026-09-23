@@ -20,6 +20,7 @@ import { humanizeCnpjLookupError } from '@/lib/humanizeCnpjLookupError';
 import { LoadingPanel } from '@/components/ui/LoadingPanel';
 import { Card } from '@/components/ui/Card';
 import { useAuth } from '@/context/AuthProvider';
+import { APP_HOME_HREF } from '@/lib/appRoutes';
 
 function FormField({
   label,
@@ -78,7 +79,7 @@ export function EmpresaCnpjOnboarding() {
     if (activation && !isActivationCoreComplete(activation)) {
       router.replace('/ativacao');
     } else {
-      router.replace('/');
+      router.replace(APP_HOME_HREF);
     }
   }, [mei, role, router, userId]);
 

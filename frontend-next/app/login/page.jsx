@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '@/context/AuthProvider';
 import { BrandWordmark } from '@/components/brand/BrandLogo';
+import { APP_HOME_HREF } from '@/lib/appRoutes';
 
 function LoginForm() {
   const router = useRouter();
@@ -25,7 +26,7 @@ function LoginForm() {
   }, [convite, router]);
 
   useEffect(() => {
-    if (!booting && isAuthenticated) router.replace('/');
+    if (!booting && isAuthenticated) router.replace(APP_HOME_HREF);
   }, [booting, isAuthenticated, router]);
 
   const handleSubmit = async (e) => {

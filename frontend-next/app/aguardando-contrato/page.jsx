@@ -11,6 +11,7 @@ import {
   clearMeiContractPendingSession,
   readMeiContractPendingSession,
 } from '@/lib/meiContractPendingSession';
+import { APP_HOME_HREF } from '@/lib/appRoutes';
 
 export default function AguardandoContratoPage() {
   const router = useRouter();
@@ -34,7 +35,7 @@ export default function AguardandoContratoPage() {
       if (status?.phase === 'ok') {
         clearMeiContractPendingSession(userId);
         await refreshSession();
-        router.replace('/');
+        router.replace(APP_HOME_HREF);
         return;
       }
       if (status?.phase === 'planos') {
@@ -46,7 +47,7 @@ export default function AguardandoContratoPage() {
       if (data?.activated) {
         clearMeiContractPendingSession(userId);
         await refreshSession();
-        router.replace('/');
+        router.replace(APP_HOME_HREF);
         return;
       }
       const pending = readMeiContractPendingSession(userId);
