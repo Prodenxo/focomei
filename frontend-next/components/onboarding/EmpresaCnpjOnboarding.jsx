@@ -14,6 +14,7 @@ import {
   lookupEmpresaCnpj,
 } from '@/lib/empresaOnboardingApi';
 import { isEmpresaCnpjOnboardingRequired } from '@/lib/empresaCnpjGate';
+import { resolveMeiBillingHref } from '@/lib/meiBillingGate';
 import { fetchActivationProgress, isActivationCoreComplete } from '@/lib/activationApi';
 import { humanizeCnpjLookupError } from '@/lib/humanizeCnpjLookupError';
 import { LoadingPanel } from '@/components/ui/LoadingPanel';
@@ -47,7 +48,7 @@ const isValidEmail = (value) => {
 
 export function EmpresaCnpjOnboarding() {
   const router = useRouter();
-  const { role } = useAuth();
+  const { role, mei, userId } = useAuth();
   const [booting, setBooting] = useState(true);
   const [form, setForm] = useState({});
   const [cnpjInput, setCnpjInput] = useState('');
@@ -68,13 +69,18 @@ export function EmpresaCnpjOnboarding() {
       setBooting(false);
       return;
     }
+    const billingHref = await resolveMeiBillingHref(role, mei, userId);
+    if (billingHref) {
+      router.replace(billingHref);
+      return;
+    }
     const activation = await fetchActivationProgress();
     if (activation && !isActivationCoreComplete(activation)) {
       router.replace('/ativacao');
     } else {
       router.replace('/');
     }
-  }, [router, role]);
+  }, [mei, role, router, userId]);
 
   useEffect(() => {
     void leaveIfDone();

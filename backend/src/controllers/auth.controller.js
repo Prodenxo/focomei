@@ -6,8 +6,24 @@ import {
   buildOriginMetaFromBody,
   submitSelfServeEmpresaSignup,
 } from '../services/self-serve-signup.service.js';
+import { lookupCnpjCascade } from '../services/cnpj-lookup.service.js';
 import { sendCreated, sendSuccess } from '../utils/response.js';
 import { badRequest } from '../utils/errors.js';
+
+/**
+ * Consulta pública de CNPJ para autofill do cadastro de empresa.
+ * A tela é anônima, então não dá pra usar a rota autenticada de mei-notas —
+ * e consultar direto do navegador esbarra em bloqueio de rede/extensão.
+ */
+export const lookupCnpjPublic = async (req, res, next) => {
+  try {
+    const cnpj = String(req.params?.cnpj || req.query?.cnpj || '').trim();
+    const data = await lookupCnpjCascade(cnpj);
+    return sendSuccess(res, data, 'Dados do CNPJ consultados');
+  } catch (error) {
+    return next(error);
+  }
+};
 
 export const signUp = async (req, res, next) => {
   try {

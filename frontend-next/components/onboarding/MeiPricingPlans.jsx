@@ -4,7 +4,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthProvider';
 import { MEI_PUBLIC_PACKAGES } from '@/lib/meiBillingPricing';
-import { confirmSelfServeMeiPlan, fetchMeiBillingStatus } from '@/lib/billingApi';
+import {
+  confirmSelfServeMeiPlan,
+  createSelfServeMeiCheckout,
+} from '@/lib/billingApi';
+import { fetchMeiBillingGateStatus } from '@/lib/meiBillingGate';
+import { stashMeiContractPendingSession } from '@/lib/meiContractPendingSession';
 import { LoadingPanel } from '@/components/ui/LoadingPanel';
 
 const formatBrl = (n) =>
@@ -13,17 +18,27 @@ const formatBrl = (n) =>
 export function MeiPricingPlans() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { signOut, user } = useAuth();
+  const { signOut, userId, email, role, mei } = useAuth();
   const [checking, setChecking] = useState(true);
   const [packages, setPackages] = useState(MEI_PUBLIC_PACKAGES);
+  const [billingMode, setBillingMode] = useState('contract_first');
   const [loadingSlots, setLoadingSlots] = useState(null);
   const [message, setMessage] = useState('');
 
   const refreshGate = useCallback(async () => {
     setChecking(true);
     try {
-      const status = await fetchMeiBillingStatus();
+      const status = await fetchMeiBillingGateStatus(role, mei, userId);
+      if (!status) {
+        router.replace('/');
+        return;
+      }
       if (status.packages?.length) setPackages(status.packages);
+      setBillingMode(status.billingMode === 'stripe' ? 'stripe' : 'contract_first');
+      if (status.phase === 'aguardando_contrato') {
+        router.replace('/aguardando-contrato');
+        return;
+      }
       if (!status.required) {
         router.replace('/');
         return;
@@ -33,7 +48,7 @@ export function MeiPricingPlans() {
     } finally {
       setChecking(false);
     }
-  }, [router]);
+  }, [mei, role, router, userId]);
 
   useEffect(() => {
     void refreshGate();
@@ -56,14 +71,23 @@ export function MeiPricingPlans() {
     setLoadingSlots(pack.meiSlots);
     setMessage('');
     try {
+      if (billingMode === 'stripe') {
+        const data = await createSelfServeMeiCheckout(pack.meiSlots);
+        if (!data?.checkoutUrl) throw new Error('O pagamento não retornou um link.');
+        window.location.href = data.checkoutUrl;
+        return;
+      }
+
       const data = await confirmSelfServeMeiPlan(pack.meiSlots);
       if (data?.activated) {
         router.replace('/');
         return;
       }
-      if (data?.signingUrl) {
-        window.sessionStorage.setItem('focomei_contract_signing_url', data.signingUrl);
-      }
+      stashMeiContractPendingSession(userId, {
+        lineId: data?.lineId,
+        signingUrl: data?.signingUrl ?? null,
+        contratoOnetyId: data?.contratoOnetyId ?? null,
+      });
       router.replace('/aguardando-contrato');
     } catch (e) {
       setMessage(e instanceof Error ? e.message : 'Não foi possível gerar o contrato.');
@@ -84,8 +108,8 @@ export function MeiPricingPlans() {
           <p className="mt-1 text-sm text-[var(--text-muted)]">
             Escolha quantos CNPJs MEI sua empresa pode usar.
           </p>
-          {user?.email ? (
-            <p className="mt-2 text-xs text-[var(--text-muted)]">{user.email}</p>
+          {email ? (
+            <p className="mt-2 text-xs text-[var(--text-muted)]">{email}</p>
           ) : null}
         </div>
         <button
@@ -98,6 +122,12 @@ export function MeiPricingPlans() {
       </div>
 
       {message ? <p className="text-sm text-[var(--text-primary)]">{message}</p> : null}
+
+      <p className="text-sm text-[var(--text-muted)]">
+        {billingMode === 'contract_first'
+          ? 'Escolha o plano e assine o contrato digital para liberar sua conta.'
+          : 'Escolha um plano para continuar no pagamento seguro.'}
+      </p>
 
       <div className="grid gap-4 sm:grid-cols-2">
         {packages.map((pack) => (

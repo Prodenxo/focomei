@@ -6,13 +6,14 @@ import { useRouter } from 'next/navigation';
 import { fetchActivationProgress, isActivationCoreComplete } from '@/lib/activationApi';
 import { activationRouteToHref } from '@/lib/activationStepRoutes';
 import { isEmpresaCnpjOnboardingRequired } from '@/lib/empresaCnpjGate';
+import { resolveMeiBillingHref } from '@/lib/meiBillingGate';
 import { setSessionActivationSkipped } from '@/lib/activationSession';
 import { LoadingPanel } from '@/components/ui/LoadingPanel';
 import { useAuth } from '@/context/AuthProvider';
 
 export function ActivationSetup() {
   const router = useRouter();
-  const { role } = useAuth();
+  const { role, mei, userId } = useAuth();
   const [payload, setPayload] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -22,13 +23,18 @@ export function ActivationSetup() {
       router.replace('/empresa-cnpj');
       return;
     }
+    const billingHref = await resolveMeiBillingHref(role, mei, userId);
+    if (billingHref) {
+      router.replace(billingHref);
+      return;
+    }
     const data = await fetchActivationProgress();
     setPayload(data);
     setLoading(false);
     if (!data || isActivationCoreComplete(data)) {
       router.replace('/');
     }
-  }, [router, role]);
+  }, [mei, role, router, userId]);
 
   useEffect(() => {
     void load();

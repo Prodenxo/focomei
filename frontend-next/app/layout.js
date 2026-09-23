@@ -21,8 +21,8 @@ export default function RootLayout({ children }) {
     <html lang="pt-BR" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        <Script src="/env-config.js" strategy="beforeInteractive" />
       </head>
-      <Script src="/env-config.js" strategy="beforeInteractive" />
       <body className={`${inter.variable} antialiased`}>
         <Providers>{children}</Providers>
       </body>

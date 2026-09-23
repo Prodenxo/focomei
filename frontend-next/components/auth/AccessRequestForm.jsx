@@ -11,7 +11,22 @@ import {
   validateStrongPassword,
 } from '@/lib/passwordPolicy';
 import { resolveAppOrigin } from '@/lib/appOrigin';
+import { isValidCpf } from '@/lib/fiscalEmit';
 import { BrandWordmark } from '@/components/brand/BrandLogo';
+
+function maskCpf(value) {
+  const d = value.replace(/\D/g, '').slice(0, 11);
+  if (d.length > 9) {
+    return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+  }
+  if (d.length > 6) {
+    return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`;
+  }
+  if (d.length > 3) {
+    return `${d.slice(0, 3)}.${d.slice(3)}`;
+  }
+  return d;
+}
 
 function maskCnpj(value) {
   const d = value.replace(/\D/g, '').slice(0, 14);
@@ -59,6 +74,7 @@ export function AccessRequestForm({ signupMode = 'self_serve' }) {
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [cpf, setCpf] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -90,27 +106,34 @@ export function AccessRequestForm({ signupMode = 'self_serve' }) {
     setCnpjLoading(true);
     setCnpjMessage('');
     try {
-      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${digits}`);
-      if (!res.ok) {
-        setCnpjMessage('Não encontramos esse CNPJ — você pode preencher os dados manualmente.');
-        return;
-      }
-      const d = await res.json();
-      if (d.razao_social) setRazaoSocial(String(d.razao_social));
-      if (d.nome_fantasia) setNomeFantasia(String(d.nome_fantasia));
-      if (d.cep) setCep(String(d.cep).replace(/\D/g, ''));
-      const rua = [d.descricao_tipo_de_logradouro, d.logradouro].filter(Boolean).join(' ').trim();
+      const d = await apiClient.getPublic(`/auth/cnpj-lookup/${digits}`);
+      const end = d?.endereco || {};
+      if (d?.razaoSocial) setRazaoSocial(String(d.razaoSocial));
+      if (d?.nomeFantasia) setNomeFantasia(String(d.nomeFantasia));
+      if (end.cep) setCep(String(end.cep).replace(/\D/g, ''));
+      const rua = [d?.raw?.descricao_tipo_de_logradouro, end.logradouro]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
       if (rua) setLogradouro(rua);
-      if (d.numero) setNumero(String(d.numero));
-      if (d.complemento) setComplemento(String(d.complemento));
-      if (d.bairro) setBairro(String(d.bairro));
-      if (d.municipio) setCidade(String(d.municipio));
-      if (d.uf) setEstado(String(d.uf));
-      if (d.ddd_telefone_1) setEmpresaTelefone(String(d.ddd_telefone_1));
-      if (d.email) setEmpresaEmail(String(d.email));
+      if (end.numero) setNumero(String(end.numero));
+      if (end.complemento) setComplemento(String(end.complemento));
+      if (end.bairro) setBairro(String(end.bairro));
+      if (end.descricaoCidade) setCidade(String(end.descricaoCidade));
+      if (end.estado) setEstado(String(end.estado));
+      // BrasilAPI devolve { ddd, numero }; PlugNotas devolve a string já formatada em raw.
+      const tel = d?.telefone?.ddd && d?.telefone?.numero
+        ? `${d.telefone.ddd}${d.telefone.numero}`
+        : d?.raw?.telefone || '';
+      if (tel) setEmpresaTelefone(String(tel));
+      if (d?.email) setEmpresaEmail(String(d.email));
       setCnpjMessage('Dados da empresa preenchidos automaticamente. Confira e ajuste se necessário.');
-    } catch {
-      setCnpjMessage('Não foi possível consultar o CNPJ agora — preencha os dados manualmente.');
+    } catch (err) {
+      setCnpjMessage(
+        err instanceof Error && err.message
+          ? `Não foi possível consultar o CNPJ: ${err.message} Preencha os dados manualmente.`
+          : 'Não foi possível consultar o CNPJ agora — preencha os dados manualmente.',
+      );
     } finally {
       setCnpjLoading(false);
     }
@@ -120,8 +143,12 @@ export function AccessRequestForm({ signupMode = 'self_serve' }) {
     e.preventDefault();
     setError('');
 
-    if (!fullName.trim() || !email.trim() || !phone.trim() || !password || !confirmPassword) {
+    if (!fullName.trim() || !email.trim() || !cpf.trim() || !phone.trim() || !password || !confirmPassword) {
       setError('Preencha todos os campos obrigatórios da seção "Seus dados".');
+      return;
+    }
+    if (!isValidCpf(cpf)) {
+      setError('Informe um CPF válido.');
       return;
     }
     const pwd = validateStrongPassword(password);
@@ -148,6 +175,7 @@ export function AccessRequestForm({ signupMode = 'self_serve' }) {
         user: {
           fullName: fullName.trim(),
           email: email.trim().toLowerCase(),
+          cpf: cpf.replace(/\D/g, ''),
           phone: phone.trim() || null,
           password,
         },
@@ -172,7 +200,7 @@ export function AccessRequestForm({ signupMode = 'self_serve' }) {
 
       if (signupMode === 'self_serve') {
         await signIn(email.trim(), password);
-        router.replace('/');
+        router.replace('/planos');
         return;
       }
       if (result?.pendingApproval) {
@@ -242,7 +270,18 @@ export function AccessRequestForm({ signupMode = 'self_serve' }) {
               onChange={(e) => setEmail(e.target.value)}
             />
           </Field>
-          <Field label="WhatsApp" required className="md:col-span-2">
+          <Field label="CPF" required>
+            <input
+              required
+              className={inputCls}
+              placeholder="000.000.000-00"
+              value={cpf}
+              onChange={(e) => setCpf(maskCpf(e.target.value))}
+              inputMode="numeric"
+              autoComplete="off"
+            />
+          </Field>
+          <Field label="WhatsApp" required>
             <input
               required
               className={inputCls}

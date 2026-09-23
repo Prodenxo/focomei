@@ -8,7 +8,7 @@ import { resolveMeiBillingHref } from '@/lib/meiBillingGate';
 import { fetchActivationProgress, isActivationCoreComplete } from '@/lib/activationApi';
 import { isSessionActivationSkipped } from '@/lib/activationSession';
 
-const SHELL_LOCKED_PREFIXES = ['/empresa-cnpj', '/ativacao', '/planos'];
+const SHELL_LOCKED_PREFIXES = ['/empresa-cnpj', '/ativacao', '/planos', '/aguardando-contrato'];
 
 export function isShellLockedPath(pathname) {
   return SHELL_LOCKED_PREFIXES.some(
@@ -19,13 +19,19 @@ export function isShellLockedPath(pathname) {
 export function useAppBootGates(accessGate) {
   const router = useRouter();
   const pathname = usePathname() || '/';
-  const { role, mei, booting, isAuthenticated } = useAuth();
+  const { role, mei, userId, booting, isAuthenticated } = useAuth();
   const [bootPhase, setBootPhase] = useState('checking');
   const cnpjDone = useRef(false);
   const billingDone = useRef(false);
   const activationDone = useRef(false);
 
   const shellLocked = useMemo(() => isShellLockedPath(pathname), [pathname]);
+
+  useEffect(() => {
+    cnpjDone.current = false;
+    billingDone.current = false;
+    activationDone.current = false;
+  }, [userId]);
 
   useEffect(() => {
     if (booting || !isAuthenticated || accessGate !== 'ok') {
@@ -40,6 +46,7 @@ export function useAppBootGates(accessGate) {
 
       const onEmpresaCnpj = pathname.startsWith('/empresa-cnpj');
       const onPlanos = pathname.startsWith('/planos');
+      const onAguardandoContrato = pathname.startsWith('/aguardando-contrato');
       const onAtivacao = pathname.startsWith('/ativacao');
 
       if (!cnpjDone.current && !onEmpresaCnpj) {
@@ -54,15 +61,21 @@ export function useAppBootGates(accessGate) {
         cnpjDone.current = true;
       }
 
-      if (!billingDone.current && !onPlanos && role === 'admin') {
-        const billingHref = await resolveMeiBillingHref(role, mei);
+      if (onPlanos || onAguardandoContrato) {
+        billingDone.current = true;
+        if (!cancelled) setBootPhase('ready');
+        return;
+      }
+
+      if (!billingDone.current && role === 'admin') {
+        const billingHref = await resolveMeiBillingHref(role, mei, userId);
         if (cancelled) return;
         billingDone.current = true;
         if (billingHref) {
           router.replace(billingHref);
           return;
         }
-      } else if (onPlanos || role !== 'admin') {
+      } else if (role !== 'admin') {
         billingDone.current = true;
       }
 
@@ -84,7 +97,7 @@ export function useAppBootGates(accessGate) {
     return () => {
       cancelled = true;
     };
-  }, [booting, isAuthenticated, accessGate, pathname, role, mei, router]);
+  }, [booting, isAuthenticated, accessGate, pathname, role, mei, userId, router]);
 
   return { bootPhase, shellLocked };
 }

@@ -33,11 +33,33 @@ const isVercelPreviewOrigin = (url) => {
   }
 };
 
+/** Em desenvolvimento, aceita localhost e IP da rede local (Cursor/celular na LAN). */
+const isLocalDevLanOrigin = (url) => {
+  if (env.NODE_ENV === 'production') return false;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:') return false;
+    const host = parsed.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') return true;
+    const parts = host.split('.').map((part) => Number(part));
+    if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+      return false;
+    }
+    const [a, b] = parts;
+    return a === 10
+      || (a === 192 && b === 168)
+      || (a === 172 && b >= 16 && b <= 31);
+  } catch {
+    return false;
+  }
+};
+
 const isOriginAllowed = (origin) => {
   if (!origin) return true;
   const normalized = normalizeOrigin(origin);
   if (allowedOrigins.includes('*') || allowedOrigins.includes(normalized)) return true;
   if (isVercelPreviewOrigin(normalized)) return true;
+  if (isLocalDevLanOrigin(normalized)) return true;
   return false;
 };
 
@@ -53,6 +75,9 @@ const corsOptions = {
       return callback(null, true);
     }
     if (isVercelPreviewOrigin(normalizedOrigin)) {
+      return callback(null, true);
+    }
+    if (isLocalDevLanOrigin(normalizedOrigin)) {
       return callback(null, true);
     }
 

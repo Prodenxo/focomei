@@ -6,23 +6,53 @@ import { CheckCircle2, Clipboard, ExternalLink, FileSignature, LogOut, RefreshCc
 import { BrandLogo } from '@/components/brand/BrandLogo';
 import { useAuth } from '@/context/AuthProvider';
 import { refreshMeiContractSignature } from '@/lib/billingApi';
+import { fetchMeiBillingGateStatus } from '@/lib/meiBillingGate';
+import {
+  clearMeiContractPendingSession,
+  readMeiContractPendingSession,
+} from '@/lib/meiContractPendingSession';
 
 export default function AguardandoContratoPage() {
   const router = useRouter();
-  const { email, signOut } = useAuth();
+  const {
+    booting,
+    isAuthenticated,
+    userId,
+    role,
+    mei,
+    email,
+    signOut,
+    refreshSession,
+  } = useAuth();
   const [signingUrl, setSigningUrl] = useState('');
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
 
   const refresh = useCallback(async () => {
     try {
-      const data = await refreshMeiContractSignature();
-      if (data?.activated) {
+      const status = await fetchMeiBillingGateStatus(role, mei, userId);
+      if (status?.phase === 'ok') {
+        clearMeiContractPendingSession(userId);
+        await refreshSession();
         router.replace('/');
         return;
       }
+      if (status?.phase === 'planos') {
+        router.replace('/planos');
+        return;
+      }
+
+      const data = await refreshMeiContractSignature();
+      if (data?.activated) {
+        clearMeiContractPendingSession(userId);
+        await refreshSession();
+        router.replace('/');
+        return;
+      }
+      const pending = readMeiContractPendingSession(userId);
       const stored = window.sessionStorage.getItem('focomei_contract_signing_url') || '';
-      const nextUrl = data?.signingUrl || stored;
+      const nextUrl = data?.signingUrl || status?.contract?.signingUrl
+        || pending?.signingUrl || stored;
       if (nextUrl) {
         setSigningUrl(nextUrl);
         window.sessionStorage.setItem('focomei_contract_signing_url', nextUrl);
@@ -35,13 +65,18 @@ export default function AguardandoContratoPage() {
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, [mei, refreshSession, role, router, userId]);
 
   useEffect(() => {
-    refresh();
+    if (booting) return undefined;
+    if (!isAuthenticated) {
+      router.replace('/login');
+      return undefined;
+    }
+    void refresh();
     const id = window.setInterval(refresh, signingUrl ? 15000 : 5000);
     return () => window.clearInterval(id);
-  }, [refresh, signingUrl]);
+  }, [booting, isAuthenticated, refresh, router, signingUrl]);
 
   return (
     <main className="min-h-screen bg-[var(--canvas)] px-4 py-8 sm:px-6">
