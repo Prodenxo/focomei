@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Bot,
   Calendar,
   Headphones,
   MessageCircle,
@@ -34,7 +33,6 @@ import { SettingsActionLink } from '@/components/settings/SettingsActionLink';
 import { SettingsProfileField } from '@/components/settings/SettingsProfileField';
 import { SettingsPhoneField } from '@/components/settings/SettingsPhoneField';
 import { ThemeAppearancePicker } from '@/components/settings/ThemeAppearancePicker';
-import { OpenaiUsageModal } from '@/components/settings/OpenaiUsageModal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 export default function MinhaContaPage() {
@@ -59,8 +57,6 @@ export default function MinhaContaPage() {
   const [googleChecking, setGoogleChecking] = useState(true);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
-
-  const [aiOpen, setAiOpen] = useState(false);
 
   useEffect(() => {
     setNameInput(displayName || '');
@@ -166,10 +162,12 @@ export default function MinhaContaPage() {
     setSavingEmail(true);
     setActionMsg(null);
     try {
-      await updateEmail(trimmed);
+      const result = await updateEmail(trimmed);
       setActionMsg({
         type: 'success',
-        text: `Confirmação enviada para ${trimmed}. O e-mail só muda após clicar no link.`,
+        text: result?.requiresConfirmation
+          ? `Confirmação enviada para ${trimmed}. O e-mail só muda após clicar no link.`
+          : `E-mail atualizado para ${trimmed}. Entre novamente para renovar a sessão.`,
       });
     } catch (err) {
       setActionMsg({
@@ -280,12 +278,6 @@ export default function MinhaContaPage() {
             description="Convites, papéis e bloqueios"
             icon={Users}
           />
-          <SettingsActionLink
-            href="/minha-conta/produtos-fiscais"
-            title="Produtos e configuração fiscal"
-            description="Configurações por empresa"
-            icon={Shield}
-          />
           {role === 'superadmin' ? (
             <SettingsActionLink
               href="/minha-conta/solicitacoes"
@@ -341,28 +333,11 @@ export default function MinhaContaPage() {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        {role === 'superadmin' ? (
-          <SettingsSectionCard
-            icon={Bot}
-            title="Consumo de IA"
-            description="Acompanhe os custos das suas integrações."
-          >
-            <p className="mb-3 text-xs text-[var(--text-muted)]">Estimativa em reais · Acesso restrito</p>
-            <button
-              type="button"
-              onClick={() => setAiOpen(true)}
-              className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-[var(--accent)]/35 bg-[var(--accent-soft)] px-4 text-sm font-semibold text-[var(--accent)] hover:bg-[var(--accent-soft)]/80"
-            >
-              Ver painel
-            </button>
-          </SettingsSectionCard>
-        ) : null}
-
         <SettingsSectionCard
           icon={Headphones}
           title="Suporte"
           description="Ajuda humana e comunidade."
-          className={role === 'superadmin' ? '' : 'lg:col-span-2'}
+          className="lg:col-span-2"
         >
           <SettingsActionLink
             onClick={() => openExternalUrl(SUPPORT_WHATSAPP_URL)}
@@ -390,8 +365,6 @@ export default function MinhaContaPage() {
           </button>
         </div>
       </footer>
-
-      <OpenaiUsageModal open={aiOpen} onClose={() => setAiOpen(false)} />
 
       <ConfirmDialog
         open={disconnectOpen}

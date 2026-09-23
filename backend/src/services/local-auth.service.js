@@ -859,3 +859,30 @@ export const localUpdatePhone = async (userId, cleanedPhone) => {
 
   return cleanedPhone;
 };
+
+/** Atualiza o e-mail do próprio utilizador no AUTH_MODE=local. */
+export const localUpdateEmail = async (userId, email) => {
+  const normalized = normalizeEmail(email);
+  if (!normalized || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+    throw badRequest('E-mail inválido');
+  }
+
+  const { rows: duplicate } = await query(
+    `SELECT id
+     FROM public.users
+     WHERE email = $1 AND id <> $2 AND deleted_at IS NULL
+     LIMIT 1`,
+    [normalized, userId],
+  );
+  if (duplicate[0]) throw badRequest('Este e-mail já está cadastrado.');
+
+  const { rows } = await query(
+    `UPDATE public.users
+     SET email = $1, updated_at = now()
+     WHERE id = $2 AND deleted_at IS NULL
+     RETURNING id`,
+    [normalized, userId],
+  );
+  if (!rows[0]) throw unauthorized();
+  return normalized;
+};

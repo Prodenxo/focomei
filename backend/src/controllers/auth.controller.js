@@ -152,6 +152,21 @@ export const updatePhone = async (req, res, next) => {
   }
 };
 
+export const updateEmail = async (req, res, next) => {
+  try {
+    const result = await authService.updateEmail(
+      req.accessToken,
+      req.body.email,
+      req.user,
+    );
+    return sendSuccess(res, result, result.requiresConfirmation
+      ? 'Confirmação enviada para o novo e-mail'
+      : 'E-mail atualizado');
+  } catch (error) {
+    return next(error);
+  }
+};
+
 export const updateDisplayName = async (req, res, next) => {
   try {
     await authService.updateDisplayName(req.accessToken, req.body.displayName);

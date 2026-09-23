@@ -18,6 +18,7 @@ router.post('/signout', requireAuth, controller.signOut);
 router.get('/session', requireAuth, controller.getSession);
 router.post('/update-password', requireAuth, controller.updatePassword);
 router.post('/update-phone', requireAuth, controller.updatePhone);
+router.post('/update-email', requireAuth, controller.updateEmail);
 router.post('/update-display-name', requireAuth, controller.updateDisplayName);
 router.post('/update-role', requireAuth, controller.updateRole);
 router.get('/last-seen-update', requireAuth, controller.getLastSeenUpdate);

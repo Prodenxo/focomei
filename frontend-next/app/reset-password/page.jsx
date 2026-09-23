@@ -32,18 +32,20 @@ function ResetPasswordForm() {
     let cancelled = false;
     (async () => {
       try {
-        let sessionPayload;
         if (parsed.mode === 'token_hash') {
-          sessionPayload = await apiClient.postPublic('/auth/verify-recovery-otp', {
-            token_hash: parsed.tokenHash,
-          });
-        } else {
-          sessionPayload = await apiClient.postPublic('/auth/process-recovery-hash', {
-            access_token: parsed.accessToken,
-            refresh_token: parsed.refreshToken,
-            type: 'recovery',
-          });
+          if (!cancelled) {
+            setStatus('ready');
+            setMessage('Defina sua nova senha para concluir a recuperação.');
+          }
+          return;
         }
+
+        let sessionPayload;
+        sessionPayload = await apiClient.postPublic('/auth/process-recovery-hash', {
+          access_token: parsed.accessToken,
+          refresh_token: parsed.refreshToken,
+          type: 'recovery',
+        });
         const session = sessionPayload?.session ?? sessionPayload;
         const accessToken = session?.access_token;
         const user = session?.user;
@@ -94,7 +96,14 @@ function ResetPasswordForm() {
     }
     setLoading(true);
     try {
-      await apiClient.post('/auth/update-password', { newPassword: password });
+      if (parsed.mode === 'token_hash') {
+        await apiClient.postPublic('/auth/confirm-password-reset', {
+          token_hash: parsed.tokenHash,
+          newPassword: password,
+        });
+      } else {
+        await apiClient.post('/auth/update-password', { newPassword: password });
+      }
       setStatus('done');
       setMessage('Senha atualizada. Faça login com a nova senha.');
     } catch (err) {

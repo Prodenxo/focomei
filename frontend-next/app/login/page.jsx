@@ -119,10 +119,6 @@ function LoginForm() {
           <Link href="/solicitar-acesso" className="font-semibold text-[#00856A] hover:underline">
             Quero ser cliente
           </Link>
-          {' · '}
-          <Link href="/register" className="font-semibold text-[#00856A] hover:underline">
-            Tenho convite
-          </Link>
         </p>
 
         <p className="mt-4 text-center text-xs text-[#5c6b7a]">

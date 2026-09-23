@@ -133,28 +133,31 @@ export function MeiPricingPlans() {
         {packages.map((pack) => (
           <div
             key={pack.meiSlots}
-            className={`rounded-2xl border p-5 ${
+            className={`flex h-full flex-col rounded-2xl border p-5 ${
               pack.featured
                 ? 'border-[var(--accent)] bg-[var(--card-bg)] shadow-md'
                 : 'border-[var(--card-border)] bg-[var(--card-bg)]'
             }`}
           >
-            {pack.badge ? (
-              <span className="text-xs font-bold uppercase text-[var(--accent)]">{pack.badge}</span>
-            ) : null}
+            {/* Altura fixa mesmo sem selo, senão os cards da linha desalinham. */}
+            <span className="block h-4 text-xs font-bold uppercase leading-4 text-[var(--accent)]">
+              {pack.badge || ''}
+            </span>
             <p className="mt-1 text-lg font-bold">{pack.label}</p>
             <p className="mt-2 text-2xl font-bold text-[var(--text-primary)]">{formatBrl(pack.total)}/mês</p>
             <p className="text-xs text-[var(--text-muted)]">
               {formatBrl(pack.unit)} por CNPJ
             </p>
-            <button
-              type="button"
-              className="mt-4 w-full rounded-xl bg-[var(--accent)] py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-              disabled={loadingSlots === pack.meiSlots}
-              onClick={() => void handleSelect(pack)}
-            >
-              {loadingSlots === pack.meiSlots ? 'Abrindo…' : 'Assinar'}
-            </button>
+            <div className="mt-auto pt-4">
+              <button
+                type="button"
+                className="w-full rounded-xl bg-[var(--accent)] py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                disabled={loadingSlots === pack.meiSlots}
+                onClick={() => void handleSelect(pack)}
+              >
+                {loadingSlots === pack.meiSlots ? 'Abrindo…' : 'Assinar'}
+              </button>
+            </div>
           </div>
         ))}
       </div>
