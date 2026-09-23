@@ -35,6 +35,7 @@ import {
 } from '@/lib/plugNotasEmpresaForm';
 import { resolveDocumentosPermitidos } from '@/lib/documentosAtivos';
 import { EmpresaFiscalForm } from '@/components/notas/EmpresaFiscalForm';
+import { NumeracaoFiscalPanel } from '@/components/notas/NumeracaoFiscalPanel';
 import {
   describeCertificateState,
   formatCnpj,
@@ -628,6 +629,8 @@ export default function CertificadoPage() {
                 cnpjLookupLoading={cnpjLookupLoading}
                 cnpjLookupError={cnpjLookupError}
               />
+
+              {documento ? <NumeracaoFiscalPanel cnpj={documento} /> : null}
 
               {documento ? (
                 <button

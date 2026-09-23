@@ -314,7 +314,9 @@ export function ProdutoModal({ produto, catalogKind = 'nfse', onClose, onSuccess
                   <p className="mb-2 text-sm font-medium text-[var(--text-primary)]">Reforma Tributária (NFS-e)</p>
                   <div className="flex flex-col gap-3">
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">NBS (9 dígitos)</label>
+                      <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">
+                        NBS (opcional para MEI)
+                      </label>
                       <input
                         type="text"
                         inputMode="numeric"

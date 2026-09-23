@@ -138,6 +138,27 @@ export async function updateFiscalCompany(payload) {
   return apiClient.patch('/mei-notas/setup/plugnotas/empresa', { payload });
 }
 
+/** Consulta a próxima numeração de NFS-e (DPS/RPS) e NF-e. */
+export async function fetchNumeracaoFiscal(cnpj) {
+  const cpfCnpj = String(cnpj || '').replace(/\D/g, '');
+  return apiClient.get(`/mei-notas/setup/numeracao?cpfCnpj=${encodeURIComponent(cpfCnpj)}`);
+}
+
+/** Informa o último número utilizado; a próxima emissão usa o número seguinte. */
+export async function updateNumeracaoFiscal({
+  cnpj,
+  documentType,
+  ultimoUtilizado,
+  serie,
+}) {
+  return apiClient.put('/mei-notas/setup/numeracao', {
+    cpfCnpj: String(cnpj || '').replace(/\D/g, ''),
+    documentType,
+    ultimoUtilizado,
+    ...(serie ? { serie } : {}),
+  });
+}
+
 /** Cadastra empresa fiscal + certificado (composite). */
 export async function setupEmitenteComposite({ file, password, payload }) {
   const formData = new FormData();

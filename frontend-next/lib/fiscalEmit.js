@@ -125,6 +125,7 @@ export function getDefaultNfseForm() {
     prestadorRazaoSocial: '',
     prestadorInscricaoMunicipal: '',
     prestadorEmail: '',
+    prestadorTelefone: '',
     prestadorEndereco: {
       logradouro: '',
       numero: '',
@@ -138,6 +139,8 @@ export function getDefaultNfseForm() {
     tomadorCpfCnpj: '',
     tomadorRazaoSocial: '',
     tomadorEmail: '',
+    tomadorInscricaoMunicipal: '',
+    tomadorTelefone: '',
     tomadorEndereco: {
       cep: '',
       logradouro: '',
@@ -347,6 +350,7 @@ export function buildNfsePayload(form) {
     prestadorRazaoSocial: String(form.prestadorRazaoSocial || '').trim() || undefined,
     prestadorInscricaoMunicipal: String(form.prestadorInscricaoMunicipal || '').trim() || undefined,
     prestadorEmail: String(form.prestadorEmail || '').trim() || undefined,
+    prestadorTelefone: String(form.prestadorTelefone || '').trim() || undefined,
     prestadorEndereco: {
       logradouro: form.prestadorEndereco.logradouro.trim(),
       numero: form.prestadorEndereco.numero.trim(),
@@ -360,6 +364,9 @@ export function buildNfsePayload(form) {
     tomadorCpfCnpj: onlyDigits(form.tomadorCpfCnpj),
     tomadorRazaoSocial: String(form.tomadorRazaoSocial || '').trim(),
     tomadorEmail: String(form.tomadorEmail || '').trim() || undefined,
+    tomadorInscricaoMunicipal:
+      String(form.tomadorInscricaoMunicipal || '').trim() || undefined,
+    tomadorTelefone: String(form.tomadorTelefone || '').trim() || undefined,
     tomadorEndereco: {
       logradouro: form.tomadorEndereco.logradouro.trim(),
       numero: form.tomadorEndereco.numero.trim(),
@@ -459,6 +466,8 @@ export function applyClienteToNfseForm(cliente) {
     tomadorCpfCnpj: doc,
     tomadorRazaoSocial: String(cliente.nome || '').trim(),
     tomadorEmail: String(cliente.email || '').trim(),
+    tomadorInscricaoMunicipal: String(meta.inscricaoMunicipal || '').trim(),
+    tomadorTelefone: String(meta.telefone || cliente.telefone || '').trim(),
     tomadorEndereco: {
       cep: onlyDigits(endereco.cep || '').slice(0, 8),
       logradouro: String(endereco.logradouro || '').trim(),

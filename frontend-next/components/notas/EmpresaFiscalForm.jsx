@@ -11,14 +11,6 @@ import { AppSelect } from '@/components/ui/AppSelect';
 import { formatCnpj } from '@/lib/fiscalFormat';
 import { lookupCep } from '@/lib/fiscalApi';
 
-/** Campo numérico de RPS: vazio continua vazio enquanto o usuário digita (não volta para 1). */
-const parseRpsFieldValue = (value) => {
-  const digits = String(value ?? '').replace(/\D/g, '');
-  if (!digits) return '';
-  const parsed = Number.parseInt(digits, 10);
-  return Number.isFinite(parsed) && parsed >= 1 ? parsed : '';
-};
-
 /**
  * Formulário completo da empresa emissora (PlugNotas).
  * @param {{
@@ -148,37 +140,6 @@ export function EmpresaFiscalForm({
               </span>
             </span>
           </label>
-          <h3 className="text-sm font-semibold text-[var(--text-primary)]">Numeração RPS / DPS</h3>
-          <p className="text-xs leading-relaxed text-[var(--text-muted)]">
-            Aqui você informa a sequência do <strong className="font-medium text-[var(--text-primary)]">RPS ou DPS</strong>{' '}
-            (recibo provisório enviado à prefeitura). O <strong className="font-medium text-[var(--text-primary)]">número da NFS-e</strong>{' '}
-            que aparece na nota aprovada é definido na autorização — não preencha esse número nesta tela.
-            Se você usava outro sistema, use o último RPS/DPS emitido + 1, ou o valor que a prefeitura indicou ao
-            liberar um lote novo.
-          </p>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Field
-              label="Série RPS/DPS"
-              hint="Em geral 1, salvo orientação da prefeitura."
-              value={form.rpsSerie}
-              onChange={(v) => onChange('rpsSerie', v)}
-              maxLength={5}
-            />
-            <Field
-              label="Próximo nº RPS/DPS"
-              hint="Próximo recibo provisório a emitir (não é o nº da NFS-e)."
-              value={String(form.rpsNumero ?? '')}
-              onChange={(v) => onChange('rpsNumero', parseRpsFieldValue(v))}
-              inputMode="numeric"
-            />
-            <Field
-              label="Lote de RPS"
-              hint="Lote cadastrado na prefeitura para envio dos RPS (não é o nº da nota)."
-              value={String(form.rpsLote ?? '')}
-              onChange={(v) => onChange('rpsLote', parseRpsFieldValue(v))}
-              inputMode="numeric"
-            />
-          </div>
         </section>
       ) : null}
 

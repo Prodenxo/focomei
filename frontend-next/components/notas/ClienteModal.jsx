@@ -23,6 +23,10 @@ import {
 } from '@/lib/fiscalApi';
 import { maskCep, maskCpfCnpj, onlyDigits, isValidCpfCnpj } from '@/lib/fiscalEmit';
 import { AppSelect } from '@/components/ui/AppSelect';
+import {
+  buildClienteFiscalMetadata,
+  formatClienteLookupPhone,
+} from '@/lib/clienteFiscalMetadata';
 
 /**
  * Modal para criar ou editar um cliente do catálogo.
@@ -37,14 +41,18 @@ export function ClienteModal({ cliente, onClose, onSuccess }) {
     documento: cliente?.documento || '',
     nome: cliente?.nome || '',
     email: cliente?.email || '',
-    telefone: cliente?.telefone || '',
+    telefone: cliente?.metadata_json?.telefone || cliente?.telefone || '',
+    inscricaoMunicipal: cliente?.metadata_json?.inscricaoMunicipal || '',
     endereco: {
       logradouro: cliente?.metadata_json?.endereco?.logradouro || '',
       numero: cliente?.metadata_json?.endereco?.numero || '',
       complemento: cliente?.metadata_json?.endereco?.complemento || '',
       bairro: cliente?.metadata_json?.endereco?.bairro || '',
       cep: cliente?.metadata_json?.endereco?.cep || '',
-      cidade: cliente?.metadata_json?.endereco?.cidade || '',
+      cidade:
+        cliente?.metadata_json?.endereco?.descricaoCidade
+        || cliente?.metadata_json?.endereco?.cidade
+        || '',
       estado: cliente?.metadata_json?.endereco?.estado || '',
       codigoCidade: cliente?.metadata_json?.endereco?.codigoCidade || '',
     },
@@ -71,7 +79,9 @@ export function ClienteModal({ cliente, onClose, onSuccess }) {
           ...prev,
           nome: data.nome || data.razaoSocial || prev.nome,
           email: data.email || prev.email,
-          telefone: data.telefone || prev.telefone,
+          telefone: formatClienteLookupPhone(data.telefone) || prev.telefone,
+          inscricaoMunicipal: data.inscricaoMunicipal || prev.inscricaoMunicipal,
+          inscricaoEstadual: onlyDigits(data.inscricaoEstadual) || prev.inscricaoEstadual,
           endereco: {
             ...prev.endereco,
             logradouro: data.endereco?.logradouro || prev.endereco.logradouro,
@@ -128,6 +138,10 @@ export function ClienteModal({ cliente, onClose, onSuccess }) {
       setError('Informe o nome/razão social.');
       return;
     }
+    if (form.indIEDest === '1' && !onlyDigits(form.inscricaoEstadual)) {
+      setError('Informe a Inscrição Estadual do cliente contribuinte de ICMS.');
+      return;
+    }
 
     setLoading(true);
     setError(null);
@@ -136,21 +150,7 @@ export function ClienteModal({ cliente, onClose, onSuccess }) {
       const payload = {
         nome: form.nome.trim(),
         email: form.email?.trim() || undefined,
-        telefone: form.telefone?.trim() || undefined,
-        metadata_json: {
-          endereco: {
-            logradouro: form.endereco.logradouro?.trim(),
-            numero: form.endereco.numero?.trim(),
-            complemento: form.endereco.complemento?.trim(),
-            bairro: form.endereco.bairro?.trim(),
-            cep: onlyDigits(form.endereco.cep),
-            cidade: form.endereco.cidade?.trim(),
-            estado: form.endereco.estado?.trim()?.toUpperCase(),
-            codigoCidade: onlyDigits(form.endereco.codigoCidade),
-          },
-          indIEDest: form.indIEDest,
-          ...(form.indIEDest === '1' ? { inscricaoEstadual: form.inscricaoEstadual?.trim() } : {}),
-        },
+        metadata_json: buildClienteFiscalMetadata(form),
       };
 
       if (cliente?.id) {
@@ -263,6 +263,18 @@ export function ClienteModal({ cliente, onClose, onSuccess }) {
                 />
               </div>
             </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">
+                Inscrição Municipal
+              </label>
+              <input
+                type="text"
+                value={form.inscricaoMunicipal}
+                onChange={(e) => handleChange('inscricaoMunicipal', e.target.value)}
+                placeholder="Opcional — exigida por algumas prefeituras"
+                className="w-full rounded-[10px] border border-[var(--card-border)] bg-[var(--card-bg)] px-3 py-2 text-sm"
+              />
+            </div>
 
             {/* Endereço */}
             <div className="rounded-[12px] border border-[var(--card-border)] bg-[var(--canvas)] p-3">
@@ -351,7 +363,11 @@ export function ClienteModal({ cliente, onClose, onSuccess }) {
                 <AppSelect
                   label="Indicador de IE"
                   value={form.indIEDest}
-                  onChange={(v) => handleChange('indIEDest', v)}
+                  onChange={(v) => setForm((prev) => ({
+                    ...prev,
+                    indIEDest: v,
+                    ...(v !== '1' ? { inscricaoEstadual: '' } : {}),
+                  }))}
                   searchable={false}
                   compact
                   options={[
@@ -363,11 +379,13 @@ export function ClienteModal({ cliente, onClose, onSuccess }) {
               </div>
               {form.indIEDest === '1' && (
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Inscrição Estadual</label>
+                  <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">
+                    Inscrição Estadual *
+                  </label>
                   <input
                     type="text"
                     value={form.inscricaoEstadual}
-                    onChange={(e) => handleChange('inscricaoEstadual', e.target.value)}
+                    onChange={(e) => handleChange('inscricaoEstadual', onlyDigits(e.target.value))}
                     placeholder="Número da IE"
                     className="w-full rounded-[10px] border border-[var(--card-border)] bg-[var(--card-bg)] px-3 py-2 text-sm"
                   />

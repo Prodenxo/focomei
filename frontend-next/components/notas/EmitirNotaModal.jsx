@@ -43,7 +43,6 @@ import {
   DESTINATARIO_IE_OPTIONS,
   NFSE_SERVICO_CODIGO_MIN_LENGTH,
 } from '@/lib/fiscalEmit';
-import { catalogProdutoNeedsNfseReformaCompletion } from '@/lib/nfseCatalogProdutoMetadata';
 import { isCatalogProdutoUsableForNfeLike } from '@/lib/nfeCatalogProdutoMetadata';
 import { recalculateNfeItemsTax } from '@/lib/recalculateNfeItemsTax';
 import {
@@ -279,9 +278,17 @@ export function EmitirNotaModal({
             if (!localStale) {
               next = mergeNfsePrestadorPrefillIntoForm(f, localPrefill, { onlyFillEmpty: true });
             }
-            return mergeNfsePrestadorPrefillIntoForm(next, empresaPrefill, {
+            next = mergeNfsePrestadorPrefillIntoForm(next, empresaPrefill, {
               onlyFillEmpty: !localStale,
             });
+            const telefone = empresa?.telefone;
+            const telefoneTexto = typeof telefone === 'string'
+              ? telefone
+              : `${telefone?.ddd || ''}${telefone?.numero || ''}`;
+            return {
+              ...next,
+              prestadorTelefone: next.prestadorTelefone || telefoneTexto,
+            };
           });
         } else {
           const ieExtra = { inscricaoEstadual: empresa?.inscricaoEstadual ?? null };
@@ -315,7 +322,21 @@ export function EmitirNotaModal({
           const empresaPrefill = empresaFiscalToPrestadorPrefill(empresa);
           if (!isNfsePrestadorPrefillEffectivelyEmpty(empresaPrefill)) {
             if (documentType === 'NFSE') {
-              setNfseForm((f) => mergeNfsePrestadorPrefillIntoForm(f, empresaPrefill, { onlyFillEmpty: true }));
+              setNfseForm((f) => {
+                const next = mergeNfsePrestadorPrefillIntoForm(
+                  f,
+                  empresaPrefill,
+                  { onlyFillEmpty: true },
+                );
+                const telefone = empresa?.telefone;
+                const telefoneTexto = typeof telefone === 'string'
+                  ? telefone
+                  : `${telefone?.ddd || ''}${telefone?.numero || ''}`;
+                return {
+                  ...next,
+                  prestadorTelefone: next.prestadorTelefone || telefoneTexto,
+                };
+              });
             } else {
               setNfeForm((f) => mergeNfeEmitentePrefillIntoForm(
                 f,
@@ -394,6 +415,13 @@ export function EmitirNotaModal({
               ...prev,
               tomadorRazaoSocial: data.nome || data.razaoSocial || prev.tomadorRazaoSocial,
               tomadorEmail: data.email || prev.tomadorEmail,
+              tomadorInscricaoMunicipal:
+                data.inscricaoMunicipal || prev.tomadorInscricaoMunicipal,
+              tomadorTelefone: data.telefone
+                ? (typeof data.telefone === 'string'
+                    ? data.telefone
+                    : `${data.telefone.ddd || ''}${data.telefone.numero || ''}`)
+                : prev.tomadorTelefone,
               tomadorEndereco: {
                 ...prev.tomadorEndereco,
                 logradouro: data.endereco?.logradouro || prev.tomadorEndereco.logradouro,
@@ -520,9 +548,6 @@ export function EmitirNotaModal({
         ...prev,
         servico: { ...prev.servico, ...prefill },
       }));
-      if (catalogProdutoNeedsNfseReformaCompletion(produto)) {
-        setCatalogNotice('Este serviço ainda não tem NBS/cIndOp. Complete no catálogo antes da emissão.');
-      }
       const codigoNorm = normalizeCodigoServico(prefill.codigo);
       if (codigoNorm.length < NFSE_SERVICO_CODIGO_MIN_LENGTH) {
         setCatalogNotice(
@@ -1008,6 +1033,7 @@ function NfseTomadorForm({
           <Input label="Razão Social" value={form.prestadorRazaoSocial} onChange={(v) => handleChange('prestadorRazaoSocial', v)} placeholder="Nome da empresa" />
           <Input label="Inscrição Municipal" value={form.prestadorInscricaoMunicipal} onChange={(v) => handleChange('prestadorInscricaoMunicipal', v)} placeholder="IM" />
           <Input label="Email" value={form.prestadorEmail} onChange={(v) => handleChange('prestadorEmail', v)} placeholder="email@empresa.com" />
+          <Input label="Telefone" value={form.prestadorTelefone} onChange={(v) => handleChange('prestadorTelefone', v)} placeholder="(00) 00000-0000" />
           <div className="sm:col-span-2">
             <Input label="Logradouro" value={form.prestadorEndereco.logradouro} onChange={(v) => handleEnderecoChange('logradouro', v)} placeholder="Rua, Av., etc." />
           </div>
@@ -1078,7 +1104,9 @@ function NfseTomadorForm({
             <Input label="CPF/CNPJ" value={form.tomadorCpfCnpj} onChange={(v) => handleChange('tomadorCpfCnpj', maskCpfCnpj(v))} placeholder="000.000.000-00" onBlur={onLookupCnpj} icon={lookingUpCnpj ? Loader2 : Search} iconSpin={lookingUpCnpj} />
           </div>
           <Input label="Razão Social / Nome" value={form.tomadorRazaoSocial} onChange={(v) => handleChange('tomadorRazaoSocial', v)} placeholder="Nome do cliente" />
-          <Input label="Email" value={form.tomadorEmail} onChange={(v) => handleChange('tomadorEmail', v)} placeholder="email@cliente.com" className="sm:col-span-2" />
+          <Input label="Email" value={form.tomadorEmail} onChange={(v) => handleChange('tomadorEmail', v)} placeholder="email@cliente.com" />
+          <Input label="Telefone" value={form.tomadorTelefone} onChange={(v) => handleChange('tomadorTelefone', v)} placeholder="(00) 00000-0000" />
+          <Input label="Inscrição Municipal" value={form.tomadorInscricaoMunicipal} onChange={(v) => handleChange('tomadorInscricaoMunicipal', v)} placeholder="Opcional" className="sm:col-span-2" />
           <div className="sm:col-span-2">
             <Input label="Logradouro" value={form.tomadorEndereco.logradouro} onChange={(v) => handleTomadorEnderecoChange('logradouro', v)} placeholder="Rua, Av., etc." />
           </div>
@@ -1330,7 +1358,7 @@ function NfseServicoForm({ form, setForm, showProdutoList, setShowProdutoList, p
           </div>
           <Input label="Valor do Serviço (R$)" value={form.servico.valorServico} onChange={(v) => handleChange('valorServico', maskMoney(v))} placeholder="0,00" />
           <Input label="Alíquota ISS (%)" value={form.servico.aliquota} onChange={(v) => handleChange('aliquota', v)} placeholder="5" />
-          <Input label="Código NBS" value={form.servico.codigoNbs} onChange={(v) => handleChange('codigoNbs', v.replace(/\D/g, '').slice(0, 9))} placeholder="9 dígitos" hint="Reforma Tributária (quando exigido)" />
+          <Input label="NBS (opcional)" value={form.servico.codigoNbs} onChange={(v) => handleChange('codigoNbs', v.replace(/\D/g, '').slice(0, 9))} placeholder="9 dígitos" hint="Não é obrigatório para MEI. Deixe em branco para o sistema sugerir pelo código do serviço." />
           <Input label="cIndOp" value={form.servico.cIndOp} onChange={(v) => handleChange('cIndOp', v.replace(/\D/g, '').slice(0, 6))} placeholder="6 dígitos" hint="Indicador de operação (Reforma Tributária)" />
         </div>
       </div>
