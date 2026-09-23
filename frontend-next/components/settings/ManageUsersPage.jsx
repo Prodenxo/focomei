@@ -2,10 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowDownAZ,
   ArrowLeft,
   ArrowUpAZ,
+  Building2,
+  ClipboardList,
+  CreditCard,
+  FileText,
   KeyRound,
   Loader2,
   LogIn,
@@ -35,7 +40,11 @@ import {
 } from '@/lib/invitesManagement';
 import {
   deleteEmpresa,
+  getEmpresaById,
   listEmpresasAdmin,
+  blockEmpresa,
+  listAccessBlockAudit,
+  unblockEmpresa,
   updateEmpresa,
 } from '@/lib/empresaManagement';
 import {
@@ -53,6 +62,12 @@ import { AppSelect } from '@/components/ui/AppSelect';
 import { formatCnpj } from '@/lib/fiscalFormat';
 import { onlyDigits } from '@/lib/fiscalEmit';
 import { getManagedUserActions } from '@/lib/managedUserActions';
+import {
+  filterAdminEmpresas,
+  listEmpresaMembers,
+  mapStripeReturn,
+} from '@/lib/adminManagementHelpers';
+import { AdminBillingTab } from '@/components/settings/AdminBillingTab';
 
 const PAGE_SIZE = 10;
 
@@ -74,6 +89,8 @@ function BackLink() {
 
 export function ManageUsersPage() {
   const { role, userId, impersonate, refreshSession } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const canManage = hasRole(role, ['admin']);
   const isSuperadmin = role === 'superadmin';
 
@@ -86,6 +103,8 @@ export function ManageUsersPage() {
   const [invites, setInvites] = useState([]);
   const [empresas, setEmpresas] = useState([]);
   const [empresaSearch, setEmpresaSearch] = useState('');
+  const [empresaAccessFilter, setEmpresaAccessFilter] = useState('all');
+  const [empresaMeiFilter, setEmpresaMeiFilter] = useState('all');
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -117,7 +136,14 @@ export function ManageUsersPage() {
   const [editDocsLoading, setEditDocsLoading] = useState(false);
 
   const [editingEmpresa, setEditingEmpresa] = useState(null);
-  const [empresaLimits, setEmpresaLimits] = useState({ max_mei: '', max_usuarios_nao_mei: '' });
+  const [empresaForm, setEmpresaForm] = useState({});
+  const [membersEmpresa, setMembersEmpresa] = useState(null);
+  const [auditEmpresa, setAuditEmpresa] = useState(null);
+  const [auditEntries, setAuditEntries] = useState([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [empresaAccessTarget, setEmpresaAccessTarget] = useState(null);
+  const [empresaAccessReason, setEmpresaAccessReason] = useState('');
+  const [billingEmpresaId, setBillingEmpresaId] = useState('');
 
   const load = useCallback(async () => {
     if (!canManage) return;
@@ -144,8 +170,27 @@ export function ManageUsersPage() {
   }, [load]);
 
   useEffect(() => {
+    const requested = searchParams.get('tab');
+    const allowed = isSuperadmin
+      ? ['users', 'invites', 'empresas', 'billing']
+      : ['users', 'invites'];
+    setTab(allowed.includes(requested) ? requested : 'users');
+  }, [isSuperadmin, searchParams]);
+
+  useEffect(() => {
     setPage(1);
   }, [search, tab, sortAsc]);
+
+  const changeTab = (nextTab) => {
+    setTab(nextTab);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', nextTab);
+    if (nextTab !== 'billing') {
+      params.delete('stripe_mei');
+      params.delete('session_id');
+    }
+    router.replace(`/minha-conta/usuarios?${params.toString()}`, { scroll: false });
+  };
 
   const blockedCount = useMemo(
     () => users.filter((u) => u.status === false).length,
@@ -172,10 +217,19 @@ export function ManageUsersPage() {
   }, [sortedUsers, pageSafe]);
 
   const filteredEmpresas = useMemo(() => {
-    const q = empresaSearch.trim().toLowerCase();
-    if (!q) return empresas;
-    return empresas.filter((e) => String(e.empresa || '').toLowerCase().includes(q));
-  }, [empresas, empresaSearch]);
+    return filterAdminEmpresas(empresas, users, {
+      search: empresaSearch,
+      access: empresaAccessFilter,
+      mei: empresaMeiFilter,
+    });
+  }, [empresas, users, empresaSearch, empresaAccessFilter, empresaMeiFilter]);
+
+  const empresaMembers = useMemo(
+    () => listEmpresaMembers(users, membersEmpresa?.id),
+    [membersEmpresa?.id, users],
+  );
+
+  const stripeReturn = useMemo(() => mapStripeReturn(searchParams), [searchParams]);
 
   const empresaOptions = useMemo(
     () => empresas.map((e) => ({
@@ -353,15 +407,49 @@ export function ManageUsersPage() {
     }
   };
 
-  const saveEmpresaLimits = async () => {
+  const openEmpresaEditor = async (empresa) => {
+    setActing(`empresa-load-${empresa.id}`);
+    setMsg(null);
+    try {
+      const full = await getEmpresaById(empresa.id);
+      setEditingEmpresa(full || empresa);
+      setEmpresaForm({
+        empresa: full?.empresa || empresa.empresa || '',
+        cnpj: formatCnpj(full?.cnpj || ''),
+        razao_social: full?.razao_social || '',
+        nome_fantasia: full?.nome_fantasia || '',
+        inscricao_estadual: full?.inscricao_estadual || '',
+        regime_tributario: full?.regime_tributario || '',
+        logradouro: full?.logradouro || '',
+        numero: full?.numero || '',
+        complemento: full?.complemento || '',
+        bairro: full?.bairro || '',
+        cidade: full?.cidade || '',
+        estado: full?.estado || '',
+        cep: full?.cep || '',
+        telefone: full?.telefone || '',
+        email: full?.email || '',
+        max_mei: full?.max_mei ?? empresa.max_mei ?? '',
+        max_usuarios_nao_mei: full?.max_usuarios_nao_mei ?? empresa.max_usuarios_nao_mei ?? '',
+      });
+    } catch (err) {
+      setMsg({ type: 'error', text: err instanceof Error ? err.message : 'Falha ao carregar empresa.' });
+    } finally {
+      setActing(null);
+    }
+  };
+
+  const saveEmpresa = async () => {
     if (!editingEmpresa?.id) return;
     setActing('empresa');
     try {
       await updateEmpresa(editingEmpresa.id, {
-        max_mei: empresaLimits.max_mei === '' ? null : Number(empresaLimits.max_mei),
-        max_usuarios_nao_mei: empresaLimits.max_usuarios_nao_mei === '' ? null : Number(empresaLimits.max_usuarios_nao_mei),
+        ...empresaForm,
+        cnpj: onlyDigits(empresaForm.cnpj),
+        max_mei: empresaForm.max_mei === '' ? 0 : Number(empresaForm.max_mei),
+        max_usuarios_nao_mei: empresaForm.max_usuarios_nao_mei === '' ? null : Number(empresaForm.max_usuarios_nao_mei),
       });
-      setMsg({ type: 'success', text: 'Limites da empresa atualizados.' });
+      setMsg({ type: 'success', text: 'Empresa atualizada.' });
       setEditingEmpresa(null);
       await load();
     } catch (err) {
@@ -370,6 +458,45 @@ export function ManageUsersPage() {
       setActing(null);
     }
   };
+
+  const changeEmpresaAccess = async () => {
+    if (!empresaAccessTarget?.id) return;
+    const blocking = empresaAccessTarget.access_status !== 'blocked';
+    setActing('empresa-access');
+    try {
+      if (blocking) await blockEmpresa(empresaAccessTarget.id, empresaAccessReason);
+      else await unblockEmpresa(empresaAccessTarget.id, empresaAccessReason);
+      setMsg({ type: 'success', text: blocking ? 'Empresa bloqueada com auditoria registrada.' : 'Empresa desbloqueada com auditoria registrada.' });
+      setEmpresaAccessTarget(null);
+      setEmpresaAccessReason('');
+      await load();
+    } catch (err) {
+      setMsg({ type: 'error', text: err instanceof Error ? err.message : 'Falha ao alterar acesso.' });
+    } finally {
+      setActing(null);
+    }
+  };
+
+  const openEmpresaAudit = async (empresa) => {
+    setAuditEmpresa(empresa);
+    setAuditEntries([]);
+    setAuditLoading(true);
+    try {
+      setAuditEntries(await listAccessBlockAudit('empresa', empresa.id));
+    } catch (err) {
+      setMsg({ type: 'error', text: err instanceof Error ? err.message : 'Falha ao carregar auditoria.' });
+      setAuditEmpresa(null);
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
+  const showFeedback = useCallback((feedback) => {
+    setMsg({
+      type: feedback.type,
+      text: feedback.text || feedback.message,
+    });
+  }, []);
 
   const handleDeleteEmpresa = async (empresa) => {
     setActing(empresa.id);
@@ -399,7 +526,10 @@ export function ManageUsersPage() {
   const tabs = [
     { key: 'users', label: 'Usuários' },
     { key: 'invites', label: 'Convites' },
-    ...(isSuperadmin ? [{ key: 'empresas', label: 'Empresas' }] : []),
+    ...(isSuperadmin ? [
+      { key: 'empresas', label: 'Empresas' },
+      { key: 'billing', label: 'Cobrança' },
+    ] : []),
   ];
 
   return (
@@ -460,7 +590,8 @@ export function ManageUsersPage() {
           <button
             key={t.key}
             type="button"
-            onClick={() => setTab(t.key)}
+            onClick={() => changeTab(t.key)}
+            aria-current={tab === t.key ? 'page' : undefined}
             className={`rounded-full px-3 py-1.5 text-xs font-semibold ${tab === t.key ? 'bg-[var(--accent)] text-white' : 'bg-[var(--canvas)] text-[var(--text-muted)]'}`}
           >
             {t.label}
@@ -518,6 +649,13 @@ export function ManageUsersPage() {
                     <div className="flex flex-wrap gap-1.5">
                       {actions.canEdit ? (
                         <IconBtn label="Editar" onClick={() => openEditUser(u)} icon={Pencil} />
+                      ) : null}
+                      {u.mei ? (
+                        <LinkIconBtn
+                          label="Área fiscal"
+                          href={`/minha-conta/usuarios/${encodeURIComponent(u.id)}/dados`}
+                          icon={FileText}
+                        />
                       ) : null}
                       {actions.canImpersonate ? (
                         <IconBtn label="Acessar como" onClick={() => setImpersonateTarget(u)} icon={LogIn} />
@@ -598,40 +736,86 @@ export function ManageUsersPage() {
 
       {tab === 'empresas' && isSuperadmin ? (
         <Card className="p-4 sm:p-5">
-          <label className="mb-4 flex h-10 items-center gap-2 rounded-[12px] border border-[var(--card-border)] bg-[var(--canvas)] px-3">
-            <Search className="h-4 w-4 text-[var(--text-muted)]" />
-            <input
-              value={empresaSearch}
-              onChange={(e) => setEmpresaSearch(e.target.value)}
-              placeholder="Buscar empresa"
-              className="w-full bg-transparent text-sm focus:outline-none"
+          <div className="mb-4 grid gap-2 md:grid-cols-4">
+            <label className="flex h-10 items-center gap-2 rounded-[12px] border border-[var(--card-border)] bg-[var(--canvas)] px-3 md:col-span-2">
+              <Search className="h-4 w-4 text-[var(--text-muted)]" />
+              <input
+                value={empresaSearch}
+                onChange={(e) => setEmpresaSearch(e.target.value)}
+                placeholder="Nome, CNPJ ou membro"
+                aria-label="Buscar empresa"
+                className="w-full bg-transparent text-sm focus:outline-none"
+              />
+            </label>
+            <AppSelect
+              compact
+              ariaLabel="Filtrar acesso da empresa"
+              value={empresaAccessFilter}
+              onChange={setEmpresaAccessFilter}
+              options={[
+                { value: 'all', label: 'Todos acessos' },
+                { value: 'active', label: 'Ativas' },
+                { value: 'blocked', label: 'Bloqueadas' },
+              ]}
             />
-          </label>
+            <AppSelect
+              compact
+              ariaLabel="Filtrar disponibilidade MEI"
+              value={empresaMeiFilter}
+              onChange={setEmpresaMeiFilter}
+              options={[
+                { value: 'all', label: 'Todas modalidades' },
+                { value: 'active', label: 'MEI ativo' },
+                { value: 'inactive', label: 'MEI desligado' },
+              ]}
+            />
+          </div>
           {filteredEmpresas.length === 0 ? (
             <EmptyPanel title="Nenhuma empresa" />
           ) : (
             <ul className="divide-y divide-[var(--card-border)]">
               {filteredEmpresas.map((e) => (
-                <li key={e.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <li key={e.id} className="flex flex-col gap-3 py-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <p className="font-medium">{e.empresa}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium">{e.nome_fantasia || e.empresa}</p>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${e.access_status === 'blocked' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                        {e.access_status === 'blocked' ? 'Bloqueada' : 'Ativa'}
+                      </span>
+                    </div>
                     <p className="text-xs text-[var(--text-muted)]">
-                      MEI max {e.max_mei ?? '—'} · PF max {e.max_usuarios_nao_mei ?? '—'}
+                      MEI {Number(e.max_mei) > 0 ? `${e.max_mei} vagas` : 'desligado'} · PF {e.max_usuarios_nao_mei || 'sem limite'} · {listEmpresaMembers(users, e.id).length} membro(s)
                     </p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      className="rounded-[10px] border px-2 py-1 text-xs font-semibold"
+                      className="inline-flex items-center gap-1 rounded-[10px] border px-2 py-1 text-xs font-semibold"
+                      onClick={() => void openEmpresaEditor(e)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" /> Editar
+                    </button>
+                    <button type="button" className="inline-flex items-center gap-1 rounded-[10px] border px-2 py-1 text-xs font-semibold" onClick={() => setMembersEmpresa(e)}>
+                      <Building2 className="h-3.5 w-3.5" /> Membros
+                    </button>
+                    <button type="button" className="inline-flex items-center gap-1 rounded-[10px] border px-2 py-1 text-xs font-semibold" onClick={() => void openEmpresaAudit(e)}>
+                      <ClipboardList className="h-3.5 w-3.5" /> Auditoria
+                    </button>
+                    <button type="button" className="inline-flex items-center gap-1 rounded-[10px] border px-2 py-1 text-xs font-semibold" onClick={() => {
+                      setBillingEmpresaId(e.id);
+                      changeTab('billing');
+                    }}>
+                      <CreditCard className="h-3.5 w-3.5" /> Cobrança
+                    </button>
+                    <button
+                      type="button"
+                      className={`rounded-[10px] border px-2 py-1 text-xs font-semibold ${e.access_status === 'blocked' ? 'border-emerald-200 text-emerald-700' : 'border-amber-200 text-amber-700'}`}
                       onClick={() => {
-                        setEditingEmpresa(e);
-                        setEmpresaLimits({
-                          max_mei: e.max_mei ?? '',
-                          max_usuarios_nao_mei: e.max_usuarios_nao_mei ?? '',
-                        });
+                        setEmpresaAccessTarget(e);
+                        setEmpresaAccessReason('');
                       }}
                     >
-                      Limites
+                      {e.access_status === 'blocked' ? 'Desbloquear' : 'Bloquear'}
                     </button>
                     <button
                       type="button"
@@ -646,6 +830,16 @@ export function ManageUsersPage() {
             </ul>
           )}
         </Card>
+      ) : null}
+
+      {tab === 'billing' && isSuperadmin ? (
+        <AdminBillingTab
+          empresas={empresas}
+          initialEmpresaId={billingEmpresaId}
+          stripeReturn={stripeReturn}
+          onFeedback={showFeedback}
+          onEmpresasChanged={load}
+        />
       ) : null}
 
       {showInviteModal ? (
@@ -690,7 +884,7 @@ export function ManageUsersPage() {
                     : 'Convite gerado com sucesso.',
                 });
                 setShowInviteModal(false);
-                setTab('invites');
+                changeTab('invites');
                 await load();
               } catch (err) {
                 setMsg({ type: 'error', text: err instanceof Error ? err.message : 'Falha ao criar convite.' });
@@ -835,12 +1029,86 @@ export function ManageUsersPage() {
       ) : null}
 
       {editingEmpresa ? (
-        <ModalShell title={`Limites — ${editingEmpresa.empresa}`} onClose={() => setEditingEmpresa(null)}>
-          <div className="space-y-3">
-            <input className="h-10 w-full rounded-[12px] border border-[var(--card-border)] bg-[var(--canvas)] px-3 text-sm" type="number" placeholder="Max MEI" value={empresaLimits.max_mei} onChange={(e) => setEmpresaLimits({ ...empresaLimits, max_mei: e.target.value })} />
-            <input className="h-10 w-full rounded-[12px] border border-[var(--card-border)] bg-[var(--canvas)] px-3 text-sm" type="number" placeholder="Max usuários PF" value={empresaLimits.max_usuarios_nao_mei} onChange={(e) => setEmpresaLimits({ ...empresaLimits, max_usuarios_nao_mei: e.target.value })} />
+        <ModalShell title={`Editar empresa — ${editingEmpresa.empresa}`} onClose={() => setEditingEmpresa(null)} wide>
+          <div className="grid max-h-[65vh] gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
+            {[
+              ['empresa', 'Nome interno'],
+              ['razao_social', 'Razão social'],
+              ['nome_fantasia', 'Nome fantasia'],
+              ['cnpj', 'CNPJ'],
+              ['inscricao_estadual', 'Inscrição estadual'],
+              ['regime_tributario', 'Regime tributário'],
+              ['email', 'E-mail'],
+              ['telefone', 'Telefone'],
+              ['logradouro', 'Logradouro'],
+              ['numero', 'Número'],
+              ['complemento', 'Complemento'],
+              ['bairro', 'Bairro'],
+              ['cidade', 'Cidade'],
+              ['estado', 'Estado'],
+              ['cep', 'CEP'],
+            ].map(([field, label]) => (
+              <label key={field} className="block text-xs font-semibold text-[var(--text-muted)]">
+                {label}
+                <input
+                  value={empresaForm[field] || ''}
+                  onChange={(event) => setEmpresaForm((old) => ({
+                    ...old,
+                    [field]: field === 'cnpj' ? formatCnpj(event.target.value) : event.target.value,
+                  }))}
+                  className="mt-1 h-10 w-full rounded-[12px] border border-[var(--card-border)] bg-[var(--canvas)] px-3 text-sm font-normal text-[var(--text-primary)]"
+                />
+              </label>
+            ))}
+            <label className="block text-xs font-semibold text-[var(--text-muted)]">
+              Vagas MEI (0 desliga)
+              <input className="mt-1 h-10 w-full rounded-[12px] border border-[var(--card-border)] bg-[var(--canvas)] px-3 text-sm font-normal" type="number" min="0" value={empresaForm.max_mei ?? ''} onChange={(e) => setEmpresaForm({ ...empresaForm, max_mei: e.target.value })} />
+            </label>
+            <label className="block text-xs font-semibold text-[var(--text-muted)]">
+              Limite de usuários PF (vazio = ilimitado)
+              <input className="mt-1 h-10 w-full rounded-[12px] border border-[var(--card-border)] bg-[var(--canvas)] px-3 text-sm font-normal" type="number" min="1" value={empresaForm.max_usuarios_nao_mei ?? ''} onChange={(e) => setEmpresaForm({ ...empresaForm, max_usuarios_nao_mei: e.target.value })} />
+            </label>
           </div>
-          <ModalActions onCancel={() => setEditingEmpresa(null)} onConfirm={saveEmpresaLimits} confirmLabel="Salvar" disabled={acting === 'empresa'} />
+          <ModalActions onCancel={() => setEditingEmpresa(null)} onConfirm={saveEmpresa} confirmLabel={acting === 'empresa' ? 'Salvando…' : 'Salvar empresa'} disabled={acting === 'empresa'} />
+        </ModalShell>
+      ) : null}
+
+      {membersEmpresa ? (
+        <ModalShell title={`Membros — ${membersEmpresa.nome_fantasia || membersEmpresa.empresa}`} onClose={() => setMembersEmpresa(null)}>
+          {empresaMembers.length === 0 ? <EmptyPanel title="Nenhum membro vinculado" /> : (
+            <ul className="max-h-[55vh] divide-y divide-[var(--card-border)] overflow-y-auto">
+              {empresaMembers.map((member) => (
+                <li key={member.id} className="flex items-center justify-between gap-3 py-3">
+                  <div><p className="text-sm font-medium">{member.displayName || member.email}</p><p className="text-xs text-[var(--text-muted)]">{member.email} · {member.role}{member.mei ? ' · fiscal' : ''}</p></div>
+                  <button type="button" onClick={() => { setMembersEmpresa(null); openEditUser(member); }} className="text-xs font-semibold text-[var(--accent)]">Editar</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </ModalShell>
+      ) : null}
+
+      {auditEmpresa ? (
+        <ModalShell title={`Auditoria — ${auditEmpresa.nome_fantasia || auditEmpresa.empresa}`} onClose={() => setAuditEmpresa(null)}>
+          {auditLoading ? <p className="text-sm text-[var(--text-muted)]">Carregando auditoria…</p> : auditEntries.length === 0 ? <EmptyPanel title="Nenhuma alteração de acesso" /> : (
+            <ul className="max-h-[55vh] divide-y divide-[var(--card-border)] overflow-y-auto">
+              {auditEntries.map((entry) => (
+                <li key={entry.id} className="py-3">
+                  <p className="text-sm font-medium">{entry.previous_status} → {entry.new_status}</p>
+                  <p className="text-xs text-[var(--text-muted)]">{new Date(entry.created_at).toLocaleString('pt-BR')} · responsável {entry.actor_user_id}</p>
+                  {entry.reason ? <p className="mt-1 text-xs">{entry.reason}</p> : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </ModalShell>
+      ) : null}
+
+      {empresaAccessTarget ? (
+        <ModalShell title={empresaAccessTarget.access_status === 'blocked' ? 'Desbloquear empresa' : 'Bloquear empresa'} onClose={() => setEmpresaAccessTarget(null)}>
+          <p className="text-sm text-[var(--text-muted)]">A alteração será registrada na auditoria e não apaga os dados.</p>
+          <textarea value={empresaAccessReason} onChange={(event) => setEmpresaAccessReason(event.target.value)} placeholder="Motivo (opcional)" className="mt-3 min-h-24 w-full rounded-[12px] border border-[var(--card-border)] bg-[var(--canvas)] p-3 text-sm" />
+          <ModalActions onCancel={() => setEmpresaAccessTarget(null)} onConfirm={changeEmpresaAccess} confirmLabel={acting === 'empresa-access' ? 'Salvando…' : 'Confirmar'} disabled={acting === 'empresa-access'} />
         </ModalShell>
       ) : null}
 
@@ -875,10 +1143,23 @@ function IconBtn({ label, onClick, icon: Icon, disabled, destructive }) {
   );
 }
 
-function ModalShell({ title, onClose, children }) {
+function LinkIconBtn({ label, href, icon: Icon }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="w-full max-w-lg overflow-visible rounded-[16px] border border-[var(--card-border)] bg-[var(--card-bg)] p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <Link
+      href={href}
+      title={label}
+      aria-label={label}
+      className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] border border-[var(--card-border)] text-[var(--text-primary)]"
+    >
+      <Icon className="h-3.5 w-3.5" />
+    </Link>
+  );
+}
+
+function ModalShell({ title, onClose, children, wide = false }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className={`w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} max-h-[90vh] overflow-y-auto rounded-[16px] border border-[var(--card-border)] bg-[var(--card-bg)] p-5 shadow-xl`} onClick={(e) => e.stopPropagation()}>
         <h3 className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
         <div className="mt-4">{children}</div>
       </div>
