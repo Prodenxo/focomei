@@ -1,4 +1,5 @@
 import { apiClient } from './apiClient';
+import { buildRecorrenciaPurgePayload } from '@/lib/recorrenciaPurgeContract';
 
 function normalizeRow(r) {
   return {
@@ -60,6 +61,14 @@ export async function updateRecorrencia(id, patch) {
 export async function deleteRecorrencia(id) {
   const result = await apiClient.delete(`/recorrencias/${encodeURIComponent(id)}`);
   return { ok: true, mode: result?.mode === 'soft' ? 'soft' : 'hard' };
+}
+
+export async function purgeRecorrencia(id, mode, from) {
+  if (!id) throw new Error('Recorrência não identificada.');
+  return apiClient.post(
+    `/recorrencias/${encodeURIComponent(id)}/purge`,
+    buildRecorrenciaPurgePayload(mode, from),
+  );
 }
 
 export { normalizeRow as normalizeRecorrenciaRow };

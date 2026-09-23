@@ -1,14 +1,5 @@
 import { apiClient } from '@/lib/apiClient';
-
-function findAccessToken(value) {
-  if (!value || typeof value !== 'object') return null;
-  if (typeof value.access_token === 'string') return value.access_token;
-  for (const child of Object.values(value)) {
-    const token = findAccessToken(child);
-    if (token) return token;
-  }
-  return null;
-}
+import { getLocalAccessToken } from '@/lib/authSession';
 
 async function invokeEdge(body) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -16,8 +7,7 @@ async function invokeEdge(body) {
   if (!url || !anonKey || typeof window === 'undefined') {
     throw new Error('Integração de solicitações não configurada.');
   }
-  const stored = window.localStorage.getItem('financas-pessoais-auth');
-  const token = findAccessToken(stored ? JSON.parse(stored) : null);
+  const token = getLocalAccessToken();
   if (!token) throw new Error('Sessão administrativa expirada.');
   const response = await fetch(`${url.replace(/\/$/, '')}/functions/v1/manage-access-requests`, {
     method: 'POST',

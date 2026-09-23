@@ -37,6 +37,7 @@ import {
   fetchAllTransactions,
   updateTransaction,
 } from '@/lib/transactionsApi';
+import { purgeRecorrencia } from '@/lib/recorrenciasApi';
 import { formatBrl } from '@/lib/format';
 
 function isCustomRangeValid(dateRange) {
@@ -425,13 +426,7 @@ function TransacoesPageContent() {
     try {
       const recId = deleteScopeTx.recorrencia_id;
       const fromDate = String(deleteScopeTx.data).slice(0, 10);
-      const toDelete = transactions.filter(
-        (t) => t.recorrencia_id === recId && String(t.data || '') >= fromDate && !isProjecao(t),
-      );
-      for (const tx of toDelete) {
-        await deleteTransaction(tx.id);
-      }
-      await updateRecorrencia(recId, { ativo: false });
+      await purgeRecorrencia(recId, 'future', fromDate);
       setDeleteScopeTx(null);
       setSelectedId(null);
       setMobileDetailsOpen(false);
@@ -448,11 +443,7 @@ function TransacoesPageContent() {
     setBusyAction(true);
     try {
       const recId = deleteScopeTx.recorrencia_id;
-      const toDelete = transactions.filter((t) => t.recorrencia_id === recId && !isProjecao(t));
-      for (const tx of toDelete) {
-        await deleteTransaction(tx.id);
-      }
-      await deleteRecorrencia(recId);
+      await purgeRecorrencia(recId, 'all');
       setDeleteScopeTx(null);
       setSelectedId(null);
       setMobileDetailsOpen(false);

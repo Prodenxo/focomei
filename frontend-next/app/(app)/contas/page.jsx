@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Wallet } from 'lucide-react';
 import { AppFooter } from '@/components/layout/AppFooter';
 import { ErrorPanel } from '@/components/ui/ErrorPanel';
@@ -37,6 +37,7 @@ export default function ContasPage() {
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const handledNewAccountQuery = useRef(false);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -82,6 +83,17 @@ export default function ContasPage() {
     setFormError('');
     setModalOpen(true);
   };
+
+  useEffect(() => {
+    if (handledNewAccountQuery.current) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('nova') === '1') {
+      handledNewAccountQuery.current = true;
+      setEditingConta(null);
+      setFormError('');
+      setModalOpen(true);
+    }
+  }, []);
 
   const openEdit = (conta) => {
     setEditingConta(conta);

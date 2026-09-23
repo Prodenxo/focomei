@@ -33,6 +33,17 @@ test('todos os passos de ativação conhecidos têm destino no Next', () => {
   for (const route of routes) {
     assert.ok(activationRouteToHref(route), `rota sem destino: ${route}`);
   }
+
+  assert.equal(activationRouteToHref('contas:new'), '/contas?nova=1');
+  assert.equal(activationRouteToHref('transactions:new'), '/transacoes?nova=1');
+  assert.equal(activationRouteToHref('orcamentos'), '/orcamentos?novo=1');
+  assert.equal(
+    activationRouteToHref('settings:google'),
+    '/minha-conta?google=1#google-agenda',
+  );
+  assert.equal(activationRouteToHref('mei:certificate'), '/notas/certificado');
+  assert.equal(activationRouteToHref('mei:das'), '/notas/das');
+  assert.equal(activationRouteToHref('mei:nfse'), '/notas/notas-fiscais');
 });
 
 test('contrato pendente fica salvo por usuário até a liberação', () => {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Copy, Plus } from 'lucide-react';
 import { AppFooter } from '@/components/layout/AppFooter';
 import { BudgetCategoryCard } from '@/components/orcamentos/BudgetCategoryCard';
@@ -82,6 +82,7 @@ export default function OrcamentosPage() {
   const [copyMeta, setCopyMeta] = useState({ sourceCount: 0, overwriteCount: 0 });
   const [copying, setCopying] = useState(false);
   const [copyResult, setCopyResult] = useState(null);
+  const handledNewBudgetQuery = useRef(false);
 
   const summaryByCategoryId = useMemo(() => {
     const map = {};
@@ -166,6 +167,17 @@ export default function OrcamentosPage() {
     setFormError('');
     setModalOpen(true);
   };
+
+  useEffect(() => {
+    if (handledNewBudgetQuery.current) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('novo') === '1') {
+      handledNewBudgetQuery.current = true;
+      setEditingRow(null);
+      setFormError('');
+      setModalOpen(true);
+    }
+  }, []);
 
   const openEdit = (row) => {
     setEditingRow(row);

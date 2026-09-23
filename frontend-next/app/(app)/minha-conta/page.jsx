@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Calendar,
   Headphones,
@@ -60,6 +60,7 @@ export default function MinhaContaPage() {
   const [googleChecking, setGoogleChecking] = useState(true);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
+  const handledGoogleActivationQuery = useRef(false);
 
   useEffect(() => {
     setNameInput(displayName || '');
@@ -195,6 +196,25 @@ export default function MinhaContaPage() {
     }
   };
 
+  useEffect(() => {
+    if (googleChecking || handledGoogleActivationQuery.current) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('google') !== '1') return;
+    handledGoogleActivationQuery.current = true;
+    document.getElementById('google-agenda')?.scrollIntoView({ block: 'center' });
+    if (googleConnected) return;
+
+    setGoogleBusy(true);
+    startGoogleAuthFlow(`${window.location.origin}/minha-conta`)
+      .catch((err) => {
+        setActionMsg({
+          type: 'error',
+          text: err instanceof Error ? err.message : 'Falha ao iniciar conexão com Google.',
+        });
+        setGoogleBusy(false);
+      });
+  }, [googleChecking, googleConnected]);
+
   const handleDisconnectGoogle = async () => {
     setGoogleBusy(true);
     try {
@@ -299,38 +319,40 @@ export default function MinhaContaPage() {
       ) : null}
 
       <div className="grid gap-5 lg:grid-cols-2">
-        <SettingsSectionCard
-          icon={Calendar}
-          title="Google Agenda"
-          description="Organize pagamentos e compromissos."
-        >
-          {googleChecking ? (
-            <p className="text-sm text-[var(--text-muted)]">Verificando integração…</p>
-          ) : googleConnected ? (
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <span className="inline-flex w-fit items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-                Conectado
-              </span>
+        <div id="google-agenda">
+          <SettingsSectionCard
+            icon={Calendar}
+            title="Google Agenda"
+            description="Organize pagamentos e compromissos."
+          >
+            {googleChecking ? (
+              <p className="text-sm text-[var(--text-muted)]">Verificando integração…</p>
+            ) : googleConnected ? (
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <span className="inline-flex w-fit items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                  Conectado
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setDisconnectOpen(true)}
+                  disabled={googleBusy}
+                  className="text-sm font-semibold text-[var(--accent)] hover:underline disabled:opacity-60"
+                >
+                  Desconectar
+                </button>
+              </div>
+            ) : (
               <button
                 type="button"
-                onClick={() => setDisconnectOpen(true)}
+                onClick={handleConnectGoogle}
                 disabled={googleBusy}
-                className="text-sm font-semibold text-[var(--accent)] hover:underline disabled:opacity-60"
+                className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-[var(--card-border)] bg-[var(--canvas)] px-4 text-sm font-semibold text-[var(--text-primary)] hover:bg-[var(--card-bg)] disabled:opacity-60"
               >
-                Desconectar
+                Conectar com Google
               </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={handleConnectGoogle}
-              disabled={googleBusy}
-              className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-[var(--card-border)] bg-[var(--canvas)] px-4 text-sm font-semibold text-[var(--text-primary)] hover:bg-[var(--card-bg)] disabled:opacity-60"
-            >
-              Conectar com Google
-            </button>
-          )}
-        </SettingsSectionCard>
+            )}
+          </SettingsSectionCard>
+        </div>
 
         <SettingsSectionCard
           icon={Palette}

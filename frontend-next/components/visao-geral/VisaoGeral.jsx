@@ -45,7 +45,8 @@ import { UltimasMovimentacoes } from './UltimasMovimentacoes';
 import { MovimentacaoHoje } from './MovimentacaoHoje';
 import { MovimentacoesMes } from './MovimentacoesMes';
 import { Orcamento } from './Orcamento';
-import { ContaGlobal, SolicitacoesAcesso } from './ContaGlobal';
+import { ContaGlobal } from './ContaGlobal';
+import { DashboardAccessRequests } from './DashboardAccessRequests';
 import { NovaTransacao } from './NovaTransacao';
 import { VisaoBpo } from './VisaoBpo';
 import estilos from './VisaoGeral.module.css';
@@ -382,7 +383,7 @@ export function VisaoGeral() {
             <section className={estilos.duasColunas}>
               <ContaGlobal href="/conta-global" />
               {sessao?.role === 'superadmin' ? (
-                <SolicitacoesAcesso href="/solicitacoes" />
+                <DashboardAccessRequests />
               ) : null}
             </section>
           </>
