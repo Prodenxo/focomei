@@ -86,24 +86,16 @@ export function FiscalModuleLayout({ children }) {
     }
   };
 
-  const initialLoadRef = useRef(false);
+  // Carrega na montagem e recarrega ao trocar de usuário (ex.: acessar como).
+  const loadedForUserRef = useRef(null);
   useEffect(() => {
-    if (!userId || initialLoadRef.current) return;
-    initialLoadRef.current = true;
+    if (!userId || loadedForUserRef.current === userId) return;
+    loadedForUserRef.current = userId;
+    setCompany(null);
+    setCertStatus(null);
+    setCompanyError(null);
+    setCertError(null);
     loadSharedData();
-  }, [userId]);
-
-  // Recarrega ao trocar empresa/contexto (invalida dados anteriores).
-  const previousUserIdRef = useRef(userId);
-  useEffect(() => {
-    if (previousUserIdRef.current && previousUserIdRef.current !== userId) {
-      setCompany(null);
-      setCertStatus(null);
-      setCompanyError(null);
-      setCertError(null);
-      initialLoadRef.current = false;
-    }
-    previousUserIdRef.current = userId;
   }, [userId]);
 
   const certState = resolveCertificateState({
