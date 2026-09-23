@@ -8,15 +8,15 @@ export const MEI_LIMITE_ANO_CIVIL_TZ = 'America/Sao_Paulo';
 
 const NFSE = 'NFSE';
 const NFE = 'NFE';
+const NFCE = 'NFCE';
 
 /**
- * Somatório do limite MEI: **NFSE e NFE** entram no agregado; NFCE fica de fora
- * enquanto não houver emissão desse modelo.
+ * Somatório do limite MEI: NFS-e, NF-e e NFC-e autorizadas entram no agregado.
  * Paridade com `isDocumentTypeMeiLimiteRelevante` no frontend.
  */
 export function isDocumentTypeMeiLimiteRelevante(documentType) {
   const dt = String(documentType ?? '').trim().toUpperCase();
-  return dt === NFSE || dt === NFE;
+  return dt === NFSE || dt === NFE || dt === NFCE;
 }
 
 function nfseStatusAsciiLower(status) {
@@ -249,7 +249,7 @@ function extrairValorProdutosDaNota(record) {
 /** Valor que a nota soma no limite, conforme o modelo do documento. */
 export function extrairValorParaLimiteMei(record) {
   const dt = String(record?.document_type ?? '').trim().toUpperCase();
-  if (dt === NFE) return extrairValorProdutosDaNota(record);
+  if (dt === NFE || dt === NFCE) return extrairValorProdutosDaNota(record);
   if (dt === NFSE) return extrairValorLimiteMeiDaNota(record);
   return extrairValorLimiteMeiDaNota(record) ?? extrairValorProdutosDaNota(record);
 }

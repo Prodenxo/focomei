@@ -805,16 +805,19 @@ const validateNfeLikePayload = (payload, { label = 'NF-e' } = {}) => {
     throw badRequest(`CNPJ do emitente da ${label} deve ter 14 dígitos`);
   }
 
+  const consumidorNaoIdentificado = label === 'NFC-e' && !payload?.destinatario;
   const destinatarioDoc = normalizeDoc(payload?.destinatario?.cpfCnpj || '');
-  if (!destinatarioDoc) {
-    throw badRequest(`CPF/CNPJ do destinatário da ${label} é obrigatório`);
-  }
-  if (!isValidCpfOrCnpj(destinatarioDoc)) {
-    throw badRequest(`CPF/CNPJ do destinatário da ${label} inválido`);
-  }
-  const destinatarioNome = String(payload?.destinatario?.razaoSocial || '').trim();
-  if (!destinatarioNome) {
-    throw badRequest(`Razão social do destinatário da ${label} é obrigatória`);
+  if (!consumidorNaoIdentificado) {
+    if (!destinatarioDoc) {
+      throw badRequest(`CPF/CNPJ do destinatário da ${label} é obrigatório`);
+    }
+    if (!isValidCpfOrCnpj(destinatarioDoc)) {
+      throw badRequest(`CPF/CNPJ do destinatário da ${label} inválido`);
+    }
+    const destinatarioNome = String(payload?.destinatario?.razaoSocial || '').trim();
+    if (!destinatarioNome) {
+      throw badRequest(`Razão social do destinatário da ${label} é obrigatória`);
+    }
   }
 
   if (label === 'NF-e') {
@@ -2699,7 +2702,7 @@ const clampAnoCivilLimite = (value) => {
 /**
  * Agrega faturamento MEI no ano civil a partir de `payload_json` na tabela `mei_nfse`
  * (paridade com o cliente em `meiLimiteFaturamento.ts`).
- * Consulta linhas `document_type` NFSE, NFE ou legado `null`; NFCE não entra no somatório.
+ * Consulta NFS-e, NF-e, NFC-e e registros legados sem tipo.
  * Notas arquivadas na UI entram no total (arquivar ≠ cancelar); só status cancelado/rejeitado fica de fora.
  * @param {string} userId
  * @param {number} anoCivil
@@ -2718,7 +2721,8 @@ export const agregarLimiteFaturamento = async (userId, anoCivil) => {
     .order('created_at', { ascending: false })
     .limit(MEI_LIMITE_AGG_QUERY_LIMIT);
   query = query.or(
-    `document_type.eq.${DOCUMENT_TYPE_NFSE},document_type.eq.${DOCUMENT_TYPE_NFE},document_type.is.null`,
+    `document_type.eq.${DOCUMENT_TYPE_NFSE},document_type.eq.${DOCUMENT_TYPE_NFE},`
+      + `document_type.eq.${DOCUMENT_TYPE_NFCE},document_type.is.null`,
   );
   const { data, error } = await query;
   if (error) throw badRequest(error.message);

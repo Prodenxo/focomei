@@ -61,7 +61,7 @@ test('nota cancelada, rejeitada ou em cancelamento sai do somatório', () => {
   );
 });
 
-test('NF-e entra no limite pelos itens; NFC-e fica de fora', () => {
+test('NFS-e, NF-e e NFC-e autorizadas entram no limite', () => {
   const notas = [
     nfse({ id: 'nfse', status: 'CONCLUIDO', valor: 1000, createdAt: '2026-02-10T12:00:00Z' }),
     nfe({ id: 'nfe', status: 'CONCLUIDO', valor: 700, createdAt: '2026-02-10T12:00:00Z' }),
@@ -75,7 +75,7 @@ test('NF-e entra no limite pelos itens; NFC-e fica de fora', () => {
   ];
   assert.deepEqual(
     somarNotasAutorizadasNoAnoCivil(notas, { anoCivil: 2026 }),
-    { total: 1700, notasConsideradas: 2 },
+    { total: 6700, notasConsideradas: 3 },
   );
 });
 

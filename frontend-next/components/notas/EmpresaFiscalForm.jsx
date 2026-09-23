@@ -157,6 +157,36 @@ export function EmpresaFiscalForm({
         </section>
       ) : null}
 
+      {form.nfceAtivo ? (
+        <section className="space-y-3 border-t border-[var(--card-border)] pt-4">
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">NFC-e — CSC da SEFAZ</h3>
+          <p className="text-xs text-[var(--text-muted)]">
+            Informe o ID e o código CSC do ambiente de produção. O código é secreto e não será exibido novamente.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field
+              label="ID do CSC"
+              value={form.nfceCscId}
+              onChange={(v) => onChange('nfceCscId', v)}
+              placeholder="Ex.: 000001"
+              required={!form.nfceCscConfigurado}
+            />
+            <Field
+              label={form.nfceCscConfigurado ? 'Novo código CSC (opcional)' : 'Código CSC'}
+              value={form.nfceCscCodigo}
+              onChange={(v) => onChange('nfceCscCodigo', v)}
+              type="password"
+              autoComplete="new-password"
+              placeholder={form.nfceCscConfigurado ? 'Deixe vazio para manter o atual' : 'Código fornecido pela SEFAZ'}
+              required={!form.nfceCscConfigurado}
+            />
+          </div>
+          {form.nfceCscConfigurado ? (
+            <p className="text-xs text-emerald-700 dark:text-emerald-400">CSC já configurado no emissor.</p>
+          ) : null}
+        </section>
+      ) : null}
+
       {form.nfeAtivo ? (
         <section className="space-y-3 border-t border-[var(--card-border)] pt-4">
           <h3 className="text-sm font-semibold text-[var(--text-primary)]">Tipo de operação (NF-e)</h3>
@@ -192,6 +222,7 @@ export function EmpresaFiscalForm({
 
 function Field({
   label, value, onChange, onBlur, readOnly, maxLength, type = 'text', hint, placeholder, required, inputMode,
+  autoComplete,
 }) {
   return (
     <label className="flex flex-col gap-1 text-xs">
@@ -201,6 +232,7 @@ function Field({
       </span>
       <input
         type={type}
+        autoComplete={autoComplete}
         inputMode={inputMode}
         value={value ?? ''}
         placeholder={placeholder}

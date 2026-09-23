@@ -654,11 +654,12 @@ export function EmitirNotaModal({
           setError('Informe o CNPJ do emitente.');
           return false;
         }
-        if (!f.destinatarioCpfCnpj || !isValidCpfCnpj(f.destinatarioCpfCnpj)) {
+        const consumidorNaoIdentificado = documentType === 'NFCE' && f.consumidorNaoIdentificado;
+        if (!consumidorNaoIdentificado && (!f.destinatarioCpfCnpj || !isValidCpfCnpj(f.destinatarioCpfCnpj))) {
           setError('Informe um CPF/CNPJ válido do destinatário.');
           return false;
         }
-        if (!f.destinatarioRazaoSocial?.trim()) {
+        if (!consumidorNaoIdentificado && !f.destinatarioRazaoSocial?.trim()) {
           setError('Informe a razão social do destinatário.');
           return false;
         }
@@ -1161,6 +1162,25 @@ function NfeDestinatarioForm({
 
       {/* Destinatário */}
       <div className="rounded-[16px] border border-[var(--card-border)] p-4">
+        {documentType === 'NFCE' ? (
+          <label className="mb-4 flex cursor-pointer items-start gap-3 rounded-[12px] border border-[var(--card-border)] bg-[var(--canvas)] p-3">
+            <input
+              type="checkbox"
+              checked={form.consumidorNaoIdentificado === true}
+              onChange={(e) => handleChange('consumidorNaoIdentificado', e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-[var(--card-border)] text-[var(--accent)]"
+            />
+            <span>
+              <span className="block text-sm font-medium text-[var(--text-primary)]">Consumidor não identificado</span>
+              <span className="mt-1 block text-xs text-[var(--text-muted)]">
+                Emite a NFC-e sem CPF. Não cria um cliente fictício no cadastro.
+              </span>
+            </span>
+          </label>
+        ) : null}
+
+        {!(documentType === 'NFCE' && form.consumidorNaoIdentificado) ? (
+          <>
         <div className="mb-3 flex items-center justify-between">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
             <User className="h-4 w-4" /> Dados do Destinatário (Cliente)
@@ -1252,6 +1272,12 @@ function NfeDestinatarioForm({
             </>
           )}
         </div>
+          </>
+        ) : (
+          <p className="text-sm text-[var(--text-muted)]">
+            A nota será emitida como venda ao consumidor final, sem destinatário.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -1630,7 +1656,11 @@ function ReviewStep({ documentType, nfseForm, nfeForm }) {
             </div>
             <div className="flex justify-between">
               <span className="text-[var(--text-muted)]">Destinatário:</span>
-              <span className="font-medium text-[var(--text-primary)]">{nfeForm.destinatarioCpfCnpj} - {nfeForm.destinatarioRazaoSocial}</span>
+              <span className="font-medium text-[var(--text-primary)]">
+                {documentType === 'NFCE' && nfeForm.consumidorNaoIdentificado
+                  ? 'Consumidor não identificado'
+                  : `${nfeForm.destinatarioCpfCnpj} - ${nfeForm.destinatarioRazaoSocial}`}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-[var(--text-muted)]">Itens:</span>

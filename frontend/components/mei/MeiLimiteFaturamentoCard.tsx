@@ -186,7 +186,7 @@ export function MeiLimiteFaturamentoCard({
           <View style={styles.baseSection}>
             <Text style={styles.baseLine}>
               <Text style={styles.baseLabel}>Base (MVP): </Text>
-              soma das NFS-e e NF-e com emissão concluída nesta conta no ano civil {anoCivil}. NFC-e não entra neste total.
+              soma das NFS-e, NF-e e NFC-e com emissão concluída nesta conta no ano civil {anoCivil}.
             </Text>
             <Pressable
               onPress={() => setBaseOpen((o) => !o)}
@@ -205,7 +205,7 @@ export function MeiLimiteFaturamentoCard({
                   Notas arquivadas entram no total. Só notas em processamento ou canceladas ficam de fora.
                 </Text>
                 <Text style={[styles.basePanelText, styles.basePanelTextSpaced]}>
-                  NF-e e NFC-e seguem regras de ICMS/SEFAZ e não são somadas neste indicador.
+                  Notas canceladas, rejeitadas ou ainda em processamento não entram neste indicador.
                 </Text>
               </View>
             ) : null}

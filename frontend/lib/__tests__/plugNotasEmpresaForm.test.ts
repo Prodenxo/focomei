@@ -73,7 +73,30 @@ describe('buildPlugNotasEmpresaPayload', () => {
       nfeAtivo: true,
       nfceAtivo: true,
     };
-    expect(getPlugNotasCompanyValidationMessage(form)).toMatch(/NFC-e exige CSC/i);
+    expect(getPlugNotasCompanyValidationMessage(form)).toMatch(/ID e o código CSC/i);
+  });
+
+  it('envia o CSC no formato oficial da NFC-e', () => {
+    const form = {
+      ...getDefaultPlugNotasCompanyForm(),
+      nfceAtivo: true,
+      nfceCscId: '000001',
+      nfceCscCodigo: 'segredo-csc',
+    };
+    const payload = buildPlugNotasEmpresaPayload({
+      cnpj: '12345678000199',
+      certificadoId: '',
+      form,
+    });
+
+    const nfce = payload.nfce as {
+      config: { sefaz: Record<string, string>; numeracao: { serie: number; numero: number }[] };
+    };
+    expect(nfce.config.sefaz).toEqual({
+      idCodigoSegurancaContribuinte: '000001',
+      codigoSegurancaContribuinte: 'segredo-csc',
+    });
+    expect(nfce.config.numeracao).toEqual([{ serie: 1, numero: 1 }]);
   });
 
   it('carrega o próximo RPS já configurado no emissor', () => {

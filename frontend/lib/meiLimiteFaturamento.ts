@@ -280,10 +280,10 @@ function hasItensArrayInObj(obj: Record<string, unknown>): boolean {
   return i != null
 }
 
-/** NFS-e e NF-e contam no limite MEI; NFC-e fica de fora. */
+/** Toda nota autorizada emitida pela empresa conta no limite MEI. */
 export function isDocumentTypeMeiLimiteRelevante(documentType: string | null | undefined): boolean {
   const dt = String(documentType ?? '').trim().toUpperCase()
-  return dt === 'NFSE' || dt === 'NFE'
+  return dt === 'NFSE' || dt === 'NFE' || dt === 'NFCE'
 }
 
 export function isNfseDocumento(record: NfseRecord): boolean {
@@ -430,7 +430,7 @@ function extrairValorProdutosDaNota(record: NfseRecord): number | null {
 /** Valor que a nota soma no limite, conforme o modelo do documento. */
 export function extrairValorParaLimiteMei(record: NfseRecord): number | null {
   const dt = String(record.document_type ?? '').trim().toUpperCase()
-  if (dt === 'NFE') return extrairValorProdutosDaNota(record)
+  if (dt === 'NFE' || dt === 'NFCE') return extrairValorProdutosDaNota(record)
   if (dt === 'NFSE') return extrairValorLimiteMeiDaNota(record)
   return extrairValorLimiteMeiDaNota(record) ?? extrairValorProdutosDaNota(record)
 }

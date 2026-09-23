@@ -2851,7 +2851,7 @@ function MeiScreenContent() {
       ...plugNotasCompanyForm,
       nfseAtivo: Boolean(documentosPermitidos.nfse) || (!documentosPermitidos.nfe && !documentosPermitidos.nfce),
       nfeAtivo: Boolean(documentosPermitidos.nfe),
-      nfceAtivo: false,
+      nfceAtivo: Boolean(documentosPermitidos.nfce),
     };
     const msg = getPlugNotasCompanyValidationMessage(formForSave);
     if (msg) {
@@ -4206,6 +4206,36 @@ function MeiScreenContent() {
                   </View>
                 ) : null}
 
+                {documentosPermitidos.nfce ? (
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>CSC da NFC-e</Text>
+                    <Text style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 8, lineHeight: 16 }}>
+                      Use o ID e o código CSC de produção fornecidos pela SEFAZ. O código não será exibido novamente.
+                    </Text>
+                    <TextInput
+                      style={[styles.input, { marginBottom: 8 }]}
+                      placeholder="ID do CSC"
+                      placeholderTextColor={theme.placeholder}
+                      value={plugNotasCompanyForm.nfceCscId}
+                      onChangeText={(t) => updatePlugNotasCompanyForm({ nfceCscId: t })}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder={plugNotasCompanyForm.nfceCscConfigurado ? 'Novo código CSC (opcional)' : 'Código CSC'}
+                      placeholderTextColor={theme.placeholder}
+                      value={plugNotasCompanyForm.nfceCscCodigo}
+                      onChangeText={(t) => updatePlugNotasCompanyForm({ nfceCscCodigo: t })}
+                      secureTextEntry
+                      autoCapitalize="none"
+                    />
+                    {plugNotasCompanyForm.nfceCscConfigurado ? (
+                      <Text style={{ fontSize: 11, color: theme.success, marginTop: 6 }}>
+                        CSC já configurado no emissor.
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
+
                 <TouchableOpacity
                   style={[styles.downloadButton, !hasCertificate && { opacity: 0.5 }]}
                   onPress={handlePlugNotasEmpresaSubmit}
@@ -4786,6 +4816,39 @@ function MeiScreenContent() {
                       if (empresaFiscal) handleStartEditEmpresa();
                     }}
                   />
+                  {emitirNotaType === 'NFCE' ? (
+                    <Pressable
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: nfeLikeForm.consumidorNaoIdentificado }}
+                      onPress={() =>
+                        setNfeLikeForm((f) => ({
+                          ...f,
+                          consumidorNaoIdentificado: !f.consumidorNaoIdentificado,
+                        }))
+                      }
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 10,
+                        padding: 12,
+                        marginBottom: mfSpacing.sm,
+                        borderWidth: 1,
+                        borderColor: theme.border,
+                        borderRadius: 8,
+                      }}
+                    >
+                      <Ionicons
+                        name={nfeLikeForm.consumidorNaoIdentificado ? 'checkbox' : 'square-outline'}
+                        size={20}
+                        color={theme.primary}
+                      />
+                      <Text style={{ flex: 1, color: theme.text, fontSize: 13, fontWeight: '600' }}>
+                        Consumidor não identificado
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                  {!(emitirNotaType === 'NFCE' && nfeLikeForm.consumidorNaoIdentificado) ? (
+                    <>
                   <MeiLinkButton
                     label="Selecionar destinatário do catálogo"
                     onPress={() => {
@@ -5027,6 +5090,12 @@ function MeiScreenContent() {
                       ) : null}
                     </>
                   ) : null}
+                    </>
+                  ) : (
+                    <Text style={{ fontSize: 12, color: theme.textSecondary, marginBottom: mfSpacing.sm }}>
+                      A NFC-e será emitida sem CPF/CNPJ. Nenhum cliente fictício será cadastrado.
+                    </Text>
+                  )}
                   <MeiLinkButton
                     label="Adicionar produto do catálogo"
                     onPress={() => {

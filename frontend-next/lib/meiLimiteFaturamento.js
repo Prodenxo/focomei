@@ -6,10 +6,10 @@ import { getNfseStatusKey, normalizePayloadJson } from './notaFiscalDisplay.js';
 
 export const MEI_LIMITE_ANO_CIVIL_TZ = 'America/Sao_Paulo';
 
-/** NFS-e e NF-e contam no limite MEI; NFC-e fica de fora. */
+/** Toda nota autorizada emitida pela empresa conta no limite MEI. */
 export function isDocumentTypeMeiLimiteRelevante(documentType) {
   const dt = String(documentType ?? '').trim().toUpperCase();
-  return dt === 'NFSE' || dt === 'NFE';
+  return dt === 'NFSE' || dt === 'NFE' || dt === 'NFCE';
 }
 
 /** Cancelada, rejeitada ou em processamento não soma — apenas autorizada. */
@@ -177,7 +177,7 @@ function extrairValorProdutosDaNota(record) {
 /** Valor que a nota soma no limite, conforme o modelo do documento. */
 export function extrairValorLimiteMeiDaNota(record) {
   const dt = String(record?.document_type ?? record?.documentType ?? '').trim().toUpperCase();
-  if (dt === 'NFE') return extrairValorProdutosDaNota(record);
+  if (dt === 'NFE' || dt === 'NFCE') return extrairValorProdutosDaNota(record);
   if (dt === 'NFSE') return extrairValorServicosDaNota(record);
   return extrairValorServicosDaNota(record) ?? extrairValorProdutosDaNota(record);
 }

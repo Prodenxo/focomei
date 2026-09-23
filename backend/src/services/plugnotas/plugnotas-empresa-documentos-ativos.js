@@ -31,9 +31,8 @@ const PLUGNOTAS_NFE_ATIVO_CONFIG_MIN = Object.freeze({
 });
 const PLUGNOTAS_NFCE_ATIVO_CONFIG_MIN = Object.freeze({
   producao: true,
-  serie: 1,
-  numero: 1,
-  versaoQrCode: 2
+  impressao: { versaoQrCode: 2 },
+  numeracao: [{ serie: 1, numero: 1 }]
 });
 
 const toBool = (value, fallback = false) => {
@@ -191,6 +190,23 @@ const cloneIncomingPrefeituraConfig = (payload) => {
   return { ...prefeitura };
 };
 
+const cloneIncomingNfceConfig = (payload) => {
+  const config = payload?.nfce?.config;
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return {};
+  return {
+    ...config,
+    ...(config.impressao && typeof config.impressao === 'object'
+      ? { impressao: { ...config.impressao } }
+      : {}),
+    ...(config.sefaz && typeof config.sefaz === 'object'
+      ? { sefaz: { ...config.sefaz } }
+      : {}),
+    ...(Array.isArray(config.numeracao)
+      ? { numeracao: config.numeracao.map((entry) => ({ ...entry })) }
+      : {}),
+  };
+};
+
 /**
  * @param {Record<string, unknown>} payload
  * @param {{ nfse: boolean, nfe: boolean, nfce: boolean }} selection
@@ -199,6 +215,7 @@ const cloneIncomingPrefeituraConfig = (payload) => {
 const assignDocumentBlocksFromSelection = (payload, selection, opts = {}) => {
   const nfseMode = opts.nfseMode === 'municipal' ? 'municipal' : 'nacional';
   const incomingPrefeitura = cloneIncomingPrefeituraConfig(payload);
+  const incomingNfceConfig = cloneIncomingNfceConfig(payload);
 
   if (selection.nfse) {
     payload.nfse = {
@@ -230,7 +247,16 @@ const assignDocumentBlocksFromSelection = (payload, selection, opts = {}) => {
     ? {
       ativo: true,
       tipoContrato: 0,
-      config: { ...PLUGNOTAS_NFCE_ATIVO_CONFIG_MIN }
+      config: {
+        ...PLUGNOTAS_NFCE_ATIVO_CONFIG_MIN,
+        ...incomingNfceConfig,
+        impressao: {
+          ...PLUGNOTAS_NFCE_ATIVO_CONFIG_MIN.impressao,
+          ...(incomingNfceConfig.impressao || {}),
+        },
+        numeracao: incomingNfceConfig.numeracao
+          || PLUGNOTAS_NFCE_ATIVO_CONFIG_MIN.numeracao.map((entry) => ({ ...entry })),
+      }
     }
     : { ...PLUGNOTAS_EMPRESA_DOC_INATIVO };
 };

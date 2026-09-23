@@ -189,8 +189,8 @@ const deepClonePlainJson = (value) => {
 };
 
 /**
- * Remove `login` / `senha` de qualquer objeto `prefeitura` na árvore (resposta PlugNotas pode espelhar o envio).
- * NFR-ALNFB-01 — credenciais municipais não regressam ao cliente em `raw`.
+ * Remove credenciais municipais e o código CSC da NFC-e da resposta.
+ * Segredos enviados à PlugNotas nunca regressam ao cliente em `raw`.
  * @param {unknown} payload
  */
 const stripPrefeituraSecretsInTree = (payload) => {
@@ -200,6 +200,13 @@ const stripPrefeituraSecretsInTree = (payload) => {
     return;
   }
   if (typeof payload !== 'object') return;
+
+  if (hasOwn(payload, 'codigoSegurancaContribuinte')) {
+    delete payload.codigoSegurancaContribuinte;
+  }
+  if (hasOwn(payload, 'nfceCscCodigo')) {
+    delete payload.nfceCscCodigo;
+  }
 
   if (hasOwn(payload, 'prefeitura') && payload.prefeitura && typeof payload.prefeitura === 'object' && !Array.isArray(payload.prefeitura)) {
     const p = payload.prefeitura;

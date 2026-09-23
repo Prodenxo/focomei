@@ -121,6 +121,8 @@ export function extractNotaClienteNome(record) {
       || pickNome(src.destinatarioRazaoSocial);
     if (nome) return nome;
   }
+  const documentType = String(record?.document_type ?? record?.documentType ?? '').toUpperCase();
+  if (documentType === 'NFCE') return 'Consumidor não identificado';
   return '';
 }
 

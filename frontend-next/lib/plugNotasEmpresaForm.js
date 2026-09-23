@@ -66,6 +66,9 @@ export function getDefaultPlugNotasCompanyForm() {
     nfseAtivo: true,
     nfeAtivo: false,
     nfceAtivo: false,
+    nfceCscConfigurado: false,
+    nfceCscId: '',
+    nfceCscCodigo: '',
     rpsLote: 1,
     rpsNumero: 1,
     rpsSerie: '1',
@@ -128,6 +131,10 @@ export function empresaFiscalToCompanyForm(empresa, options = {}) {
     nfseAtivo: empresa?.nfse?.ativo !== false,
     nfeAtivo: empresa?.nfe?.ativo === true,
     nfceAtivo: empresa?.nfce?.ativo === true,
+    nfceCscConfigurado: empresa?.nfce?.cscConfigurado === true,
+    nfceCscId: String(empresa?.nfce?.cscId || ''),
+    // O código é secreto e nunca volta da API; só é preenchido para trocar/configurar.
+    nfceCscCodigo: '',
     rpsLote: clampRpsInt(empresa?.rps?.lote ?? empresa?.nfse?.config?.rps?.lote, 1),
     // PlugNotas devolve a sequência em `nfse.config.rps.numeracao`, não em `rps.numero`.
     rpsNumero: clampRpsInt(
@@ -339,7 +346,14 @@ export function getPlugNotasCompanyValidationMessage(form) {
     return 'Selecione pelo menos um tipo de nota fiscal (NFS-e, NF-e ou NFC-e).';
   }
   if (form.nfceAtivo) {
-    return 'NFC-e exige CSC/SEFAZ configurado no emissor. Desative NFC-e por agora.';
+    const cscId = String(form.nfceCscId || '').trim();
+    const cscCodigo = String(form.nfceCscCodigo || '').trim();
+    if (!form.nfceCscConfigurado && (!cscId || !cscCodigo)) {
+      return 'Informe o ID e o código CSC da SEFAZ para ativar a NFC-e.';
+    }
+    if (cscCodigo && !cscId) {
+      return 'Informe o ID e o código CSC juntos.';
+    }
   }
   if (!Number.isFinite(form.rpsLote) || form.rpsLote < 1) {
     return 'Lote RPS deve ser um número inteiro maior ou igual a 1.';
@@ -403,7 +417,19 @@ export function buildPlugNotasEmpresaPayload(form) {
     nfce: {
       ativo: Boolean(form.nfceAtivo),
       tipoContrato: 0,
-      config: { producao: true, serie: 1, numero: 1 },
+      config: {
+        producao: true,
+        impressao: { versaoQrCode: 2 },
+        numeracao: [{ serie: 1, numero: 1 }],
+        ...(String(form.nfceCscId || '').trim() && String(form.nfceCscCodigo || '').trim()
+          ? {
+              sefaz: {
+                idCodigoSegurancaContribuinte: String(form.nfceCscId).trim(),
+                codigoSegurancaContribuinte: String(form.nfceCscCodigo).trim(),
+              },
+            }
+          : {}),
+      },
     },
     documentosAtivos: {
       nfse: Boolean(form.nfseAtivo),

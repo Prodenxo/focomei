@@ -175,6 +175,7 @@ export function getDefaultNfeLikeForm() {
     emitenteCpfCnpj: '',
     emitenteRazaoSocial: '',
     emitenteInscricaoEstadual: '',
+    consumidorNaoIdentificado: true,
     destinatarioCpfCnpj: '',
     destinatarioRazaoSocial: '',
     destinatarioEmail: '',
@@ -282,16 +283,19 @@ export function validateNfeLikeForm(form, documentType) {
   const label = documentType === 'NFE' ? 'NF-e' : 'NFC-e';
   if (onlyDigits(form.emitenteCpfCnpj).length !== 14) return `CNPJ do emitente da ${label} é obrigatório.`;
   if (!isValidCnpj(form.emitenteCpfCnpj)) return `Informe um CNPJ válido do emitente da ${label}.`;
+  const consumidorNaoIdentificado = documentType === 'NFCE' && form.consumidorNaoIdentificado === true;
   const destDoc = onlyDigits(form.destinatarioCpfCnpj);
-  if (!destDoc) return `CPF/CNPJ do destinatário da ${label} é obrigatório.`;
-  if (!isValidCpfCnpj(destDoc)) return `CPF/CNPJ do destinatário da ${label} inválido.`;
-  if (!form.destinatarioRazaoSocial?.trim()) return `Informe a razão social do destinatário da ${label}.`;
+  if (!consumidorNaoIdentificado) {
+    if (!destDoc) return `CPF/CNPJ do destinatário da ${label} é obrigatório.`;
+    if (!isValidCpfCnpj(destDoc)) return `CPF/CNPJ do destinatário da ${label} inválido.`;
+    if (!form.destinatarioRazaoSocial?.trim()) return `Informe a razão social do destinatário da ${label}.`;
+  }
   if (documentType === 'NFE') {
     if (!form.emitenteInscricaoEstadual?.trim()) {
       return 'Informe a Inscrição Estadual do emitente (obrigatória na NF-e de mercadoria). Use ISENTO se for o caso.';
     }
   }
-  if (form.destinatarioIndIEDest === '1' && !form.destinatarioInscricaoEstadual?.trim()) {
+  if (!consumidorNaoIdentificado && form.destinatarioIndIEDest === '1' && !form.destinatarioInscricaoEstadual?.trim()) {
     return 'Informe a Inscrição Estadual do destinatário (contribuinte ICMS).';
   }
   if (documentType === 'NFE') {
@@ -387,6 +391,7 @@ export function buildNfsePayload(form) {
 /** Constrói payload para emissão NF-e/NFC-e. */
 export function buildNfeLikePayload(form, documentType) {
   const destDoc = onlyDigits(form.destinatarioCpfCnpj);
+  const consumidorNaoIdentificado = documentType === 'NFCE' && form.consumidorNaoIdentificado === true;
   const indIEDest = String(form.destinatarioIndIEDest || '9');
   const ieFields = indIEDest === '1'
     ? { indIEDest, inscricaoEstadual: onlyDigits(form.destinatarioInscricaoEstadual) }
@@ -447,7 +452,7 @@ export function buildNfeLikePayload(form, documentType) {
       razaoSocial: form.emitenteRazaoSocial.trim(),
       inscricaoEstadual: form.emitenteInscricaoEstadual.trim(),
     },
-    destinatario,
+    ...(!consumidorNaoIdentificado ? { destinatario } : {}),
     itens,
     ...(total > 0 ? { pagamentos: [{ meio: '99', valor: total, descricaoMeio: 'Outros' }] } : {}),
     informacoesComplementares: form.informacoesComplementares.trim() || undefined,

@@ -40,6 +40,9 @@ export interface PlugNotasCompanyForm {
   nfseAtivo: boolean;
   nfeAtivo: boolean;
   nfceAtivo: boolean;
+  nfceCscConfigurado: boolean;
+  nfceCscId: string;
+  nfceCscCodigo: string;
   /** Lote inicial RPS no emissor (NFS-e). */
   rpsLote: number;
   /** Próximo número RPS/DPS que será usado pelo emissor. */
@@ -93,6 +96,9 @@ export function empresaFiscalToCompanyForm(empresa: any): PlugNotasCompanyForm {
     nfseAtivo: empresa?.nfse?.ativo !== false,
     nfeAtivo: empresa?.nfe?.ativo === true,
     nfceAtivo: empresa?.nfce?.ativo === true,
+    nfceCscConfigurado: empresa?.nfce?.cscConfigurado === true,
+    nfceCscId: String(empresa?.nfce?.cscId || ''),
+    nfceCscCodigo: '',
     rpsLote: clampRpsInt(empresa?.rps?.lote ?? empresa?.nfse?.config?.rps?.lote, 1),
     rpsNumero: clampRpsInt(
       empresa?.rps?.numeracao?.[0]?.numero ?? empresa?.nfse?.config?.rps?.numero,
@@ -125,6 +131,9 @@ export function getDefaultPlugNotasCompanyForm(): PlugNotasCompanyForm {
     nfseAtivo: true,
     nfeAtivo: false,
     nfceAtivo: false,
+    nfceCscConfigurado: false,
+    nfceCscId: '',
+    nfceCscCodigo: '',
     rpsLote: 1,
     rpsNumero: 1,
     rpsSerie: '1',
@@ -150,7 +159,12 @@ export function getPlugNotasCompanyValidationMessage(form: PlugNotasCompanyForm)
     return 'Selecione pelo menos um tipo de nota fiscal (NFS-e, NF-e ou NFC-e).';
   }
   if (form.nfceAtivo) {
-    return 'NFC-e exige CSC/SEFAZ configurado no emissor. Desative NFC-e por agora para salvar e testar apenas NF-e.';
+    const cscId = form.nfceCscId.trim();
+    const cscCodigo = form.nfceCscCodigo.trim();
+    if (!form.nfceCscConfigurado && (!cscId || !cscCodigo)) {
+      return 'Informe o ID e o código CSC da SEFAZ para ativar a NFC-e.';
+    }
+    if (cscCodigo && !cscId) return 'Informe o ID e o código CSC juntos.';
   }
   if (!Number.isFinite(form.rpsLote) || form.rpsLote < 1) {
     return 'Lote RPS deve ser um número inteiro maior ou igual a 1.';
@@ -234,7 +248,19 @@ export function buildPlugNotasEmpresaPayload({
     nfce: {
       ativo: Boolean(form.nfceAtivo),
       tipoContrato: 0,
-      config: { producao: true, serie: 1, numero: 1 },
+      config: {
+        producao: true,
+        impressao: { versaoQrCode: 2 },
+        numeracao: [{ serie: 1, numero: 1 }],
+        ...(form.nfceCscId.trim() && form.nfceCscCodigo.trim()
+          ? {
+              sefaz: {
+                idCodigoSegurancaContribuinte: form.nfceCscId.trim(),
+                codigoSegurancaContribuinte: form.nfceCscCodigo.trim(),
+              },
+            }
+          : {}),
+      },
     },
     /** Espelha permissões já definidas (admin); o utilizador não altera isto na UI. */
     documentosAtivos: {
