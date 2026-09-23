@@ -69,13 +69,14 @@ export const faqs = [
 
 export function MarketingCard({ icon: Icon, title, tagline, description }) {
   return (
-    <article className="group h-full rounded-2xl border border-[#0d2b5e]/10 bg-white p-6 shadow-[0_5px_20px_rgba(13,43,94,0.06)] transition duration-200 hover:-translate-y-1 hover:border-[#00a86b]/50 hover:shadow-[0_20px_45px_rgba(0,168,107,0.16)]">
-      <span className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-[14px] border border-[#00a86b]/15 bg-[#00a86b]/10 text-[#008f5b] transition group-hover:scale-105 group-hover:bg-[#00a86b]/15">
+    <article className="landing-card relative h-full overflow-hidden rounded-2xl border border-[#0d2b5e]/10 bg-white p-6 pb-7 shadow-[0_5px_20px_rgba(13,43,94,0.06)] hover:border-[#00a86b]/55 hover:shadow-[0_28px_56px_rgba(0,168,107,0.22)]">
+      <span className="landing-card-icon mb-5 inline-flex h-12 w-12 items-center justify-center rounded-[14px] border border-[#00a86b]/15 bg-[#00a86b]/10 text-[#008f5b]">
         <Icon className="h-6 w-6" aria-hidden />
       </span>
       {tagline ? <p className="mb-2 text-xs font-extrabold uppercase tracking-[0.12em] text-[#008f5b]">{title}</p> : null}
       <h3 className="text-lg font-extrabold leading-snug text-[#0d2b5e]">{tagline || title}</h3>
       <p className="mt-2 text-sm leading-6 text-[#526276]">{description}</p>
+      <span className="landing-card-bar absolute inset-x-6 bottom-0 h-[3px] rounded-t-sm bg-[#00a86b]" aria-hidden />
     </article>
   );
 }
