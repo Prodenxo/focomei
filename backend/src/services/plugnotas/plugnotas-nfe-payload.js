@@ -178,6 +178,18 @@ export const destinatarioMapsToNaoContribuinteOnPlugnotas = (destinatario) => {
 };
 
 /**
+ * SEFAZ: destinatário isento (indIEDest=2) leva a IE preenchida com o literal
+ * "ISENTO". Campo vazio é recusado com "IE do destinatário não informada".
+ */
+export const normalizeDestinatarioIeIsentoForEmit = (destinatario) => {
+  const dest = toObject(destinatario);
+  const indIEDest = String(dest.indIEDest ?? dest.indicadorInscricaoEstadual ?? '').trim();
+  if (indIEDest !== '2') return destinatario;
+  if (String(dest.inscricaoEstadual ?? '').trim()) return destinatario;
+  return { ...dest, inscricaoEstadual: 'ISENTO' };
+};
+
+/**
  * NT 2020.006: indPres 2/3/4/9 exige intermediador (0=sem, 1=com marketplace).
  * Plugnotas assume indPres=9 quando presencial não é enviado.
  * SEFAZ: indIEDest=9 exige indFinal=1 (consumidorFinal).
@@ -186,6 +198,9 @@ export const normalizePlugnotasNfeIdeForEmit = (payload) => {
   if (!payload || typeof payload !== 'object') return payload;
 
   const next = { ...payload };
+  if (next.destinatario) {
+    next.destinatario = normalizeDestinatarioIeIsentoForEmit(next.destinatario);
+  }
   const presencialRaw = next.presencial;
   const presencial = presencialRaw === undefined || presencialRaw === null || presencialRaw === ''
     ? null

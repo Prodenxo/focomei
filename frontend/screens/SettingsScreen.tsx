@@ -43,6 +43,7 @@ import { SettingsProfileField } from "../components/settings/SettingsProfileFiel
 import { SettingsPhoneField } from "../components/settings/SettingsPhoneField";
 import { SettingsActionLink } from "../components/settings/SettingsActionLink";
 import { SupportTicketModal } from "../components/support/SupportTicketModal";
+import { useSupportCenterStore } from "../store/supportCenterStore";
 import { SignOutHeaderButton } from "../components/settings/SignOutHeaderButton";
 import { MfAppHeader } from "../components/ui/MfAppHeader";
 import { useMfTheme } from "../components/ui/useMfTheme";
@@ -79,6 +80,9 @@ export default function SettingsScreen() {
     useState<boolean>(false);
   const [checkingIntegration, setCheckingIntegration] = useState<boolean>(true);
   const [supportTicketOpen, setSupportTicketOpen] = useState<boolean>(false);
+  const supportUnreadCount = useSupportCenterStore((state) => state.unreadCount);
+  const openSupportCenter = useSupportCenterStore((state) => state.openCenter);
+  const refreshSupportNotifications = useSupportCenterStore((state) => state.refresh);
   const router = useRouter();
   const [resolvedRole, setResolvedRole] = useState<UserRole | null>(null);
   const [googleDialog, setGoogleDialog] = useState<GoogleDialogState>(null);
@@ -115,6 +119,10 @@ export default function SettingsScreen() {
   useEffect(() => {
     setEmailInput(user?.email || "");
   }, [user?.email]);
+
+  useEffect(() => {
+    void refreshSupportNotifications();
+  }, [user?.id, refreshSupportNotifications]);
 
   useEffect(() => {
     checkGoogleAgendaIntegration();
@@ -668,6 +676,13 @@ export default function SettingsScreen() {
             description="Ajuda humana e comunidade"
             style={styles.sectionFull}
           >
+            <SettingsActionLink
+              title="Meus chamados"
+              description="Acompanhe respostas e converse com o suporte"
+              icon="chatbox-ellipses-outline"
+              badge={supportUnreadCount}
+              onPress={() => openSupportCenter()}
+            />
             <SettingsActionLink
               title="Abrir chamado"
               description="Registre bug, dúvida ou solicitação"

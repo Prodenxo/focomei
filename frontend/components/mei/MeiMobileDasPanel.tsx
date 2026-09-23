@@ -130,8 +130,14 @@ export function MeiMobileDasPanel ({
   )
   const aPagarCount = displayPeriods.filter((p) => p.status === 'a_pagar').length
   const pagoCount = displayPeriods.filter((p) => p.status === 'pago').length
+  const erroPeriods = displayPeriods.filter((p) => p.status === 'erro')
+  const primeiroErro = erroPeriods.find((p) => p.errorMessage)?.errorMessage || null
   const periodsErrorText = meiPeriodsError ? toMeiUserErrorMessage(meiPeriodsError) : null
-  const tudoEmDia = !meiPeriodsLoading && displayPeriods.length > 0 && aPagarCount === 0
+  const tudoEmDia =
+    !meiPeriodsLoading
+    && displayPeriods.length > 0
+    && aPagarCount === 0
+    && erroPeriods.length === 0
 
   const filteredPeriods = useMemo(() => {
     const sorted = [...displayPeriods].sort(
@@ -181,6 +187,26 @@ export function MeiMobileDasPanel ({
             <Text style={styles.alertDesc}>
               Guias vencidas são regeneradas na Receita com o valor atualizado ao baixar.
               Toque em Baixar na linha do mês — o PDF será salvo no seu dispositivo.
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
+      {!meiPeriodsLoading && erroPeriods.length > 0 ? (
+        <View style={styles.alertBanner}>
+          <View style={styles.alertIconWrap}>
+            <Ionicons name="alert-circle-outline" size={20} color={theme.error} />
+          </View>
+          <View style={styles.alertCopy}>
+            <Text style={[styles.alertTitle, { color: theme.error }]}>
+              {erroPeriods.length === 1
+                ? 'Não foi possível consultar 1 mês'
+                : `Não foi possível consultar ${erroPeriods.length} meses`}
+            </Text>
+            <Text style={styles.alertDesc}>
+              {primeiroErro
+                ? toMeiUserErrorMessage(primeiroErro)
+                : 'A Receita não respondeu para estas competências. Toque em Atualizar em alguns minutos.'}
             </Text>
           </View>
         </View>

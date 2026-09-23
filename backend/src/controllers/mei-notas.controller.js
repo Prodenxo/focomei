@@ -348,6 +348,30 @@ export const consultarPlugNotasEmpresa = async (req, res, next) => {
   }
 };
 
+export const consultarNumeracaoFiscal = async (req, res, next) => {
+  try {
+    const cpfCnpj = String(req.query?.cpfCnpj || req.query?.cnpj || '').trim();
+    const data = await meiNotasService.consultarNumeracaoFiscal(req.user.id, cpfCnpj);
+    return sendSuccess(res, data, 'Numeração fiscal consultada');
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const definirNumeracaoFiscal = async (req, res, next) => {
+  try {
+    const data = await meiNotasService.definirNumeracaoFiscal(req.user.id, {
+      cpfCnpj: req.body?.cpfCnpj ?? req.body?.cnpj,
+      documentType: req.body?.documentType,
+      ultimoUtilizado: req.body?.ultimoUtilizado,
+      serie: req.body?.serie,
+    });
+    return sendSuccess(res, data, 'Numeração fiscal atualizada');
+  } catch (error) {
+    return next(error);
+  }
+};
+
 /** Consulta dados cadastrais de um CNPJ (PlugNotas com fallback BrasilAPI). */
 export const lookupCnpj = async (req, res, next) => {
   try {

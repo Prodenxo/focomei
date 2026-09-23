@@ -9,6 +9,7 @@ import * as stripeWebhookController from './controllers/stripe-webhook.controlle
 import { errorHandler } from './middlewares/errorHandler.js';
 import { startAgendaRemindersScheduler } from './services/agenda-reminders.scheduler.js';
 import { startMonthlyDasScheduler } from './services/mei-das.service.js';
+import { startSupportTicketSyncScheduler } from './services/support-ticket-sync.scheduler.js';
 import { bootstrapDatabase } from './services/db-bootstrap.service.js';
 
 const app = express();
@@ -61,7 +62,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Empresa-Id'],
   optionsSuccessStatus: 204
 };
 
@@ -74,7 +75,7 @@ app.use((req, res, next) => {
 
   res.setHeader('Access-Control-Allow-Origin', allowOrigin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Empresa-Id');
   res.setHeader('Access-Control-Max-Age', '86400');
   return res.status(204).end();
 });
@@ -143,6 +144,7 @@ const startServer = async () => {
   const server = app.listen(env.PORT, () => {
     startMonthlyDasScheduler();
     startAgendaRemindersScheduler();
+    startSupportTicketSyncScheduler();
     // eslint-disable-next-line no-console
     console.log(`[backend] rodando na porta ${env.PORT}`);
   });

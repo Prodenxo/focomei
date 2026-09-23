@@ -15,6 +15,7 @@ import {
   isWhatsappOutboundConfigured,
   sendWhatsappMessage,
 } from './whatsapp-outbound.service.js';
+import { assertUserOperationalAccess } from './access-control.service.js';
 
 const VALID_SLOTS = new Set(['manha', 'noite']);
 
@@ -161,6 +162,7 @@ const runAgendaWhatsappRemindersInner = async (options) => {
 
   for (const { userId, phone } of users) {
     try {
+      await assertUserOperationalAccess(userId);
       const checklist = await listAgendaChecklistForUser(userId, { date: dateIso, data: dateIso });
       if (checklist.empty || !checklist.events?.length) {
         results.push({

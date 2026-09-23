@@ -524,9 +524,11 @@ const ensureUserCertLoaded = async (userId) => {
 
 const ensureClientCertificate = async (userId) => {
   await ensureUserCertLoaded(userId);
-  if (!getUserCert(userId)) {
+  const userCert = getUserCert(userId);
+  if (!userCert) {
     throw badRequest('Certificado do cliente não configurado');
   }
+  assertCertificadoDentroDaValidade(userCert.certInfo);
 };
 
 const getOauthContext = () => {
@@ -744,6 +746,39 @@ const buildAutorizacaoXml = (authContext, options = {}) => {
 };
 
 export const MEI_CERT_INVALID_PASSWORD = 'MEI_CERT_INVALID_PASSWORD';
+export const MEI_CERT_EXPIRED = 'MEI_CERT_EXPIRED';
+
+const toDateOrNull = (value) => {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const formatDateBr = (date) => date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+
+/**
+ * Certificado vencido faz a Receita recusar o termo de autorização (403) em todas as
+ * competências, então é bloqueado no upload e antes de qualquer consulta.
+ */
+const assertCertificadoDentroDaValidade = (certInfo) => {
+  const agora = Date.now();
+  const validTo = toDateOrNull(certInfo?.validTo);
+  if (validTo && validTo.getTime() < agora) {
+    throw badRequest(
+      `Este certificado digital venceu em ${formatDateBr(validTo)}. `
+      + 'Emita um novo e-CNPJ do MEI na certificadora e envie o arquivo atualizado.',
+      { code: MEI_CERT_EXPIRED, certValidTo: validTo.toISOString() },
+    );
+  }
+  const validFrom = toDateOrNull(certInfo?.validFrom);
+  if (validFrom && validFrom.getTime() > agora) {
+    throw badRequest(
+      `Este certificado digital só passa a valer em ${formatDateBr(validFrom)}. `
+      + 'Envie o certificado que está válido hoje.',
+      { code: MEI_CERT_EXPIRED, certValidFrom: validFrom.toISOString() },
+    );
+  }
+};
 
 const isInvalidPfxPasswordError = (error) => {
   const msg = String(error?.message || error || '').toLowerCase();
@@ -1452,6 +1487,8 @@ export const uploadCertificate = async (userId, payload) => {
     }
     throw badRequest('Certificado inválido ou senha incorreta');
   }
+
+  assertCertificadoDentroDaValidade(certInfo);
 
   const emitente = parseEmitenteFromPayload(payload);
 

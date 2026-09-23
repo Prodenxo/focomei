@@ -710,25 +710,39 @@ export const confirmMeiPlanContractFirstForRequester = async (
     };
   }
 
-  const corePayload = {
-    id: randomUUID(),
-    empresa_id: empresaId,
-    mei_slots: slots,
-    value_numeric: pricing.total,
-    status: "pending",
-    billing_type: "contract_first",
-    onety_funil_id: funil.id,
-    external_reference: randomUUID(),
-  };
+  let line = null;
+  if (pendingContract?.id) {
+    // Tentativa anterior ficou sem contrato (robô fora do ar): reaproveita a linha.
+    line = await updateMeiSubscriptionLine(adminClient, pendingContract.id, {
+      mei_slots: slots,
+      value_numeric: pricing.total,
+      onety_funil_id: funil.id,
+      contrato_status: "awaiting_signature",
+      contrato_error: null,
+    });
+    if (!line?.id) line = { id: pendingContract.id };
+  } else {
+    const corePayload = {
+      id: randomUUID(),
+      empresa_id: empresaId,
+      mei_slots: slots,
+      value_numeric: pricing.total,
+      status: "pending",
+      billing_type: "contract_first",
+      onety_funil_id: funil.id,
+      external_reference: randomUUID(),
+    };
 
-  const insertPayload = await buildMeiLineInsertPayload(adminClient, corePayload, {
-    contrato_status: "awaiting_signature",
-  });
-  const line = await insertMeiSubscriptionLine(adminClient, insertPayload);
+    const insertPayload = await buildMeiLineInsertPayload(adminClient, corePayload, {
+      contrato_status: "awaiting_signature",
+    });
+    line = await insertMeiSubscriptionLine(adminClient, insertPayload);
+  }
   if (!line?.id) throw badRequest("Não foi possível registrar o plano.");
 
   let crm = null;
   let leadId = null;
+  let crmError = null;
   try {
     crm = await prepararPropostaCrmForEmpresaOrThrow(adminClient, {
       empresaId,
@@ -737,11 +751,13 @@ export const confirmMeiPlanContractFirstForRequester = async (
     });
     leadId = crm?.dispatch?.response?.leadId ?? null;
   } catch (crmErr) {
-    await updateMeiSubscriptionLine(adminClient, line.id, {
-      contrato_status: "failed",
-      contrato_error: crmErr instanceof Error ? crmErr.message : String(crmErr),
+    // O contrato não depende do lead: segue a emissão e o CRM é reconciliado depois.
+    crmError = crmErr instanceof Error ? crmErr.message : String(crmErr);
+    console.warn("[mei-contract-first] CRM falhou, seguindo para o contrato", {
+      empresaId,
+      lineId: line.id,
+      error: crmError,
     });
-    throw crmErr;
   }
 
   let contrato;
@@ -796,6 +812,7 @@ export const confirmMeiPlanContractFirstForRequester = async (
     leadId,
     funilId: funil.id,
     crm,
+    crmError,
     contrato,
   };
 };
@@ -1022,11 +1039,30 @@ export const emitMeiContratoForEmpresaAdmin = async (accessToken, input = {}) =>
     .maybeSingle();
 
   if (error) throw badRequest(error.message);
-  if (!activeLine?.id) {
-    throw badRequest("Nenhuma assinatura MEI ativa — reconcilie o pagamento antes de gerar o contrato.");
+
+  // Contract-first: a linha só vira "active" depois da assinatura, então o
+  // contrato é gerado a partir da linha pendente mais recente.
+  let line = activeLine;
+  if (!line?.id) {
+    const { data: pendingLine, error: pendingError } = await adminClient
+      .from("empresa_mei_subscription_lines")
+      .select("id, stripe_checkout_session_id, value_numeric")
+      .eq("empresa_id", empresaId)
+      .eq("billing_type", "contract_first")
+      .eq("status", "pending")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (pendingError) throw badRequest(pendingError.message);
+    line = pendingLine;
+  }
+
+  if (!line?.id) {
+    throw badRequest("Nenhuma assinatura MEI ativa ou contrato pendente — reconcilie o pagamento antes de gerar o contrato.");
   }
 
   let crm = null;
+  let crmError = null;
   if (funilId) {
     const { getFunilById } = await import("../config/onety-crm-funis.js");
     const funil = getFunilById(funilId);
@@ -1034,22 +1070,55 @@ export const emitMeiContratoForEmpresaAdmin = async (accessToken, input = {}) =>
       throw badRequest("Funil comercial inválido ou não habilitado para gerar contrato no FocoMEI.");
     }
     const { prepararPropostaCrmForEmpresaOrThrow } = await import("./onety-crm.service.js");
-    crm = await prepararPropostaCrmForEmpresaOrThrow(adminClient, {
-      empresaId,
-      funilId,
-      vendedorId,
-      valor: valor ?? activeLine.value_numeric ?? undefined,
-    });
+    try {
+      crm = await prepararPropostaCrmForEmpresaOrThrow(adminClient, {
+        empresaId,
+        funilId,
+        vendedorId,
+        valor: valor ?? line.value_numeric ?? undefined,
+      });
+    } catch (crmErr) {
+      // Lead no CRM é complementar: o contrato segue mesmo com o robô CRM fora.
+      crmError = crmErr instanceof Error ? crmErr.message : String(crmErr);
+      console.warn("[admin-contrato] CRM falhou, seguindo para o contrato", {
+        empresaId,
+        lineId: line.id,
+        error: crmError,
+      });
+    }
   }
 
+  const leadId = crm?.dispatch?.response?.leadId ?? null;
   const contrato = await emitContratoForEmpresaOrThrow(adminClient, {
     empresaId,
-    lineId: activeLine.id,
-    checkoutSessionId: activeLine.stripe_checkout_session_id || undefined,
-    onetyLeadId: crm?.dispatch?.response?.leadId ?? undefined,
+    lineId: line.id,
+    checkoutSessionId: line.stripe_checkout_session_id || undefined,
+    onetyLeadId: leadId ?? undefined,
   });
 
-  return { ...contrato, crm };
+  // Guarda o contrato na linha para o cliente ver o link em /aguardando-contrato.
+  const meta = parseContratoWebhookMeta(contrato?.dispatch);
+  let signingUrl = meta.signingUrl;
+  const contratoOnetyId = meta.contratoId;
+  if (!signingUrl && contratoOnetyId) {
+    const check = await dispatchOnetyContratoStatusCheck(contratoOnetyId);
+    if (check?.signingUrl) signingUrl = check.signingUrl;
+  }
+
+  if (contratoOnetyId || signingUrl) {
+    const patch = { contrato_sent_at: new Date().toISOString() };
+    if (contratoOnetyId) patch.contrato_onety_id = contratoOnetyId;
+    if (signingUrl) patch.contrato_signing_url = signingUrl;
+    if (leadId) patch.onety_lead_id = leadId;
+    if (funilId) patch.onety_funil_id = funilId;
+    try {
+      await updateMeiSubscriptionLine(adminClient, line.id, patch);
+    } catch (patchErr) {
+      console.warn("[admin-contrato] falha ao gravar contrato na linha", patchErr);
+    }
+  }
+
+  return { ...contrato, crm, crmError, contratoOnetyId, signingUrl, lineId: line.id };
 };
 
 const PIX_IDEMPOTENCY_WINDOW_MS = 10 * 60 * 1000;

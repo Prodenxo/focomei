@@ -40,9 +40,13 @@ import {
 } from '../lib/user-management';
 import { matchManagedUserSearch } from '../lib/matchManagedUserSearch';
 import {
+  blockEmpresa,
   deleteEmpresa,
   getEmpresaById,
+  listAccessBlockAudit,
   listEmpresas,
+  unblockEmpresa,
+  type AccessBlockAuditEntry,
   type EmpresaFullData,
   type EmpresaOption,
 } from '../services/empresaService';
@@ -667,6 +671,8 @@ interface EmpresaCardProps {
   /** Superadmin: listar todos os usuários vinculados à empresa. */
   onViewMembers?: (empresa: EmpresaOption) => void;
   onOpenBilling?: (empresa: EmpresaOption) => void;
+  onToggleAccess?: (empresa: EmpresaOption) => void;
+  onViewAudit?: (empresa: EmpresaOption) => void;
   /** Superadmin: excluir a empresa (irreversível). */
   onDelete?: (empresa: EmpresaOption) => void;
 }
@@ -679,6 +685,8 @@ const EmpresaCard = React.memo(function EmpresaCard({
   onEdit,
   onViewMembers,
   onOpenBilling,
+  onToggleAccess,
+  onViewAudit,
   onDelete,
 }: EmpresaCardProps) {
   const renderNaoMeiLimit = (value?: number | null) =>
@@ -718,6 +726,15 @@ const EmpresaCard = React.memo(function EmpresaCard({
               </Text>
             ) : null}
             <View style={styles.empresaLimitsRow}>
+              <Badge
+                label={empresa.access_status === 'blocked' ? 'Bloqueado' : 'Ativo'}
+                bg={empresa.access_status === 'blocked' ? theme.errorLight : theme.successLight}
+                fg={empresa.access_status === 'blocked' ? theme.error : theme.success}
+                dot
+                styles={styles}
+              />
+            </View>
+            <View style={styles.empresaLimitsRow}>
               <View style={styles.empresaLimitChip}>
                 <Text style={styles.empresaLimitChipLabel}>MEI</Text>
                 <Text style={styles.empresaLimitChipValue}>{renderMeiEmpresaCap(empresa.max_mei)}</Text>
@@ -751,6 +768,38 @@ const EmpresaCard = React.memo(function EmpresaCard({
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
           <Ionicons name="trash-outline" size={20} color={theme.error} />
+        </TouchableOpacity>
+      ) : null}
+      {onToggleAccess ? (
+        <TouchableOpacity
+          style={[
+            styles.empresaCardActionBtn,
+            {
+              backgroundColor:
+                empresa.access_status === 'blocked' ? theme.successLight : theme.errorLight,
+            },
+          ]}
+          onPress={() => onToggleAccess(empresa)}
+          accessibilityLabel={`${
+            empresa.access_status === 'blocked' ? 'Desbloquear' : 'Bloquear'
+          } escritório ${empresa.empresa}`}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons
+            name={empresa.access_status === 'blocked' ? 'lock-open-outline' : 'lock-closed-outline'}
+            size={20}
+            color={empresa.access_status === 'blocked' ? theme.success : theme.error}
+          />
+        </TouchableOpacity>
+      ) : null}
+      {onViewAudit ? (
+        <TouchableOpacity
+          style={[styles.empresaCardActionBtn, { backgroundColor: theme.backgroundMuted }]}
+          onPress={() => onViewAudit(empresa)}
+          accessibilityLabel={`Ver auditoria de ${empresa.empresa}`}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name="time-outline" size={20} color={theme.textSecondary} />
         </TouchableOpacity>
       ) : null}
       {onOpenBilling ? (
@@ -935,6 +984,11 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
   // Excluir empresa (Alert.alert com 2 botões não funciona na web)
   const [deleteEmpresaModalOpen, setDeleteEmpresaModalOpen] = useState(false);
   const [empresaToDelete, setEmpresaToDelete] = useState<EmpresaOption | null>(null);
+  const [empresaAccessTarget, setEmpresaAccessTarget] = useState<EmpresaOption | null>(null);
+  const [empresaAccessReason, setEmpresaAccessReason] = useState('');
+  const [auditEmpresa, setAuditEmpresa] = useState<EmpresaOption | null>(null);
+  const [auditEntries, setAuditEntries] = useState<AccessBlockAuditEntry[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
 
   /** Cobrança MEI (Stripe) — superadmin, API do site (`EXPO_PUBLIC_MEI_API_URL`). */
   const [billingEmpresa, setBillingEmpresa] = useState<EmpresaOption | null>(null);
@@ -1483,6 +1537,58 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
       setError(message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openEmpresaAccessModal = (empresa: EmpresaOption) => {
+    setEmpresaAccessTarget(empresa);
+    setEmpresaAccessReason('');
+  };
+
+  const closeEmpresaAccessModal = () => {
+    if (loading) return;
+    setEmpresaAccessTarget(null);
+    setEmpresaAccessReason('');
+  };
+
+  const confirmEmpresaAccessChange = async () => {
+    if (!empresaAccessTarget?.id) return;
+    const blocking = empresaAccessTarget.access_status !== 'blocked';
+    setLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      if (blocking) {
+        await blockEmpresa(empresaAccessTarget.id, empresaAccessReason);
+      } else {
+        await unblockEmpresa(empresaAccessTarget.id, empresaAccessReason);
+      }
+      setSuccess(
+        blocking
+          ? 'Escritório bloqueado. Os dados foram preservados.'
+          : 'Escritório desbloqueado. Bloqueios individuais continuam válidos.',
+      );
+      setEmpresaAccessTarget(null);
+      setEmpresaAccessReason('');
+      await Promise.all([fetchEmpresas(), fetchUsers()]);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao alterar acesso do escritório');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openEmpresaAudit = async (empresa: EmpresaOption) => {
+    setAuditEmpresa(empresa);
+    setAuditEntries([]);
+    setAuditLoading(true);
+    try {
+      setAuditEntries(await listAccessBlockAudit('empresa', empresa.id));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao carregar auditoria');
+      setAuditEmpresa(null);
+    } finally {
+      setAuditLoading(false);
     }
   };
 
@@ -2116,6 +2222,8 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
                       role === 'superadmin' ? openEmpresaMembers : undefined
                     }
                     onOpenBilling={role === 'superadmin' ? (e) => setBillingEmpresa(e) : undefined}
+                    onToggleAccess={role === 'superadmin' ? openEmpresaAccessModal : undefined}
+                    onViewAudit={role === 'superadmin' ? openEmpresaAudit : undefined}
                     onDelete={role === 'superadmin' ? openDeleteEmpresaModal : undefined}
                   />
                 )}
@@ -2878,6 +2986,108 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
         </Pressable>
       </Modal>
 
+      {/* Confirmação de bloqueio/desbloqueio do escritório */}
+      <Modal
+        visible={!!empresaAccessTarget}
+        transparent
+        animationType="fade"
+        onRequestClose={closeEmpresaAccessModal}
+      >
+        <Pressable style={styles.deleteConfirmBackdrop} onPress={closeEmpresaAccessModal}>
+          <Pressable style={styles.deleteConfirmDialog} onPress={() => {}}>
+            <TouchableOpacity
+              style={styles.deleteConfirmClose}
+              onPress={closeEmpresaAccessModal}
+              disabled={loading}
+              accessibilityLabel="Fechar"
+            >
+              <Ionicons name="close" size={22} color={theme.textSecondary} />
+            </TouchableOpacity>
+            <View
+              style={[
+                styles.deleteConfirmIconBox,
+                {
+                  backgroundColor:
+                    empresaAccessTarget?.access_status === 'blocked'
+                      ? theme.successLight
+                      : theme.errorLight,
+                },
+              ]}
+            >
+              <Ionicons
+                name={
+                  empresaAccessTarget?.access_status === 'blocked'
+                    ? 'lock-open-outline'
+                    : 'lock-closed-outline'
+                }
+                size={32}
+                color={
+                  empresaAccessTarget?.access_status === 'blocked'
+                    ? theme.success
+                    : theme.error
+                }
+              />
+            </View>
+            <Text style={styles.deleteConfirmTitle}>
+              {empresaAccessTarget?.access_status === 'blocked'
+                ? 'Desbloquear escritório'
+                : 'Bloquear escritório'}
+            </Text>
+            <Text style={styles.deleteConfirmMessage}>
+              {empresaAccessTarget?.access_status === 'blocked'
+                ? 'O acesso será restaurado apenas para usuários que continuem autorizados. Bloqueios individuais serão mantidos.'
+                : 'A suspensão afeta responsáveis, administradores, contadores, colaboradores e clientes vinculados. Nenhum dado será excluído.'}
+            </Text>
+            <TextInput
+              style={[styles.textInput, { width: '100%', minHeight: 86, textAlignVertical: 'top' }]}
+              value={empresaAccessReason}
+              onChangeText={setEmpresaAccessReason}
+              placeholder="Motivo interno (opcional)"
+              placeholderTextColor={theme.placeholder}
+              multiline
+              maxLength={1000}
+              editable={!loading}
+              accessibilityLabel="Motivo da alteração de acesso"
+            />
+            <View style={styles.deleteConfirmActions}>
+              <TouchableOpacity
+                style={styles.secondaryBtn}
+                onPress={closeEmpresaAccessModal}
+                disabled={loading}
+              >
+                <Text style={styles.secondaryBtnText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  empresaAccessTarget?.access_status === 'blocked'
+                    ? styles.primaryBtn
+                    : styles.dangerBtn,
+                  loading && styles.primaryBtnDisabled,
+                ]}
+                onPress={() => void confirmEmpresaAccessChange()}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text
+                    style={
+                      empresaAccessTarget?.access_status === 'blocked'
+                        ? styles.primaryBtnText
+                        : styles.dangerBtnText
+                    }
+                  >
+                    {empresaAccessTarget?.access_status === 'blocked'
+                      ? 'Desbloquear'
+                      : 'Bloquear acessos'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {/* ============================================================== */}
       {/* Modal: Excluir empresa (Alert.alert não funciona na web)         */}
       {/* ============================================================== */}
@@ -2943,6 +3153,47 @@ export default function ManageUsersScreen({ onBack, onImpersonateSuccess }: Prop
         onClose={() => setBillingEmpresa(null)}
         onMaxMeiSynced={fetchEmpresas}
       />
+
+      <SidePanel
+        open={!!auditEmpresa}
+        onClose={() => setAuditEmpresa(null)}
+        title="Auditoria de acesso"
+        subtitle={auditEmpresa?.nome_fantasia || auditEmpresa?.empresa}
+        icon="time-outline"
+        isDesktop={isDesktop}
+        theme={theme}
+        styles={styles}
+        footer={
+          <TouchableOpacity style={styles.secondaryBtn} onPress={() => setAuditEmpresa(null)}>
+            <Text style={styles.secondaryBtnText}>Fechar</Text>
+          </TouchableOpacity>
+        }
+      >
+        {auditLoading ? (
+          <ActivityIndicator size="small" color={theme.primary} />
+        ) : auditEntries.length === 0 ? (
+          <Text style={styles.helperText}>Nenhum bloqueio ou desbloqueio registrado.</Text>
+        ) : (
+          <View style={styles.membersList}>
+            {auditEntries.map((entry) => (
+              <View key={entry.id} style={styles.memberRow}>
+                <View style={styles.memberRowMain}>
+                  <Text style={styles.memberName}>
+                    {entry.new_status === 'blocked' ? 'Escritório bloqueado' : 'Escritório desbloqueado'}
+                  </Text>
+                  <Text style={styles.memberEmail}>
+                    {new Date(entry.created_at).toLocaleString('pt-BR')}
+                  </Text>
+                  {entry.reason ? (
+                    <Text style={styles.helperText}>Motivo: {entry.reason}</Text>
+                  ) : null}
+                  <Text style={styles.memberEmail}>Autor: {entry.actor_user_id}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+      </SidePanel>
 
       <SidePanel
         open={!!membersEmpresa}

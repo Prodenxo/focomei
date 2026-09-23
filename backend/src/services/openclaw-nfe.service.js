@@ -517,13 +517,33 @@ const resolveDestinatarioNfe = async (userId, payload) => {
   }
 
   const doc = tomador.tomadorCpfCnpj;
-  const consumidorFinal = doc.length === 11 || String(catalogo?.metadata_json?.indIEDest || '9') === '9';
+  /**
+   * CPF é sempre não contribuinte. Para CNPJ vale a situação salva no cadastro:
+   * forçar '9' em cliente contribuinte faz a SEFAZ recusar por IE não informada.
+   */
+  const indIEDestCadastro = String(catalogo?.metadata_json?.indIEDest || '9');
+  const indIEDest = doc.length === 11 ? '9' : indIEDestCadastro;
+  const ieCadastro = normalizeDoc(catalogo?.metadata_json?.inscricaoEstadual || '');
+  const consumidorFinal = indIEDest === '9';
+
+  if (indIEDest === '1' && !ieCadastro) {
+    throw badRequest(
+      `Cliente ${tomador.tomadorRazaoSocial} está marcado como contribuinte de ICMS, mas o cadastro não tem a Inscrição Estadual.`,
+      {
+        code: 'NFE_DESTINATARIO_IE_MISSING',
+        catalogoClienteId: catalogo?.id,
+        botHint:
+          'Peça a Inscrição Estadual do cliente e cadastre na app em Clientes → editar → Inscrição Estadual.',
+      },
+    );
+  }
 
   return {
     cpfCnpj: doc,
     razaoSocial: tomador.tomadorRazaoSocial,
     ...(tomador.tomadorEmail ? { email: tomador.tomadorEmail } : {}),
-    indIEDest: '9',
+    indIEDest,
+    ...(indIEDest === '1' ? { inscricaoEstadual: ieCadastro } : {}),
     endereco,
     consumidorFinal,
     catalogoClienteId: catalogo?.id,
@@ -574,24 +594,35 @@ const resolveProdutoNfeFromSpec = async (userId, payload, spec = {}) => {
   return resolveProdutoNfe(userId, merged);
 };
 
+/**
+ * Venda para outro estado usa as taxas cadastradas; venda interna normaliza o CFOP
+ * para 5xxx. CFOP 6xxx de catálogo legado é preservado como está.
+ */
+export const applyNfeItemFiscalContext = (item, interestadualCtx) => {
+  if (interestadualCtx?.interestadual) {
+    return applyInterestadualTaxasToItem(item, interestadualCtx.taxas);
+  }
+  const cfop = item?.cfop ? String(item.cfop) : '';
+  if (cfop.startsWith('6')) return item;
+  if (!cfop || cfop.startsWith('5')) {
+    return { ...item, cfop: onlyDigits(cfop || '5102', 4) || '5102' };
+  }
+  return item;
+};
+
 const buildNfeItemFromCatalog = async (userId, payload, spec, interestadualCtx) => {
   const produto = await resolveProdutoNfeFromSpec(userId, payload, spec);
   const valorUnitario = parseValorReais(
     spec?.valorUnitario ?? spec?.valor ?? spec?.valorReais ?? payload?.valorUnitario ?? payload?.valor,
   );
   const quantidade = parseQuantidade(spec?.quantidade ?? spec?.qtd ?? payload?.quantidade ?? payload?.qtd);
-  let item = mapCatalogProdutoToNfeItem(produto, {
-    quantidade,
-    valorUnitario: (valorUnitario ?? Number(produto.valor_sugerido)) || 0,
-  });
-
-  if (interestadual.interestadual) {
-    item = applyInterestadualTaxasToItem(item, interestadualCtx.taxas);
-  } else if (item.cfop && String(item.cfop).startsWith('6')) {
-    /* catálogo legado CFOP 6xxx em venda interna */
-  } else if (!item.cfop || String(item.cfop).startsWith('5')) {
-    item = { ...item, cfop: onlyDigits(item.cfop || '5102', 4) || '5102' };
-  }
+  const item = applyNfeItemFiscalContext(
+    mapCatalogProdutoToNfeItem(produto, {
+      quantidade,
+      valorUnitario: (valorUnitario ?? Number(produto.valor_sugerido)) || 0,
+    }),
+    interestadualCtx,
+  );
 
   return { item, produto };
 };
@@ -665,6 +696,9 @@ export const buildOpenclawNfeEmitInput = async (userId, payload = {}) => {
       razaoSocial: destinatario.razaoSocial,
       ...(destinatario.email ? { email: destinatario.email } : {}),
       indIEDest: destinatario.indIEDest,
+      ...(destinatario.inscricaoEstadual
+        ? { inscricaoEstadual: destinatario.inscricaoEstadual }
+        : {}),
       endereco: destinatario.endereco,
     },
     consumidorFinal: destinatario.consumidorFinal,

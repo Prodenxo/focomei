@@ -73,7 +73,12 @@ export const updateUser = async (req, res, next) => {
 export const banUser = async (req, res, next) => {
   try {
     const status = req.body?.status === true;
-    const result = await usersService.banUser(req.accessToken, req.params.userId, status === true ? true : false);
+    const result = await usersService.banUser(
+      req.accessToken,
+      req.params.userId,
+      status === true ? true : false,
+      req.body?.reason,
+    );
     return sendSuccess(res, result, 'Usuário bloqueado');
   } catch (error) {
     return next(error);
@@ -82,8 +87,54 @@ export const banUser = async (req, res, next) => {
 
 export const unbanUser = async (req, res, next) => {
   try {
-    const result = await usersService.banUser(req.accessToken, req.params.userId, true);
+    const result = await usersService.banUser(
+      req.accessToken,
+      req.params.userId,
+      true,
+      req.body?.reason,
+    );
     return sendSuccess(res, result, 'Usuário desbloqueado');
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const blockEmpresa = async (req, res, next) => {
+  try {
+    const result = await usersService.setEmpresaAccessStatus(
+      req.accessToken,
+      req.params.empresaId,
+      true,
+      req.body?.reason,
+    );
+    return sendSuccess(res, result, 'Escritório bloqueado');
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const unblockEmpresa = async (req, res, next) => {
+  try {
+    const result = await usersService.setEmpresaAccessStatus(
+      req.accessToken,
+      req.params.empresaId,
+      false,
+      req.body?.reason,
+    );
+    return sendSuccess(res, result, 'Escritório desbloqueado');
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const listAccessBlockAudit = async (req, res, next) => {
+  try {
+    const result = await usersService.listAccessBlockAudit(req.accessToken, {
+      targetType: req.query?.targetType,
+      targetId: req.query?.targetId,
+      limit: req.query?.limit,
+    });
+    return sendSuccess(res, result, 'Auditoria de acessos listada');
   } catch (error) {
     return next(error);
   }

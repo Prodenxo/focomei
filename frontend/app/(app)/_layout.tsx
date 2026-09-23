@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, PanResponder, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, PanResponder, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { usePathname, useRouter } from 'expo-router';
 import { useThemeStore } from '@/store/themeStore';
 import { useAuthStore } from '@/store/authStore';
@@ -34,6 +34,12 @@ import {
   unregisterEmpresaCnpjLayoutGateReset,
 } from '@/lib/empresaCnpjLayoutGate';
 import { SignOutProvider } from '@/components/auth/SignOutProvider';
+import {
+  subscribeAccessRestriction,
+  type AccessRestriction,
+} from '@/lib/apiClient';
+import { SupportNotificationWatcher } from '@/components/support/SupportNotificationWatcher';
+import { SupportCenterHost } from '@/components/support/SupportCenterHost';
 
 type AccessStatus = 'checking' | 'pending' | 'ok';
 
@@ -42,7 +48,8 @@ export default function AppLayout() {
   const [accessStatus, setAccessStatus] = useState<AccessStatus>('checking');
   const [activationMenuHint, setActivationMenuHint] = useState<string | null>(null);
   const { isDarkMode } = useThemeStore();
-  const { user, role, mei, empresaId, sessionRestored } = useAuthStore();
+  const { user, role, mei, empresaId, sessionRestored, signOut } = useAuthStore();
+  const [accessRestriction, setAccessRestriction] = useState<AccessRestriction | null>(null);
   const router = useRouter();
   const pathname = usePathname() ?? '/';
   const { isWebDesktop, usesDrawerNav } = useShellLayout();
@@ -85,6 +92,26 @@ export default function AppLayout() {
   const [cnpjGate, setCnpjGate] = useState<'checking' | 'ready'>('checking');
   const [billingGate, setBillingGate] = useState<'checking' | 'ready'>('checking');
   const [activationGate, setActivationGate] = useState<'checking' | 'ready'>('checking');
+
+  useEffect(
+    () => subscribeAccessRestriction((restriction) => setAccessRestriction(restriction)),
+    [],
+  );
+
+  const handleTryAnotherOffice = useCallback(async () => {
+    const nextEmpresa = accessRestriction?.availableEmpresas?.[0];
+    if (nextEmpresa?.id) {
+      const { readLocalAuthSnapshot, writeLocalAuthSnapshot } = await import('@/lib/localAuthSession');
+      const snapshot = await readLocalAuthSnapshot();
+      if (snapshot) {
+        await writeLocalAuthSnapshot({ ...snapshot, empresaId: nextEmpresa.id });
+      }
+      useAuthStore.setState({ empresaId: nextEmpresa.id });
+    }
+    setAccessRestriction(null);
+    await useAuthStore.getState().initAuth();
+    router.replace('/' as any);
+  }, [accessRestriction, router]);
 
   useEffect(() => {
     if (!sessionRestored) return;
@@ -481,6 +508,40 @@ export default function AppLayout() {
     return <PendingApprovalScreen />;
   }
 
+  if (user && accessRestriction) {
+    const officeBlocked = accessRestriction.code === 'OFFICE_BLOCKED';
+    return (
+      <View style={[styles.outer, styles.centered]}>
+        <View style={styles.restrictionCard}>
+          <Text style={styles.restrictionTitle}>
+            {officeBlocked ? 'Escritório suspenso' : 'Acesso bloqueado'}
+          </Text>
+          <Text style={styles.restrictionMessage}>
+            {officeBlocked
+              ? 'O acesso a este escritório está suspenso. Entre em contato com o responsável.'
+              : 'Seu perfil está bloqueado. Entre em contato com o responsável.'}
+          </Text>
+          {officeBlocked && accessRestriction.availableEmpresas?.length ? (
+            <TouchableOpacity
+              style={styles.restrictionPrimaryButton}
+              onPress={() => void handleTryAnotherOffice()}
+              accessibilityRole="button"
+            >
+              <Text style={styles.restrictionPrimaryButtonText}>Acessar outro escritório</Text>
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity
+            style={styles.restrictionSecondaryButton}
+            onPress={() => void signOut()}
+            accessibilityRole="button"
+          >
+            <Text style={styles.restrictionSecondaryButtonText}>Sair da conta</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   const awaitingCnpjGate =
     user
     && accessStatus === 'ok'
@@ -538,6 +599,8 @@ export default function AppLayout() {
           navigateTo={navigateTo}
           showTopNav={hasGlobalNav}
         />
+        <SupportNotificationWatcher userId={user.id} />
+        <SupportCenterHost />
         {!shellLocked ? (
           <SideDrawer
             visible={drawerOpen}
@@ -582,5 +645,53 @@ const createStyles = (isDarkMode: boolean) =>
     bootHint: {
       fontSize: 14,
       color: isDarkMode ? '#94A3B8' : '#64748B',
+    },
+    restrictionCard: {
+      width: '90%',
+      maxWidth: 480,
+      padding: 28,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: isDarkMode ? '#334155' : '#E2E8F0',
+      backgroundColor: isDarkMode ? '#172033' : '#FFFFFF',
+      alignItems: 'center',
+      gap: 16,
+    },
+    restrictionTitle: {
+      fontSize: 24,
+      fontWeight: '700',
+      color: isDarkMode ? '#F8FAFC' : '#102D60',
+      textAlign: 'center',
+    },
+    restrictionMessage: {
+      fontSize: 16,
+      lineHeight: 24,
+      color: isDarkMode ? '#CBD5E1' : '#475569',
+      textAlign: 'center',
+    },
+    restrictionPrimaryButton: {
+      width: '100%',
+      paddingVertical: 13,
+      borderRadius: 10,
+      backgroundColor: '#00AD78',
+      alignItems: 'center',
+    },
+    restrictionPrimaryButtonText: {
+      color: '#FFFFFF',
+      fontSize: 15,
+      fontWeight: '700',
+    },
+    restrictionSecondaryButton: {
+      width: '100%',
+      paddingVertical: 12,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: isDarkMode ? '#475569' : '#CBD5E1',
+      alignItems: 'center',
+    },
+    restrictionSecondaryButtonText: {
+      color: isDarkMode ? '#E2E8F0' : '#334155',
+      fontSize: 15,
+      fontWeight: '600',
     },
   });

@@ -1,5 +1,6 @@
 import {
   buildPlugNotasEmpresaPayload,
+  empresaFiscalToCompanyForm,
   getDefaultPlugNotasCompanyForm,
   getPlugNotasCompanyValidationMessage,
 } from '../plugNotasEmpresaForm';
@@ -73,5 +74,41 @@ describe('buildPlugNotasEmpresaPayload', () => {
       nfceAtivo: true,
     };
     expect(getPlugNotasCompanyValidationMessage(form)).toMatch(/NFC-e exige CSC/i);
+  });
+
+  it('carrega o próximo RPS já configurado no emissor', () => {
+    const form = empresaFiscalToCompanyForm({
+      nfse: { ativo: true, config: { rps: { numero: 43, serie: '1', lote: 1 } } },
+    });
+
+    expect(form.rpsNumero).toBe(43);
+  });
+
+  it('envia o próximo RPS do formulário para o PlugNotas', () => {
+    const form = {
+      ...getDefaultPlugNotasCompanyForm(),
+      razaoSocial: 'Empresa Teste LTDA',
+      email: 'contato@empresa.com.br',
+      logradouro: 'Rua A',
+      numero: '1',
+      bairro: 'Centro',
+      cep: '01310100',
+      codigoCidade: '3550308',
+      descricaoCidade: 'São Paulo',
+      estado: 'SP',
+      rpsNumero: 100,
+    };
+
+    const payload = buildPlugNotasEmpresaPayload({
+      cnpj: '12345678000199',
+      certificadoId: '',
+      form,
+    });
+
+    expect(payload.rps).toEqual({
+      lote: 1,
+      numeracao: [{ numero: 100, serie: '1' }],
+    });
+    expect((payload.nfse as { config: { rps: { numero: number } } }).config.rps.numero).toBe(100);
   });
 });

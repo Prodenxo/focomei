@@ -74,8 +74,12 @@ import {
   cadastrarPlugNotasEmpresa,
   atualizarPlugNotasEmpresa,
   consultarEmpresaFiscal,
+  consultarNumeracaoFiscal,
+  definirNumeracaoFiscal,
   lookupCnpj,
   type EmpresaFiscalData,
+  type NumeracaoFiscalData,
+  type NumeracaoFiscalDocumentType,
   type EmpresaFiscalEndereco,
   type NfseRecord,
   type DocumentType,
@@ -468,8 +472,20 @@ function MeiScreenContent() {
   const [hasCertificate, setHasCertificate] = useState(false);
   const [hasServerCertificate, setHasServerCertificate] = useState(false);
   const [certDocumento, setCertDocumento] = useState<string | null>(null);
+  const [certValidTo, setCertValidTo] = useState<string | null>(null);
   const [downloadLoading, setDownloadLoading] = useState(false);
   const [downloadGuiasAbertasLoading, setDownloadGuiasAbertasLoading] = useState(false);
+
+  // Com o A1 vencido a Receita recusa o termo de autorização e nada funciona até reenviar.
+  const certValidToDate = useMemo(() => {
+    if (!certValidTo) return null;
+    const validade = new Date(certValidTo);
+    return Number.isNaN(validade.getTime()) ? null : validade;
+  }, [certValidTo]);
+  const certificadoVencido = Boolean(
+    hasUserCertificate && certValidToDate && certValidToDate.getTime() < Date.now(),
+  );
+  const certValidToLabel = certValidToDate ? certValidToDate.toLocaleDateString('pt-BR') : null;
 
   // Parcelamentos
   const [parcelamentos, setParcelamentos] = useState<ParcelamentoItem[]>([]);
@@ -535,6 +551,13 @@ function MeiScreenContent() {
   const [pendingImportCnaes, setPendingImportCnaes] = useState<CnpjLookupCnaeItem[]>([]);
   const offerCnaeImportRef = useRef(false);
   const [isEditingEmpresa, setIsEditingEmpresa] = useState(false);
+  const [numeracaoFiscal, setNumeracaoFiscal] = useState<NumeracaoFiscalData | null>(null);
+  const [numeracaoLoading, setNumeracaoLoading] = useState(false);
+  const [numeracaoSaving, setNumeracaoSaving] = useState<NumeracaoFiscalDocumentType | null>(null);
+  const [numeracaoInput, setNumeracaoInput] = useState<Record<NumeracaoFiscalDocumentType, string>>({
+    NFSE: '',
+    NFE: '',
+  });
 
   // Emitir nota
   const [emitirNotaVisible, setEmitirNotaVisible] = useState(false);
@@ -892,6 +915,7 @@ function MeiScreenContent() {
         setHasServerCertificate(Boolean(status.hasEnvCertificate));
         setHasCertificate(Boolean(status.hasUserCertificate || status.hasEnvCertificate));
         setCertDocumento(status.documento || null);
+        setCertValidTo(status.certValidTo || null);
         setDocumentosAtivosMirror(status.documentosAtivos ?? null);
         setMeiError(null);
       } catch (error: any) {
@@ -900,6 +924,7 @@ function MeiScreenContent() {
         setHasCertificate(false);
         setHasServerCertificate(false);
         setCertDocumento(null);
+        setCertValidTo(null);
         setMeiError(error?.message || 'Nao foi possivel verificar o certificado');
       } finally {
         if (isMounted) {
@@ -1866,6 +1891,7 @@ function MeiScreenContent() {
       setHasCertificate(Boolean(status.hasUserCertificate || status.hasEnvCertificate));
       setHasServerCertificate(Boolean(status.hasEnvCertificate));
       setCertDocumento(status.documento || null);
+      setCertValidTo(status.certValidTo || null);
 
       setCertPassword('');
       setPickedCertFile(null);
@@ -1883,6 +1909,7 @@ function MeiScreenContent() {
         prestadorRazaoSocial: '',
         prestadorEmail: '',
         prestadorInscricaoMunicipal: '',
+        prestadorTelefone: '',
         prestadorEndereco: {
           logradouro: '',
           numero: '',
@@ -1957,6 +1984,7 @@ function MeiScreenContent() {
       setHasCertificate(Boolean(status.hasUserCertificate || status.hasEnvCertificate));
       // Limpa empresa, CNPJ e documento da UI — dados ficam no banco para quando enviar novo cert
       setCertDocumento(null);
+      setCertValidTo(null);
       setCnpj('');
       setEmpresaFiscal(null);
       setIsEditingEmpresa(false);
@@ -2307,6 +2335,9 @@ function MeiScreenContent() {
         tomadorCpfCnpj: formatDocument(digits),
         tomadorRazaoSocial: f.tomadorRazaoSocial?.trim() || prefill.tomadorRazaoSocial,
         tomadorEmail: f.tomadorEmail?.trim() || prefill.tomadorEmail,
+        tomadorInscricaoMunicipal:
+          f.tomadorInscricaoMunicipal?.trim() || prefill.tomadorInscricaoMunicipal,
+        tomadorTelefone: f.tomadorTelefone?.trim() || prefill.tomadorTelefone,
         tomadorEndereco: prefill.tomadorEndereco,
       }));
       lastTomadorLookupDocRef.current = digits;
@@ -2322,6 +2353,9 @@ function MeiScreenContent() {
         tomadorCpfCnpj: formatDocument(digits),
         tomadorRazaoSocial: f.tomadorRazaoSocial?.trim() || prefill.tomadorRazaoSocial,
         tomadorEmail: f.tomadorEmail?.trim() || prefill.tomadorEmail,
+        tomadorInscricaoMunicipal:
+          f.tomadorInscricaoMunicipal?.trim() || prefill.tomadorInscricaoMunicipal,
+        tomadorTelefone: f.tomadorTelefone?.trim() || prefill.tomadorTelefone,
         tomadorEndereco: prefill.tomadorEndereco,
       }));
       lastTomadorLookupDocRef.current = digits;
@@ -2348,6 +2382,8 @@ function MeiScreenContent() {
           : '',
         tomadorRazaoSocial: prefill.tomadorRazaoSocial,
         tomadorEmail: prefill.tomadorEmail,
+        tomadorInscricaoMunicipal: prefill.tomadorInscricaoMunicipal,
+        tomadorTelefone: prefill.tomadorTelefone,
         tomadorEndereco: prefill.tomadorEndereco,
       }));
       lastTomadorLookupDocRef.current = normalizeDoc(prefill.tomadorCpfCnpj);
@@ -2367,6 +2403,7 @@ function MeiScreenContent() {
         destinatarioRazaoSocial: prefill.destinatarioRazaoSocial,
         destinatarioEmail: prefill.destinatarioEmail,
         destinatarioIndIEDest: prefill.destinatarioIndIEDest,
+        destinatarioInscricaoEstadual: prefill.destinatarioInscricaoEstadual,
         destinatarioEndereco: prefill.destinatarioEndereco,
       }));
       if (emitirNotaType === 'NFE' && !catalogClienteHasNfeEndereco(item)) {
@@ -2443,6 +2480,9 @@ function MeiScreenContent() {
               tomadorRazaoSocial:
                 nfseForm.tomadorRazaoSocial?.trim() || prefill.tomadorRazaoSocial,
               tomadorEmail: nfseForm.tomadorEmail?.trim() || prefill.tomadorEmail,
+              tomadorInscricaoMunicipal:
+                nfseForm.tomadorInscricaoMunicipal?.trim() || prefill.tomadorInscricaoMunicipal,
+              tomadorTelefone: nfseForm.tomadorTelefone?.trim() || prefill.tomadorTelefone,
               tomadorEndereco: prefill.tomadorEndereco,
             };
             setNfseForm(formToEmit);
@@ -2680,6 +2720,126 @@ function MeiScreenContent() {
     setPlugNotasCompanyForm(getDefaultPlugNotasCompanyForm());
   };
 
+  const applyNumeracaoFiscal = useCallback((data: NumeracaoFiscalData) => {
+    setNumeracaoFiscal(data);
+    setNumeracaoInput({
+      NFSE: String(data.nfse.ultimoUtilizado),
+      NFE: String(data.nfe.ultimoUtilizado),
+    });
+  }, []);
+
+  useEffect(() => {
+    const digits = normalizeDoc(plugNotasCnpj);
+    if (!showPlugNotasEmpresaForm || digits.length !== 14 || !empresaFiscal?.cpfCnpj) {
+      return;
+    }
+    let cancelled = false;
+    setNumeracaoLoading(true);
+    consultarNumeracaoFiscal(digits)
+      .then((data) => { if (!cancelled) applyNumeracaoFiscal(data); })
+      .catch(() => { if (!cancelled) setNumeracaoFiscal(null); })
+      .finally(() => { if (!cancelled) setNumeracaoLoading(false); });
+    return () => { cancelled = true; };
+  }, [applyNumeracaoFiscal, empresaFiscal?.cpfCnpj, plugNotasCnpj, showPlugNotasEmpresaForm]);
+
+  const handleSalvarNumeracao = useCallback(async (documentType: NumeracaoFiscalDocumentType) => {
+    const digits = normalizeDoc(plugNotasCnpj);
+    if (digits.length !== 14) {
+      showToast('Informe um CNPJ válido antes de ajustar a numeração.', 'error');
+      return;
+    }
+
+    const ultimo = Number.parseInt(numeracaoInput[documentType].replace(/\D/g, ''), 10);
+    if (!Number.isFinite(ultimo) || ultimo < 0) {
+      showToast('Informe o número da última nota emitida.', 'error');
+      return;
+    }
+
+    const atual = documentType === 'NFSE' ? numeracaoFiscal?.nfse : numeracaoFiscal?.nfe;
+    const historico = atual?.historicoMaximo ?? 0;
+    if (historico > 0 && ultimo < historico) {
+      const label = documentType === 'NFSE' ? 'DPS/RPS' : 'NF-e';
+      const confirmado = await confirmDialog({
+        title: 'Numeração abaixo do histórico',
+        message: `Já encontramos a nota ${historico} (${label}) no histórico do emissor. `
+          + `Se continuar, a próxima sairá com o número ${ultimo + 1}. `
+          + 'Se esse número já estiver ocupado, o sistema avança sozinho até achar um livre.',
+        confirmLabel: 'Usar assim mesmo',
+      });
+      if (!confirmado) return;
+    }
+
+    setNumeracaoSaving(documentType);
+    try {
+      const data = await definirNumeracaoFiscal({ cnpj: digits, documentType, ultimoUtilizado: ultimo });
+      applyNumeracaoFiscal(data);
+      showToast('Numeração salva. A próxima nota já sai com esse número.', 'success');
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'Falha ao salvar a numeração.', 'error');
+    } finally {
+      setNumeracaoSaving(null);
+    }
+  }, [applyNumeracaoFiscal, numeracaoFiscal, numeracaoInput, plugNotasCnpj, showToast]);
+
+  const renderNumeracaoLinha = (documentType: NumeracaoFiscalDocumentType) => {
+    const atual = documentType === 'NFSE' ? numeracaoFiscal?.nfse : numeracaoFiscal?.nfe;
+    const salvando = numeracaoSaving === documentType;
+
+    return (
+      <View key={documentType}>
+        <Text style={[styles.label, { fontSize: 13 }]}>
+          {documentType === 'NFSE'
+            ? 'Último DPS/RPS emitido (NFS-e)'
+            : 'Último número emitido (NF-e)'}
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          <TextInput
+            style={[styles.input, { flex: 1 }]}
+            placeholder="Ex.: 125"
+            placeholderTextColor={theme.placeholder}
+            value={numeracaoInput[documentType]}
+            onChangeText={(value) => setNumeracaoInput((prev) => ({
+              ...prev,
+              [documentType]: value.replace(/\D/g, ''),
+            }))}
+            keyboardType="numeric"
+            editable={!salvando}
+          />
+          <TouchableOpacity
+            style={{
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              borderRadius: 8,
+              backgroundColor: theme.primary,
+              opacity: salvando ? 0.6 : 1,
+            }}
+            onPress={() => handleSalvarNumeracao(documentType)}
+            disabled={salvando}
+          >
+            {salvando ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 13 }}>Salvar</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+        <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 4, lineHeight: 16 }}>
+          {atual
+            ? `A próxima nota sai com o número ${atual.proximoNumero}.`
+            : 'Numeração ainda não consultada no emissor.'}
+          {atual && atual.historicoMaximo > 0
+            ? ` Maior número já registrado no emissor: ${atual.historicoMaximo}.`
+            : ''}
+        </Text>
+        {atual?.ajusteManualPendente ? (
+          <Text style={{ fontSize: 11, color: theme.warning, marginTop: 2, lineHeight: 16 }}>
+            Ajuste manual salvo — vale na próxima emissão.
+          </Text>
+        ) : null}
+      </View>
+    );
+  };
+
   const handlePlugNotasEmpresaSubmit = async () => {
     const cnpjNorm = normalizeDoc(plugNotasCnpj);
     if (cnpjNorm.length !== 14) {
@@ -2880,20 +3040,25 @@ function MeiScreenContent() {
                 <View
                   style={[
                     styles.contextChipDot,
-                    { backgroundColor: hasCertificate ? theme.success : theme.error },
+                    {
+                      backgroundColor:
+                        hasCertificate && !certificadoVencido ? theme.success : theme.error,
+                    },
                   ]}
                 />
                 <View>
                   <Text style={styles.contextChipLabel}>Certificado</Text>
                   <Text
                     style={
-                      hasUserCertificate
+                      hasUserCertificate && !certificadoVencido
                         ? styles.contextChipValueSuccess
                         : styles.contextChipValueError
                     }
                   >
                     {meiCertificateLoading
                       ? 'Verificando...'
+                      : certificadoVencido
+                      ? `Vencido em ${certValidToLabel}`
                       : hasUserCertificate
                       ? 'Configurado'
                       : 'Não configurado'}
@@ -2991,14 +3156,21 @@ function MeiScreenContent() {
                 <View
                   style={[
                     styles.overviewIconWrap,
-                    hasCertificate ? styles.overviewIconWrapSuccess : styles.overviewIconWrapError,
+                    hasCertificate && !certificadoVencido
+                      ? styles.overviewIconWrapSuccess
+                      : styles.overviewIconWrapError,
                   ]}
                 >
-                  <CertificateIcon size={22} color={hasCertificate ? theme.success : theme.error} />
+                  <CertificateIcon
+                    size={22}
+                    color={hasCertificate && !certificadoVencido ? theme.success : theme.error}
+                  />
                 </View>
                 <Text style={styles.overviewTitle}>Certificado Digital</Text>
                 <Text style={styles.overviewDesc}>
-                  {hasUserCertificate
+                  {certificadoVencido
+                    ? `Seu certificado A1 venceu em ${certValidToLabel}. Emita um novo e-CNPJ do MEI e envie o arquivo para voltar a baixar guias e emitir notas.`
+                    : hasUserCertificate
                     ? 'Certificado A1 instalado e válido para emissão.'
                     : 'Você ainda não enviou um certificado A1. Sem ele, não é possível emitir notas nem baixar guias.'}
                 </Text>
@@ -3007,10 +3179,18 @@ function MeiScreenContent() {
                   <Text
                     style={[
                       styles.overviewMetricValue,
-                      hasUserCertificate ? styles.overviewMetricValueSuccess : styles.overviewMetricValueError,
+                      hasUserCertificate && !certificadoVencido
+                        ? styles.overviewMetricValueSuccess
+                        : styles.overviewMetricValueError,
                     ]}
                   >
-                    {meiCertificateLoading ? '...' : hasUserCertificate ? 'Pronto' : 'Pendente'}
+                    {meiCertificateLoading
+                      ? '...'
+                      : certificadoVencido
+                      ? 'Vencido'
+                      : hasUserCertificate
+                      ? 'Pronto'
+                      : 'Pendente'}
                   </Text>
                 </View>
                 <Text style={styles.overviewCta}>Gerenciar →</Text>
@@ -3991,6 +4171,24 @@ function MeiScreenContent() {
                   />
                 </View>
 
+                {empresaFiscal?.cpfCnpj ? (
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Numeração das notas</Text>
+                    <Text style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 10, lineHeight: 18 }}>
+                      Informe o número da última nota que você emitiu. A próxima sai com o número
+                      seguinte, mesmo que o emissor tenha registrado uma numeração maior.
+                    </Text>
+                    {numeracaoLoading && !numeracaoFiscal ? (
+                      <ActivityIndicator size="small" color={theme.primary} />
+                    ) : (
+                      <View style={{ gap: 14 }}>
+                        {documentosPermitidos.nfse ? renderNumeracaoLinha('NFSE') : null}
+                        {documentosPermitidos.nfe ? renderNumeracaoLinha('NFE') : null}
+                      </View>
+                    )}
+                  </View>
+                ) : null}
+
                 {documentosPermitidos.nfe ? (
                   <View style={styles.inputGroup}>
                     <Text style={styles.label}>Inscrição estadual (IE)</Text>
@@ -4269,6 +4467,25 @@ function MeiScreenContent() {
                     }}
                   />
                   <MeiFormField
+                    label="Inscrição municipal prestador"
+                    placeholder="Opcional — exigida por algumas prefeituras"
+                    value={nfseForm.prestadorInscricaoMunicipal ?? ''}
+                    onChangeText={(t) => {
+                      touchNfsePrestadorFields();
+                      setNfseForm((f) => ({ ...f, prestadorInscricaoMunicipal: t }));
+                    }}
+                  />
+                  <MeiFormField
+                    label="Telefone prestador"
+                    placeholder="Opcional — (00) 00000-0000"
+                    value={nfseForm.prestadorTelefone ?? ''}
+                    keyboardType="phone-pad"
+                    onChangeText={(t) => {
+                      touchNfsePrestadorFields();
+                      setNfseForm((f) => ({ ...f, prestadorTelefone: t }));
+                    }}
+                  />
+                  <MeiFormField
                     label="Logradouro prestador"
                     required
                     placeholder="Rua, número"
@@ -4396,6 +4613,19 @@ function MeiScreenContent() {
                     keyboardType="email-address"
                     autoCapitalize="none"
                   />
+                  <MeiFormField
+                    label="Inscrição municipal tomador"
+                    placeholder="Opcional — exigida por algumas empresas"
+                    value={nfseForm.tomadorInscricaoMunicipal ?? ''}
+                    onChangeText={(t) => setNfseForm((f) => ({ ...f, tomadorInscricaoMunicipal: t }))}
+                  />
+                  <MeiFormField
+                    label="Telefone tomador"
+                    placeholder="Opcional — (00) 00000-0000"
+                    value={nfseForm.tomadorTelefone ?? ''}
+                    keyboardType="phone-pad"
+                    onChangeText={(t) => setNfseForm((f) => ({ ...f, tomadorTelefone: t }))}
+                  />
                   {normalizeDoc(nfseForm.tomadorCpfCnpj ?? '').length === 14
                   && nfseForm.tomadorEndereco?.logradouro?.trim()
                   && nfseForm.tomadorEndereco?.descricaoCidade?.trim() ? (
@@ -4479,6 +4709,17 @@ function MeiScreenContent() {
                     value={String(nfseForm.servico?.aliquota ?? '')}
                     onChangeText={(t) => setNfseForm((f) => ({ ...f, servico: { ...f.servico, aliquota: t } }))}
                     keyboardType="decimal-pad"
+                  />
+                  <MeiFormField
+                    label="NBS (opcional)"
+                    placeholder="9 dígitos — não é exigido do MEI"
+                    hint="Deixe em branco para o sistema sugerir pelo código do serviço."
+                    value={String(nfseForm.servico?.codigoNbs ?? '')}
+                    onChangeText={(t) => setNfseForm((f) => ({
+                      ...f,
+                      servico: { ...f.servico, codigoNbs: t.replace(/\D/g, '').slice(0, 9) },
+                    }))}
+                    keyboardType="numeric"
                   />
                   <MeiFormField
                     label="Valor do serviço"

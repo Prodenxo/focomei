@@ -65,9 +65,12 @@ export const emitStripeMeiContrato = async (req, res, next) => {
       req.body || {},
     );
     const crmLeadId = data?.crm?.dispatch?.response?.leadId;
-    const msg = crmLeadId
+    let msg = crmLeadId
       ? `Lead CRM #${crmLeadId} criado e contrato enviado ao robô Onety`
       : 'Contrato enviado ao robô Onety com sucesso';
+    if (data?.crmError) {
+      msg = `Contrato enviado ao robô Onety, mas o lead no CRM falhou: ${data.crmError}`;
+    }
     return sendSuccess(res, data, msg);
   } catch (error) {
     return next(error);

@@ -17,6 +17,7 @@ import { AppBrandLogo } from './AppBrandLogo';
 import { APP_BRAND_NAME } from '@/lib/appBrand';
 import { SHELL_NAV_MAX_WIDTH } from './shellTokens';
 import { SignOutHeaderButton } from '../settings/SignOutHeaderButton';
+import { SupportNotificationsBell } from '../support/SupportNotificationsBell';
 
 type Props = {
   current: AppScreenName;
@@ -115,6 +116,7 @@ export default function AppTopNav({
           )}
 
           <View style={styles.actions}>
+            <SupportNotificationsBell compact={compact} />
             <Pressable
               onPress={() => void toggleTheme()}
               style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}

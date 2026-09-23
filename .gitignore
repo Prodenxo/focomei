@@ -30,6 +30,7 @@ landing-exports/
 # Depend?ncias e build
 **/node_modules/
 **/.expo/
+**/.next/
 **/dist/
 **/dist-test/
 **/build/

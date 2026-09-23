@@ -38,11 +38,11 @@ export type SupportTicketModalProps = {
 
 const MODAL_MAX_WIDTH = 560
 
-const PRIORITY_OPTIONS: Array<{ key: SupportTicketPriority; label: string }> = [
+const PRIORITY_OPTIONS: { key: SupportTicketPriority; label: string }[] = [
   { key: 'baixa', label: 'Baixa' },
   { key: 'media', label: 'Média' },
   { key: 'alta', label: 'Alta' },
-  { key: 'critica', label: 'Crítica' },
+  { key: 'urgente', label: 'Urgente' },
 ]
 
 function defaultPrazoIso (daysAhead = 7): string {

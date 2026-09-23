@@ -1,39 +1,51 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   FlatList,
   RefreshControl,
   Text,
   View,
-} from 'react-native'
-import { Ionicons } from '@expo/vector-icons'
-import { Pressable } from 'react-native'
-import type { NfeDestinatarioEnderecoForm } from '../lib/meiNfseForms'
-import type { DestinatarioIndIeDest } from '../lib/meiNfeDestinatarioIe'
-import { buildClienteCatalogLabel } from '../lib/meiFormatters'
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { Pressable } from "react-native";
+import type { NfeDestinatarioEnderecoForm } from "../lib/meiNfseForms";
+import type { DestinatarioIndIeDest } from "../lib/meiNfeDestinatarioIe";
+import { buildClienteCatalogLabel } from "../lib/meiFormatters";
 import {
   buildCatalogClienteMetadataJson,
   enderecoFromCnpjLookup,
+  formatTelefoneLookup,
   mergeEnderecoFromCepLookup,
   parseCatalogClienteFiscalMeta,
   validateCatalogClienteNfeFields,
   validateCatalogClienteNfseTomadorFields,
-} from '../lib/meiCatalogClienteFiscal'
+} from "../lib/meiCatalogClienteFiscal";
 import {
   formatCatalogGrupoMeta,
   groupCatalogoClientes,
   type CatalogClienteGrupo,
-} from '../lib/meiCatalogClienteGroup'
-import { getDefaultNfeDestinatarioEndereco } from '../lib/meiNfseForms'
-import { DEFAULT_DESTINATARIO_IND_IE_DEST } from '../lib/meiNfeDestinatarioIe'
-import type { NfseCatalogCliente } from '../services/meiNotasService'
+} from "../lib/meiCatalogClienteGroup";
+import { getDefaultNfeDestinatarioEndereco } from "../lib/meiNfseForms";
+import {
+  DEFAULT_DESTINATARIO_IND_IE_DEST,
+  DESTINATARIO_IE_OPTIONS,
+  DESTINATARIO_IE_SECTION_HINT,
+  getDestinatarioIeValidationMessage,
+} from "../lib/meiNfeDestinatarioIe";
+import type { NfseCatalogCliente } from "../services/meiNotasService";
 import {
   listarCatalogoNfseClientes,
   lookupCnpj,
   lookupNfseEnderecoPorCep,
   softHideCatalogoClientePorDocumento,
   syncCatalogoClienteDocumentTypes,
-} from '../services/meiNotasService'
+} from "../services/meiNotasService";
 import {
   MeiFlowModalShell,
   MeiFormField,
@@ -46,355 +58,423 @@ import {
   MeiTypeMultiChips,
   useMeiFlowStyles,
   type MeiDocType,
-} from '../components/mei/meiFlowUi'
-import { useMfTheme } from '../components/ui/useMfTheme'
-import { alertDialog } from '../lib/confirmDialog'
-import { useAppToastStore } from '../store/appToastStore'
+} from "../components/mei/meiFlowUi";
+import { useMfTheme } from "../components/ui/useMfTheme";
+import { alertDialog } from "../lib/confirmDialog";
+import { useAppToastStore } from "../store/appToastStore";
 
-const PAGE_SIZE = 50
-const CLIENTE_DOC_TYPES: MeiDocType[] = ['NFSE', 'NFE', 'NFCE']
+const PAGE_SIZE = 50;
+const CLIENTE_DOC_TYPES: MeiDocType[] = ["NFSE", "NFE", "NFCE"];
 
-function normalizeDoc (value: string): string {
-  return value.replace(/\D/g, '')
+function normalizeDoc(value: string): string {
+  return value.replace(/\D/g, "");
 }
 
-function formatDocumentDisplay (value: string): string {
-  const digits = normalizeDoc(value).slice(0, 14)
-  let formatted = ''
+function formatDocumentDisplay(value: string): string {
+  const digits = normalizeDoc(value).slice(0, 14);
+  let formatted = "";
   for (let i = 0; i < digits.length; i += 1) {
-    formatted += digits[i]
+    formatted += digits[i];
     if (digits.length <= 11) {
-      if (i === 2 || i === 5) formatted += '.'
-      if (i === 8) formatted += '-'
+      if (i === 2 || i === 5) formatted += ".";
+      if (i === 8) formatted += "-";
     } else {
-      if (i === 1 || i === 4) formatted += '.'
-      if (i === 7) formatted += '/'
-      if (i === 11) formatted += '-'
+      if (i === 1 || i === 4) formatted += ".";
+      if (i === 7) formatted += "/";
+      if (i === 11) formatted += "-";
     }
   }
-  return formatted
+  return formatted;
 }
 
-function validateClienteForm (documento: string, nome: string): string | null {
-  const doc = normalizeDoc(documento)
+function validateClienteForm(documento: string, nome: string): string | null {
+  const doc = normalizeDoc(documento);
   if (doc.length !== 11 && doc.length !== 14) {
-    return 'Informe CPF (11 dígitos) ou CNPJ (14 dígitos).'
+    return "Informe CPF (11 dígitos) ou CNPJ (14 dígitos).";
   }
   if (!nome.trim()) {
-    return 'Nome ou razão social é obrigatório.'
+    return "Nome ou razão social é obrigatório.";
   }
-  return null
+  return null;
 }
 
 export type MeiCatalogoClientesModalProps = {
-  visible: boolean
-  onClose: () => void
-  onCatalogChanged?: () => void
-}
+  visible: boolean;
+  onClose: () => void;
+  onCatalogChanged?: () => void;
+};
 
 type FormState = {
-  documento: string
-  nome: string
-  email: string
-  documentTypes: Array<'NFSE' | 'NFE' | 'NFCE'>
-  indIEDest: DestinatarioIndIeDest
-  endereco: NfeDestinatarioEnderecoForm
-}
+  documento: string;
+  nome: string;
+  email: string;
+  documentTypes: Array<"NFSE" | "NFE" | "NFCE">;
+  indIEDest: DestinatarioIndIeDest;
+  inscricaoEstadual: string;
+  inscricaoMunicipal: string;
+  telefone: string;
+  endereco: NfeDestinatarioEnderecoForm;
+};
 
 const emptyForm = (): FormState => ({
-  documento: '',
-  nome: '',
-  email: '',
-  documentTypes: ['NFSE'],
+  documento: "",
+  nome: "",
+  email: "",
+  documentTypes: ["NFSE"],
   indIEDest: DEFAULT_DESTINATARIO_IND_IE_DEST,
+  inscricaoEstadual: "",
+  inscricaoMunicipal: "",
+  telefone: "",
   endereco: getDefaultNfeDestinatarioEndereco(),
-})
+});
 
-export default function MeiCatalogoClientesModal ({
+export default function MeiCatalogoClientesModal({
   visible,
   onClose,
   onCatalogChanged,
 }: MeiCatalogoClientesModalProps) {
-  const { theme } = useMfTheme()
-  const flow = useMeiFlowStyles()
-  const showToast = useAppToastStore((s) => s.show)
+  const { theme } = useMfTheme();
+  const flow = useMeiFlowStyles();
+  const showToast = useAppToastStore((s) => s.show);
 
-  const [items, setItems] = useState<NfseCatalogCliente[]>([])
-  const [loading, setLoading] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const [hasMore, setHasMore] = useState(true)
-  const [searchQ, setSearchQ] = useState('')
-  const nextOffsetRef = useRef(0)
-  const searchQRef = useRef(searchQ)
-  const hasMoreRef = useRef(hasMore)
-  const loadingMoreRef = useRef(loadingMore)
-  const refreshingRef = useRef(refreshing)
-  const fetchGenRef = useRef(0)
+  const [items, setItems] = useState<NfseCatalogCliente[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [searchQ, setSearchQ] = useState("");
+  const nextOffsetRef = useRef(0);
+  const searchQRef = useRef(searchQ);
+  const hasMoreRef = useRef(hasMore);
+  const loadingMoreRef = useRef(loadingMore);
+  const refreshingRef = useRef(refreshing);
+  const fetchGenRef = useRef(0);
 
-  searchQRef.current = searchQ
-  hasMoreRef.current = hasMore
-  loadingMoreRef.current = loadingMore
-  refreshingRef.current = refreshing
+  searchQRef.current = searchQ;
+  hasMoreRef.current = hasMore;
+  loadingMoreRef.current = loadingMore;
+  refreshingRef.current = refreshing;
 
-  const [formVisible, setFormVisible] = useState(false)
-  const [editingDocumento, setEditingDocumento] = useState<string | null>(null)
-  const [form, setForm] = useState<FormState>(emptyForm)
-  const [saving, setSaving] = useState(false)
-  const [cnpjLookupLoading, setCnpjLookupLoading] = useState(false)
-  const [cepLookupLoading, setCepLookupLoading] = useState(false)
-  const lastCepLookupRef = useRef('')
-  const [deleteTarget, setDeleteTarget] = useState<CatalogClienteGrupo | null>(null)
-  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [formVisible, setFormVisible] = useState(false);
+  const [editingDocumento, setEditingDocumento] = useState<string | null>(null);
+  const [form, setForm] = useState<FormState>(emptyForm);
+  const [saving, setSaving] = useState(false);
+  const [cnpjLookupLoading, setCnpjLookupLoading] = useState(false);
+  const [cepLookupLoading, setCepLookupLoading] = useState(false);
+  const lastCepLookupRef = useRef("");
+  const [deleteTarget, setDeleteTarget] = useState<CatalogClienteGrupo | null>(
+    null,
+  );
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
-  const groupedItems = useMemo(() => groupCatalogoClientes(items), [items])
+  const groupedItems = useMemo(() => groupCatalogoClientes(items), [items]);
 
   const resetList = useCallback(() => {
-    setItems([])
-    nextOffsetRef.current = 0
-    setHasMore(true)
-  }, [])
+    setItems([]);
+    nextOffsetRef.current = 0;
+    setHasMore(true);
+  }, []);
 
   const fetchPage = useCallback(
     async (opts: { append: boolean; q?: string; reset?: boolean }) => {
-      const q = opts.q !== undefined ? opts.q : searchQRef.current
-      const startOffset = opts.reset ? 0 : opts.append ? nextOffsetRef.current : 0
-      if (opts.append && (!hasMoreRef.current || loadingMoreRef.current)) return
+      const q = opts.q !== undefined ? opts.q : searchQRef.current;
+      const startOffset = opts.reset
+        ? 0
+        : opts.append
+          ? nextOffsetRef.current
+          : 0;
+      if (opts.append && (!hasMoreRef.current || loadingMoreRef.current))
+        return;
 
-      const gen = ++fetchGenRef.current
-      if (opts.append) setLoadingMore(true)
-      else if (!opts.append && !refreshingRef.current) setLoading(true)
+      const gen = ++fetchGenRef.current;
+      if (opts.append) setLoadingMore(true);
+      else if (!opts.append && !refreshingRef.current) setLoading(true);
 
       try {
         const page = await listarCatalogoNfseClientes({
           q: q.trim() || undefined,
           limit: PAGE_SIZE,
           offset: startOffset > 0 ? startOffset : undefined,
-        })
-        if (gen !== fetchGenRef.current) return
+        });
+        if (gen !== fetchGenRef.current) return;
 
-        const list = Array.isArray(page) ? page : []
+        const list = Array.isArray(page) ? page : [];
         if (opts.append) {
-          setItems((prev) => [...prev, ...list])
+          setItems((prev) => [...prev, ...list]);
         } else {
-          setItems(list)
+          setItems(list);
         }
-        setHasMore(list.length >= PAGE_SIZE)
-        nextOffsetRef.current = startOffset + list.length
+        setHasMore(list.length >= PAGE_SIZE);
+        nextOffsetRef.current = startOffset + list.length;
       } catch (e: unknown) {
-        if (gen !== fetchGenRef.current) return
-        const msg = e instanceof Error ? e.message : 'Não foi possível carregar o catálogo.'
+        if (gen !== fetchGenRef.current) return;
+        const msg =
+          e instanceof Error
+            ? e.message
+            : "Não foi possível carregar o catálogo.";
         if (!opts.append) {
-          alertDialog('Erro', msg)
-          setItems([])
+          alertDialog("Erro", msg);
+          setItems([]);
         }
       } finally {
-        if (gen !== fetchGenRef.current) return
-        setLoading(false)
-        setRefreshing(false)
-        setLoadingMore(false)
+        if (gen !== fetchGenRef.current) return;
+        setLoading(false);
+        setRefreshing(false);
+        setLoadingMore(false);
       }
     },
     [],
-  )
+  );
 
   useEffect(() => {
-    if (!visible) return
-    resetList()
-    void fetchPage({ append: false, reset: true })
-  }, [visible, resetList, fetchPage])
+    if (!visible) return;
+    resetList();
+    void fetchPage({ append: false, reset: true });
+  }, [visible, resetList, fetchPage]);
 
   const onRefresh = useCallback(() => {
-    setRefreshing(true)
-    resetList()
-    void fetchPage({ append: false, reset: true, q: searchQ })
-  }, [fetchPage, resetList, searchQ])
+    setRefreshing(true);
+    resetList();
+    void fetchPage({ append: false, reset: true, q: searchQ });
+  }, [fetchPage, resetList, searchQ]);
 
   const loadMore = useCallback(() => {
-    if (!hasMore || loadingMore || loading) return
-    void fetchPage({ append: true })
-  }, [fetchPage, hasMore, loading, loadingMore])
+    if (!hasMore || loadingMore || loading) return;
+    void fetchPage({ append: true });
+  }, [fetchPage, hasMore, loading, loadingMore]);
 
   const notifyChanged = useCallback(() => {
-    onCatalogChanged?.()
-  }, [onCatalogChanged])
+    onCatalogChanged?.();
+  }, [onCatalogChanged]);
 
   const openCreate = () => {
-    setEditingDocumento(null)
-    lastCepLookupRef.current = ''
-    setForm(emptyForm())
-    setFormVisible(true)
-  }
+    setEditingDocumento(null);
+    lastCepLookupRef.current = "";
+    setForm(emptyForm());
+    setFormVisible(true);
+  };
 
   const openEdit = async (group: CatalogClienteGrupo) => {
-    const fiscal = parseCatalogClienteFiscalMeta(group.primary.metadata_json ?? undefined)
-    setEditingDocumento(group.documento)
-    lastCepLookupRef.current = ''
+    const fiscal = parseCatalogClienteFiscalMeta(
+      group.primary.metadata_json ?? undefined,
+    );
+    setEditingDocumento(group.documento);
+    lastCepLookupRef.current = "";
     setForm({
       documento: formatDocumentDisplay(group.documento),
-      nome: group.nome ?? '',
-      email: group.email ?? '',
+      nome: group.nome ?? "",
+      email: group.email ?? "",
       documentTypes: group.activeTypes.filter(
-        (t): t is 'NFSE' | 'NFE' | 'NFCE' => t === 'NFSE' || t === 'NFE' || t === 'NFCE',
+        (t): t is "NFSE" | "NFE" | "NFCE" =>
+          t === "NFSE" || t === "NFE" || t === "NFCE",
       ),
       indIEDest: fiscal.indIEDest ?? DEFAULT_DESTINATARIO_IND_IE_DEST,
+      inscricaoEstadual: fiscal.inscricaoEstadual ?? "",
+      inscricaoMunicipal: fiscal.inscricaoMunicipal ?? "",
+      telefone: fiscal.telefone ?? "",
       endereco: fiscal.endereco ?? getDefaultNfeDestinatarioEndereco(),
-    })
-    setFormVisible(true)
+    });
+    setFormVisible(true);
 
     try {
       const all = await listarCatalogoNfseClientes({
         q: group.documento,
         limit: 20,
         includeInactive: true,
-      })
+      });
       const exact = (Array.isArray(all) ? all : []).filter(
-        (r) => normalizeDoc(r.documento || '') === group.documento,
-      )
+        (r) => normalizeDoc(r.documento || "") === group.documento,
+      );
       const activeFromApi = exact
         .filter((r) => r.active !== false)
-        .map((r) => String(r.document_type || '').toUpperCase())
-        .filter((t): t is 'NFSE' | 'NFE' | 'NFCE' => t === 'NFSE' || t === 'NFE' || t === 'NFCE')
+        .map((r) => String(r.document_type || "").toUpperCase())
+        .filter(
+          (t): t is "NFSE" | "NFE" | "NFCE" =>
+            t === "NFSE" || t === "NFE" || t === "NFCE",
+        );
       if (activeFromApi.length > 0) {
         setForm((f) => ({
           ...f,
           documentTypes: [...new Set(activeFromApi)],
-        }))
+        }));
       }
-      const bestMeta = exact.find((r) => r.document_type === 'NFE') || exact[0]
+      const bestMeta = exact.find((r) => r.document_type === "NFE") || exact[0];
       if (bestMeta?.metadata_json) {
-        const meta = parseCatalogClienteFiscalMeta(bestMeta.metadata_json)
+        const meta = parseCatalogClienteFiscalMeta(bestMeta.metadata_json);
         setForm((f) => ({
           ...f,
           indIEDest: meta.indIEDest ?? f.indIEDest,
+          inscricaoEstadual: meta.inscricaoEstadual ?? f.inscricaoEstadual,
+          inscricaoMunicipal: meta.inscricaoMunicipal ?? f.inscricaoMunicipal,
+          telefone: meta.telefone ?? f.telefone,
           endereco: meta.endereco ?? f.endereco,
-        }))
+        }));
       }
     } catch {
       // Mantém os tipos já carregados do grupo na listagem.
     }
-  }
+  };
 
   const lookupDocumentoEndereco = async () => {
-    const digits = normalizeDoc(form.documento)
-    if (digits.length !== 14) return
-    setCnpjLookupLoading(true)
+    const digits = normalizeDoc(form.documento);
+    if (digits.length !== 14) return;
+    setCnpjLookupLoading(true);
     try {
-      const data = await lookupCnpj(digits)
+      const data = await lookupCnpj(digits);
       setForm((f) => ({
         ...f,
         nome: f.nome.trim() || data.razaoSocial || f.nome,
         email: f.email.trim() || data.email || f.email,
+        telefone: f.telefone.trim() || formatTelefoneLookup(data.telefone),
+        inscricaoMunicipal:
+          f.inscricaoMunicipal.trim() ||
+          String(data.inscricaoMunicipal ?? "").trim(),
         endereco: enderecoFromCnpjLookup(data),
-      }))
-      showToast('Endereço preenchido pela Receita Federal.', 'success')
+      }));
+      showToast("Endereço preenchido pela Receita Federal.", "success");
     } catch (e: unknown) {
-      showToast(e instanceof Error ? e.message : 'Não foi possível consultar o CNPJ.', 'error')
+      showToast(
+        e instanceof Error ? e.message : "Não foi possível consultar o CNPJ.",
+        "error",
+      );
     } finally {
-      setCnpjLookupLoading(false)
+      setCnpjLookupLoading(false);
     }
-  }
+  };
 
   const lookupCepEndereco = async (cepRaw?: string) => {
-    const cep = normalizeDoc(cepRaw ?? form.endereco.cep)
-    if (cep.length !== 8) return
-    if (cep === lastCepLookupRef.current) return
-    lastCepLookupRef.current = cep
-    setCepLookupLoading(true)
+    const cep = normalizeDoc(cepRaw ?? form.endereco.cep);
+    if (cep.length !== 8) return;
+    if (cep === lastCepLookupRef.current) return;
+    lastCepLookupRef.current = cep;
+    setCepLookupLoading(true);
     try {
-      const data = await lookupNfseEnderecoPorCep(cep)
+      const data = await lookupNfseEnderecoPorCep(cep);
       setForm((f) => ({
         ...f,
         endereco: mergeEnderecoFromCepLookup(f.endereco, data),
-      }))
-      showToast('Endereço e código IBGE preenchidos pelo CEP.', 'success')
+      }));
+      showToast("Endereço e código IBGE preenchidos pelo CEP.", "success");
     } catch (e: unknown) {
-      lastCepLookupRef.current = ''
-      showToast(e instanceof Error ? e.message : 'Não foi possível consultar o CEP.', 'error')
+      lastCepLookupRef.current = "";
+      showToast(
+        e instanceof Error ? e.message : "Não foi possível consultar o CEP.",
+        "error",
+      );
     } finally {
-      setCepLookupLoading(false)
+      setCepLookupLoading(false);
     }
-  }
+  };
 
   const handleSaveForm = async () => {
-    const err = validateClienteForm(form.documento, form.nome)
+    const err = validateClienteForm(form.documento, form.nome);
     if (err) {
-      alertDialog('Validação', err)
-      return
+      alertDialog("Validação", err);
+      return;
     }
     if (form.documentTypes.length === 0) {
-      alertDialog('Validação', 'Selecione ao menos NFSE, NFE ou NFCE.')
-      return
+      alertDialog("Validação", "Selecione ao menos NFSE, NFE ou NFCE.");
+      return;
     }
 
     const wantsNfeLike =
-      form.documentTypes.includes('NFE') || form.documentTypes.includes('NFCE')
-    const wantsNfse = form.documentTypes.includes('NFSE')
+      form.documentTypes.includes("NFE") || form.documentTypes.includes("NFCE");
+    const wantsNfse = form.documentTypes.includes("NFSE");
     if (wantsNfeLike) {
-      const nfeErr = validateCatalogClienteNfeFields('NFE', form.endereco)
+      const nfeErr = validateCatalogClienteNfeFields("NFE", form.endereco);
       if (nfeErr) {
-        alertDialog('Validação NF-e / NFC-e', nfeErr)
-        return
+        alertDialog("Validação NF-e / NFC-e", nfeErr);
+        return;
+      }
+      const ieErr = getDestinatarioIeValidationMessage(
+        form.indIEDest,
+        form.inscricaoEstadual,
+      );
+      if (ieErr) {
+        alertDialog("Validação NF-e / NFC-e", ieErr);
+        return;
       }
     }
     if (wantsNfse) {
-      const nfseErr = validateCatalogClienteNfseTomadorFields(form.documento, form.endereco)
+      const nfseErr = validateCatalogClienteNfseTomadorFields(
+        form.documento,
+        form.endereco,
+      );
       if (nfseErr) {
-        alertDialog('Validação NFS-e', nfseErr)
-        return
+        alertDialog("Validação NFS-e", nfseErr);
+        return;
       }
     }
 
-    setSaving(true)
+    setSaving(true);
     try {
       const metadata_json = buildCatalogClienteMetadataJson({
-        ...(wantsNfeLike ? { indIEDest: form.indIEDest } : {}),
+        ...(wantsNfeLike
+          ? {
+              indIEDest: form.indIEDest,
+              inscricaoEstadual: form.inscricaoEstadual,
+            }
+          : {}),
+        inscricaoMunicipal: form.inscricaoMunicipal,
+        telefone: form.telefone,
         endereco: form.endereco,
-      })
+      });
       await syncCatalogoClienteDocumentTypes({
         documento: normalizeDoc(form.documento),
         nome: form.nome.trim(),
         email: form.email.trim() || null,
         documentTypes: form.documentTypes,
         metadata_json,
-      })
-      showToast(editingDocumento ? 'Cliente atualizado.' : 'Cliente criado.', 'success')
-      setFormVisible(false)
-      resetList()
-      await fetchPage({ append: false, reset: true, q: searchQ })
-      notifyChanged()
+      });
+      showToast(
+        editingDocumento ? "Cliente atualizado." : "Cliente criado.",
+        "success",
+      );
+      setFormVisible(false);
+      resetList();
+      await fetchPage({ append: false, reset: true, q: searchQ });
+      notifyChanged();
     } catch (e: unknown) {
-      alertDialog('Erro', e instanceof Error ? e.message : 'Falha ao salvar cliente.')
+      alertDialog(
+        "Erro",
+        e instanceof Error ? e.message : "Falha ao salvar cliente.",
+      );
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   const requestDelete = (group: CatalogClienteGrupo) => {
-    setDeleteTarget(group)
-  }
+    setDeleteTarget(group);
+  };
 
   const handleConfirmDelete = async () => {
-    if (!deleteTarget) return
-    setDeleteLoading(true)
+    if (!deleteTarget) return;
+    setDeleteLoading(true);
     try {
-      await softHideCatalogoClientePorDocumento(deleteTarget.documento)
-      showToast('Cliente ocultado. Cadastre de novo com o mesmo CPF/CNPJ para reativar.', 'success')
-      setDeleteTarget(null)
-      resetList()
-      await fetchPage({ append: false, reset: true, q: searchQ })
-      notifyChanged()
+      await softHideCatalogoClientePorDocumento(deleteTarget.documento);
+      showToast(
+        "Cliente ocultado. Cadastre de novo com o mesmo CPF/CNPJ para reativar.",
+        "success",
+      );
+      setDeleteTarget(null);
+      resetList();
+      await fetchPage({ append: false, reset: true, q: searchQ });
+      notifyChanged();
     } catch (e: unknown) {
-      alertDialog('Erro', e instanceof Error ? e.message : 'Falha ao ocultar cliente.')
+      alertDialog(
+        "Erro",
+        e instanceof Error ? e.message : "Falha ao ocultar cliente.",
+      );
     } finally {
-      setDeleteLoading(false)
+      setDeleteLoading(false);
     }
-  }
+  };
 
   const runSearch = () => {
-    resetList()
-    void fetchPage({ append: false, reset: true, q: searchQ })
-  }
+    resetList();
+    void fetchPage({ append: false, reset: true, q: searchQ });
+  };
 
   const headerRight = useMemo(
     () => (
@@ -408,20 +488,21 @@ export default function MeiCatalogoClientesModal ({
       </Pressable>
     ),
     [flow.headerAdd, theme.primary],
-  )
+  );
 
-  const docDigitsForm = normalizeDoc(form.documento)
+  const docDigitsForm = normalizeDoc(form.documento);
   const wantsNfeLike =
-    form.documentTypes.includes('NFE') || form.documentTypes.includes('NFCE')
-  const wantsNfse = form.documentTypes.includes('NFSE')
-  const showTomadorEndereco = wantsNfeLike || wantsNfse
+    form.documentTypes.includes("NFE") || form.documentTypes.includes("NFCE");
+  const wantsNfse = form.documentTypes.includes("NFSE");
+  const showTomadorEndereco = wantsNfeLike || wantsNfse;
   const enderecoObrigatorio =
-    wantsNfeLike || (wantsNfse && docDigitsForm.length === 14)
+    wantsNfeLike || (wantsNfse && docDigitsForm.length === 14);
   const enderecoSectionTitle = (() => {
-    if (wantsNfeLike) return 'Endereço (obrigatório na NF-e / NFC-e)'
-    if (docDigitsForm.length === 14) return 'Endereço fiscal (obrigatório na NFS-e para CNPJ)'
-    return 'Endereço fiscal (opcional para CPF)'
-  })()
+    if (wantsNfeLike) return "Endereço (obrigatório na NF-e / NFC-e)";
+    if (docDigitsForm.length === 14)
+      return "Endereço fiscal (obrigatório na NFS-e para CNPJ)";
+    return "Endereço fiscal (opcional para CPF)";
+  })();
 
   return (
     <>
@@ -442,7 +523,7 @@ export default function MeiCatalogoClientesModal ({
         />
 
         {loading && items.length === 0 ? (
-          <View style={{ padding: 24, alignItems: 'center' }}>
+          <View style={{ padding: 24, alignItems: "center" }}>
             <ActivityIndicator size="small" color={theme.primary} />
           </View>
         ) : (
@@ -452,7 +533,11 @@ export default function MeiCatalogoClientesModal ({
             style={flow.listPad}
             keyboardShouldPersistTaps="handled"
             refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={theme.primary}
+              />
             }
             onEndReached={loadMore}
             onEndReachedThreshold={0.35}
@@ -464,7 +549,9 @@ export default function MeiCatalogoClientesModal ({
               ) : null
             }
             ListEmptyComponent={
-              <Text style={flow.empty}>Nenhum cliente. Toque em + para adicionar.</Text>
+              <Text style={flow.empty}>
+                Nenhum cliente. Toque em + para adicionar.
+              </Text>
             }
             renderItem={({ item }) => (
               <MeiCatalogListCard
@@ -478,13 +565,14 @@ export default function MeiCatalogoClientesModal ({
         )}
 
         <Text style={flow.hint}>
-          NFE · NFSE no cliente = tipos que ele pode receber. A aba NF-e na emissão só aparece se a NF-e estiver liberada para a sua empresa.
+          NFE · NFSE no cliente = tipos que ele pode receber. A aba NF-e na
+          emissão só aparece se a NF-e estiver liberada para a sua empresa.
         </Text>
       </MeiFlowModalShell>
 
       <MeiFormSheet
         visible={formVisible}
-        title={editingDocumento ? 'Editar cliente' : 'Novo cliente'}
+        title={editingDocumento ? "Editar cliente" : "Novo cliente"}
         onClose={() => setFormVisible(false)}
         footer={
           <MeiFormSheetActions
@@ -500,17 +588,26 @@ export default function MeiCatalogoClientesModal ({
           placeholder="Somente números ou formatado"
           value={form.documento}
           onChangeText={(t) => {
-            if (editingDocumento) return
-            setForm((f) => ({ ...f, documento: formatDocumentDisplay(t) }))
+            if (editingDocumento) return;
+            setForm((f) => ({ ...f, documento: formatDocumentDisplay(t) }));
           }}
           onBlur={() => void lookupDocumentoEndereco()}
           keyboardType="numeric"
           editable={!editingDocumento}
         />
         {cnpjLookupLoading ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 8,
+            }}
+          >
             <ActivityIndicator size="small" color={theme.primary} />
-            <Text style={{ fontSize: 12, color: theme.textSecondary }}>Consultando CNPJ na Receita…</Text>
+            <Text style={{ fontSize: 12, color: theme.textSecondary }}>
+              Consultando CNPJ na Receita…
+            </Text>
           </View>
         ) : null}
         <MeiFormField
@@ -528,7 +625,24 @@ export default function MeiCatalogoClientesModal ({
           keyboardType="email-address"
           autoCapitalize="none"
         />
-        <MeiFormSectionLabel>Tipos deste cliente (pode marcar os dois)</MeiFormSectionLabel>
+        <MeiFormField
+          label="Telefone"
+          placeholder="opcional — (00) 00000-0000"
+          value={form.telefone}
+          onChangeText={(t) => setForm((f) => ({ ...f, telefone: t }))}
+          keyboardType="phone-pad"
+        />
+        <MeiFormField
+          label="Inscrição municipal"
+          placeholder="opcional — exigida por algumas prefeituras"
+          value={form.inscricaoMunicipal}
+          onChangeText={(t) =>
+            setForm((f) => ({ ...f, inscricaoMunicipal: t }))
+          }
+        />
+        <MeiFormSectionLabel>
+          Tipos deste cliente (pode marcar os dois)
+        </MeiFormSectionLabel>
         <MeiTypeMultiChips
           value={form.documentTypes as MeiDocType[]}
           allowedTypes={CLIENTE_DOC_TYPES}
@@ -536,29 +650,114 @@ export default function MeiCatalogoClientesModal ({
             setForm((f) => ({
               ...f,
               documentTypes: types.filter(
-                (t): t is 'NFSE' | 'NFE' | 'NFCE' =>
-                  t === 'NFSE' || t === 'NFE' || t === 'NFCE',
+                (t): t is "NFSE" | "NFE" | "NFCE" =>
+                  t === "NFSE" || t === "NFE" || t === "NFCE",
               ),
             }))
           }
         />
         <Text style={[flow.hint, { marginBottom: 8 }]}>
-          NFSE = serviço · NFE = produto · NFCE = cupom. Isso não libera a aba NF-e na emissão —
-          a NF-e precisa estar ativa para a sua empresa (admin).
+          NFSE = serviço · NFE = produto · NFCE = cupom. Isso não libera a aba
+          NF-e na emissão — a NF-e precisa estar ativa para a sua empresa
+          (admin).
         </Text>
+        {wantsNfeLike ? (
+          <>
+            <MeiFormSectionLabel>
+              Situação de IE do destinatário
+            </MeiFormSectionLabel>
+            <Text style={[flow.hint, { marginBottom: 8 }]}>
+              {DESTINATARIO_IE_SECTION_HINT}
+            </Text>
+            <View
+              style={{
+                flexDirection: "row",
+                flexWrap: "wrap",
+                gap: 8,
+                marginBottom: 8,
+              }}
+            >
+              {DESTINATARIO_IE_OPTIONS.map((opt) => {
+                const selected = form.indIEDest === opt.value;
+                return (
+                  <Pressable
+                    key={opt.value}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={opt.label}
+                    onPress={() =>
+                      setForm((f) => ({
+                        ...f,
+                        indIEDest: opt.value,
+                        ...(opt.value !== "1" ? { inscricaoEstadual: "" } : {}),
+                      }))
+                    }
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: selected ? theme.primary : theme.border,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 13,
+                        color: selected ? theme.primary : theme.text,
+                      }}
+                    >
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={[flow.hint, { marginBottom: 8 }]}>
+              {
+                DESTINATARIO_IE_OPTIONS.find((o) => o.value === form.indIEDest)
+                  ?.hint
+              }
+            </Text>
+            {form.indIEDest === "1" ? (
+              <MeiFormField
+                label="Inscrição Estadual do cliente"
+                required
+                placeholder="Somente números — não use a IE do seu MEI"
+                value={form.inscricaoEstadual}
+                onChangeText={(t) =>
+                  setForm((f) => ({
+                    ...f,
+                    inscricaoEstadual: t.replace(/\D/g, ""),
+                  }))
+                }
+                keyboardType="numeric"
+              />
+            ) : null}
+          </>
+        ) : null}
         {showTomadorEndereco ? (
           <>
             <MeiFormSectionLabel>{enderecoSectionTitle}</MeiFormSectionLabel>
             <Text style={[flow.hint, { marginBottom: 8 }]}>
-              Digite o CEP com 8 dígitos para preencher logradouro, bairro, cidade, UF e código IBGE.
+              Digite o CEP com 8 dígitos para preencher logradouro, bairro,
+              cidade, UF e código IBGE.
               {wantsNfeLike
-                ? ' Com CNPJ também buscamos o endereço na Receita — confira o número se vier vazio.'
-                : ''}
+                ? " Com CNPJ também buscamos o endereço na Receita — confira o número se vier vazio."
+                : ""}
             </Text>
             {cepLookupLoading ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 8,
+                }}
+              >
                 <ActivityIndicator size="small" color={theme.primary} />
-                <Text style={{ fontSize: 12, color: theme.textSecondary }}>Consultando CEP…</Text>
+                <Text style={{ fontSize: 12, color: theme.textSecondary }}>
+                  Consultando CEP…
+                </Text>
               </View>
             ) : null}
             <MeiFormField
@@ -566,16 +765,19 @@ export default function MeiCatalogoClientesModal ({
               required={enderecoObrigatorio}
               value={form.endereco.cep}
               onChangeText={(t) => {
-                const digits = t.replace(/\D/g, '').slice(0, 8)
+                const digits = t.replace(/\D/g, "").slice(0, 8);
                 setForm((f) => ({
                   ...f,
                   endereco: { ...f.endereco, cep: digits },
-                }))
-                if (digits.length === 8 && digits !== lastCepLookupRef.current) {
-                  void lookupCepEndereco(digits)
+                }));
+                if (
+                  digits.length === 8 &&
+                  digits !== lastCepLookupRef.current
+                ) {
+                  void lookupCepEndereco(digits);
                 }
                 if (digits.length < 8) {
-                  lastCepLookupRef.current = ''
+                  lastCepLookupRef.current = "";
                 }
               }}
               onBlur={() => void lookupCepEndereco(form.endereco.cep)}
@@ -588,7 +790,10 @@ export default function MeiCatalogoClientesModal ({
               required={enderecoObrigatorio}
               value={form.endereco.logradouro}
               onChangeText={(t) =>
-                setForm((f) => ({ ...f, endereco: { ...f.endereco, logradouro: t } }))
+                setForm((f) => ({
+                  ...f,
+                  endereco: { ...f.endereco, logradouro: t },
+                }))
               }
             />
             <MeiFormField
@@ -596,7 +801,10 @@ export default function MeiCatalogoClientesModal ({
               required={enderecoObrigatorio}
               value={form.endereco.numero}
               onChangeText={(t) =>
-                setForm((f) => ({ ...f, endereco: { ...f.endereco, numero: t } }))
+                setForm((f) => ({
+                  ...f,
+                  endereco: { ...f.endereco, numero: t },
+                }))
               }
             />
             <MeiFormField
@@ -604,7 +812,10 @@ export default function MeiCatalogoClientesModal ({
               required={enderecoObrigatorio}
               value={form.endereco.bairro}
               onChangeText={(t) =>
-                setForm((f) => ({ ...f, endereco: { ...f.endereco, bairro: t } }))
+                setForm((f) => ({
+                  ...f,
+                  endereco: { ...f.endereco, bairro: t },
+                }))
               }
             />
             <MeiFormField
@@ -623,7 +834,10 @@ export default function MeiCatalogoClientesModal ({
               required={enderecoObrigatorio}
               value={form.endereco.descricaoCidade}
               onChangeText={(t) =>
-                setForm((f) => ({ ...f, endereco: { ...f.endereco, descricaoCidade: t } }))
+                setForm((f) => ({
+                  ...f,
+                  endereco: { ...f.endereco, descricaoCidade: t },
+                }))
               }
             />
             <MeiFormField
@@ -635,7 +849,10 @@ export default function MeiCatalogoClientesModal ({
                   ...f,
                   endereco: {
                     ...f.endereco,
-                    estado: t.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 2),
+                    estado: t
+                      .replace(/[^a-zA-Z]/g, "")
+                      .toUpperCase()
+                      .slice(0, 2),
                   },
                 }))
               }
@@ -650,14 +867,18 @@ export default function MeiCatalogoClientesModal ({
         visible={deleteTarget != null}
         title="Ocultar cliente"
         message="Ocultar este cliente da listagem ativa? Para voltar a ver, cadastre o mesmo CPF/CNPJ e marque os tipos de novo."
-        detail={deleteTarget ? buildClienteCatalogLabel(deleteTarget.primary) : undefined}
+        detail={
+          deleteTarget
+            ? buildClienteCatalogLabel(deleteTarget.primary)
+            : undefined
+        }
         confirmLabel="Ocultar"
         loading={deleteLoading}
         onConfirm={() => void handleConfirmDelete()}
         onCancel={() => {
-          if (!deleteLoading) setDeleteTarget(null)
+          if (!deleteLoading) setDeleteTarget(null);
         }}
       />
     </>
-  )
+  );
 }

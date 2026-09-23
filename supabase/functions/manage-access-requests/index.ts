@@ -4,6 +4,7 @@
  */
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { assertCurrentAccess } from '../_shared/access-control.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -268,6 +269,9 @@ serve(async (req) => {
   if (userErr || !user) {
     return json({ error: 'Não autenticado' }, 401)
   }
+
+  const accessDenied = await assertCurrentAccess(userClient, corsHeaders)
+  if (accessDenied) return accessDenied
 
   try {
     const body = await req.json() as Record<string, unknown>

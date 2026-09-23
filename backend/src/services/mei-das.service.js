@@ -384,9 +384,27 @@ const listActiveUsersWithEmpresa = async () => {
   if (error) {
     throw badRequest(error.message || 'Falha ao listar usuários ativos');
   }
+
+  const empresaIds = [...new Set((data || []).map((item) => item.empresas_id).filter(Boolean))];
+  const { data: empresas, error: empresasError } = empresaIds.length
+    ? await supabase
+        .from('empresas')
+        .select('id, access_status')
+        .in('id', empresaIds)
+    : { data: [], error: null };
+  if (empresasError) {
+    throw badRequest(empresasError.message || 'Falha ao validar escritórios ativos');
+  }
+  const activeEmpresaIds = new Set(
+    (empresas || [])
+      .filter((empresa) => empresa.access_status !== 'blocked')
+      .map((empresa) => empresa.id),
+  );
+
   const deduplicated = new Map();
   (data || []).forEach((item) => {
     if (!item?.user_id || !item?.empresas_id) return;
+    if (!activeEmpresaIds.has(item.empresas_id)) return;
     deduplicated.set(`${item.user_id}:${item.empresas_id}`, {
       userId: item.user_id,
       empresaId: item.empresas_id

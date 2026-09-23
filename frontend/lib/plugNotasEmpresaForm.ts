@@ -42,7 +42,7 @@ export interface PlugNotasCompanyForm {
   nfceAtivo: boolean;
   /** Lote inicial RPS no emissor (NFS-e). */
   rpsLote: number;
-  /** Número inicial RPS. */
+  /** Próximo número RPS/DPS que será usado pelo emissor. */
   rpsNumero: number;
   /** Série RPS (texto). */
   rpsSerie: string;
@@ -156,7 +156,7 @@ export function getPlugNotasCompanyValidationMessage(form: PlugNotasCompanyForm)
     return 'Lote RPS deve ser um número inteiro maior ou igual a 1.';
   }
   if (!Number.isFinite(form.rpsNumero) || form.rpsNumero < 1) {
-    return 'Número inicial do RPS deve ser um inteiro maior ou igual a 1.';
+    return 'O próximo número do RPS deve ser um inteiro maior ou igual a 1.';
   }
   if (!String(form.rpsSerie ?? '').trim()) {
     return 'Informe a série do RPS (ex.: 1).';

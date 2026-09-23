@@ -11,6 +11,7 @@ import {
   isWhatsappOutboundConfigured,
   sendWhatsappMessage,
 } from './whatsapp-outbound.service.js';
+import { assertUserOperationalAccess } from './access-control.service.js';
 
 const DEFAULT_MINUTES_BEFORE = 30;
 const MIN_LEAD_MINUTES = 5;
@@ -179,6 +180,7 @@ export const runAgendaUpcomingWhatsappReminders = async () => {
 
   for (const { userId, phone } of users) {
     try {
+      await assertUserOperationalAccess(userId);
       const calendar = await listCalendarEventsForUser(userId, { date: dateIso });
       const upcoming = dedupeUpcomingCalendarEvents(
         (calendar.events || []).filter((e) =>

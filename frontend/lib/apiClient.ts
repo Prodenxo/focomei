@@ -30,6 +30,63 @@ function logLocalhostBackendHint(apiUrl: string): void {
 
 const normalizePath = (path: string) => (path.startsWith('/') ? path : `/${path}`);
 
+export interface AccessRestriction {
+  code: 'OFFICE_BLOCKED' | 'PROFILE_BLOCKED';
+  message: string;
+  empresaId?: string | null;
+  availableEmpresas?: { id: string; nome?: string | null }[];
+}
+
+const accessRestrictionListeners = new Set<(restriction: AccessRestriction) => void>();
+
+export const subscribeAccessRestriction = (
+  listener: (restriction: AccessRestriction) => void,
+) => {
+  accessRestrictionListeners.add(listener);
+  return () => {
+    accessRestrictionListeners.delete(listener);
+  };
+};
+
+const notifyAccessRestriction = (
+  code: string | undefined,
+  message: string,
+  details: unknown,
+) => {
+  if (code !== 'OFFICE_BLOCKED' && code !== 'PROFILE_BLOCKED') return;
+  const row = details && typeof details === 'object'
+    ? details as {
+        empresaId?: string | null;
+        availableEmpresas?: { id: string; nome?: string | null }[];
+      }
+    : {};
+  const restriction: AccessRestriction = {
+    code,
+    message,
+    empresaId: row.empresaId || null,
+    availableEmpresas: Array.isArray(row.availableEmpresas) ? row.availableEmpresas : [],
+  };
+  accessRestrictionListeners.forEach((listener) => listener(restriction));
+};
+
+const createApiError = (
+  message: string,
+  status: number,
+  errors: unknown,
+) => {
+  const code = readApiErrorCode(errors);
+  const error = new Error(message) as Error & {
+    code?: string;
+    status?: number;
+    details?: unknown;
+  };
+  error.code = code;
+  error.status = status;
+  error.details = errors;
+  notifyAccessRestriction(code, message, errors);
+  return error;
+};
+
 const resolveApiErrorMessage = (
   payload: { message?: string },
   statusText: string,
@@ -73,8 +130,11 @@ const buildAuthHeaders = async (extra?: Record<string, string>) => {
   if (!token) {
     throw new Error('Usuário não autenticado. Faça login no FocoMEI e tente de novo.');
   }
+  const { readLocalAuthSnapshot } = await import('./localAuthSession');
+  const localSnapshot = await readLocalAuthSnapshot();
   return {
     Authorization: `Bearer ${token}`,
+    ...(localSnapshot?.empresaId ? { 'X-Empresa-Id': localSnapshot.empresaId } : {}),
     ...(extra || {})
   };
 };
@@ -106,11 +166,11 @@ const requestJson = async <T>(path: string, options: RequestInit = {}): Promise<
   if (contentType.includes('application/json')) {
     const payload = await response.json();
     if (!response.ok || payload?.success === false) {
-      const err = new Error(
+      throw createApiError(
         resolveApiErrorMessage(payload, response.statusText),
-      ) as Error & { code?: string };
-      err.code = readApiErrorCode(payload?.errors);
-      throw err;
+        response.status,
+        payload?.errors,
+      );
     }
     return payload?.data as T;
   }
@@ -143,11 +203,11 @@ const requestJsonPublic = async <T>(path: string, options: RequestInit = {}): Pr
   if (contentType.includes('application/json')) {
     const payload = await response.json();
     if (!response.ok || payload?.success === false) {
-      const err = new Error(
+      throw createApiError(
         resolveApiErrorMessage(payload, response.statusText),
-      ) as Error & { code?: string };
-      err.code = readApiErrorCode(payload?.errors);
-      throw err;
+        response.status,
+        payload?.errors,
+      );
     }
     return payload?.data as T;
   }
@@ -183,11 +243,11 @@ const requestForm = async <T>(path: string, formData: FormData): Promise<T> => {
   if (contentType.includes('application/json')) {
     const payload = await response.json();
     if (!response.ok || payload?.success === false) {
-      const err = new Error(
+      throw createApiError(
         resolveApiErrorMessage(payload, response.statusText),
-      ) as Error & { code?: string };
-      err.code = readApiErrorCode(payload?.errors);
-      throw err;
+        response.status,
+        payload?.errors,
+      );
     }
     return payload?.data as T;
   }
@@ -210,6 +270,7 @@ const extractFilenameFromContentDisposition = (contentDisposition?: string | nul
 const buildDownloadError = (message: string, code?: string) => {
   const err = new Error(message) as Error & { code?: string };
   if (code) err.code = code;
+  notifyAccessRestriction(code, message, null);
   return err;
 };
 

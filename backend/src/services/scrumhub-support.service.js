@@ -29,6 +29,17 @@ async function parseJsonResponse (response, fallbackMessage) {
   return payload
 }
 
+function apiKeyHeaders (apiKey, json = false) {
+  return {
+    'X-API-Key': apiKey,
+    ...(json ? { 'Content-Type': 'application/json' } : {}),
+  }
+}
+
+function unwrapData (payload) {
+  return payload?.data ?? payload
+}
+
 export async function resolveScrumHubApiKey () {
   const fromEnv = (env.SCRUMHUB_API_KEY || '').trim()
   if (fromEnv) return fromEnv
@@ -70,7 +81,9 @@ export async function fetchScrumHubTicketFormConfig () {
   }
 }
 
-const ALLOWED_PRIORITIES = new Set(['baixa', 'media', 'alta', 'critica'])
+const ALLOWED_PRIORITIES = new Set(['baixa', 'media', 'alta', 'urgente'])
+/** Versões antigas do app enviavam "critica", que o ScrumHub recusa. */
+const PRIORITY_ALIASES = { critica: 'urgente' }
 
 function appendIfPresent (formData, key, value) {
   if (value === undefined || value === null) return
@@ -80,9 +93,14 @@ function appendIfPresent (formData, key, value) {
 }
 
 function normalizePrioridade (value) {
-  const prioridade = String(value || 'media').trim().toLowerCase()
+  const raw = String(value || 'media')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+  const prioridade = PRIORITY_ALIASES[raw] || raw
   if (!ALLOWED_PRIORITIES.has(prioridade)) {
-    throw badRequest('Prioridade inválida.')
+    throw badRequest('Prioridade deve ser: baixa, media, alta ou urgente.')
   }
   return prioridade
 }
@@ -126,5 +144,79 @@ export async function createScrumHubExternalTicket ({ fields, files = [] }) {
   })
 
   const payload = await parseJsonResponse(response, 'Erro ao criar ticket no ScrumHub.')
-  return payload?.data ?? payload
+  return unwrapData(payload)
+}
+
+async function scrumHubGet (path, fallbackMessage) {
+  const apiKey = await resolveScrumHubApiKey()
+  const response = await fetch(`${getScrumHubApiBase()}${path}`, {
+    method: 'GET',
+    headers: apiKeyHeaders(apiKey),
+  })
+  const payload = await parseJsonResponse(response, fallbackMessage)
+  return unwrapData(payload)
+}
+
+export async function listScrumHubTicketsForRequester ({ email, phone }) {
+  const params = new URLSearchParams()
+  if (email) params.set('email', String(email).trim())
+  if (phone) params.set('telefone', String(phone).replace(/\D/g, ''))
+  if (![...params.keys()].length) {
+    throw badRequest('E-mail ou telefone do solicitante não encontrado.')
+  }
+  const data = await scrumHubGet(
+    `/public/tickets/meus?${params.toString()}`,
+    'Não foi possível consultar seus chamados no ScrumHub.',
+  )
+  return Array.isArray(data) ? data : (data?.tickets || [])
+}
+
+export async function fetchScrumHubTicket (ticketId) {
+  return scrumHubGet(
+    `/tickets-pai/${encodeURIComponent(ticketId)}`,
+    'Não foi possível consultar o chamado no ScrumHub.',
+  )
+}
+
+export async function listScrumHubProjectTickets (projetoId) {
+  const data = await scrumHubGet(
+    `/tickets-pai/projeto/${encodeURIComponent(projetoId)}`,
+    'Não foi possível listar os chamados do projeto.',
+  )
+  return Array.isArray(data) ? data : (data?.tickets || [])
+}
+
+export async function fetchScrumHubTicketTimeline (ticketId) {
+  const data = await scrumHubGet(
+    `/public/tickets/${encodeURIComponent(ticketId)}/timeline?format=flat`,
+    'Não foi possível consultar a conversa do chamado.',
+  )
+  if (Array.isArray(data)) return data
+  /** ScrumHub devolve a conversa em `data.mensagens` (abertura + comentários). */
+  return data?.mensagens || data?.timeline || data?.items || data?.comentarios || []
+}
+
+export async function createScrumHubTicketComment (
+  ticketId,
+  { comentario, nomeExterno, email, phone, imagem },
+) {
+  const apiKey = await resolveScrumHubApiKey()
+  const response = await fetch(
+    `${getScrumHubApiBase()}/public/tickets/${encodeURIComponent(ticketId)}/comentarios`,
+    {
+      method: 'POST',
+      headers: apiKeyHeaders(apiKey, true),
+      body: JSON.stringify({
+        comentario: String(comentario || '').trim(),
+        nome_externo: String(nomeExterno || '').trim(),
+        email: String(email || '').trim() || undefined,
+        contato_solicitante: String(phone || '').replace(/\D/g, '') || undefined,
+        // ScrumHub guarda a imagem do comentário em `comentario_img` (data URL ou URL).
+        comentario_img: String(imagem || '').trim() || undefined,
+        comentario_pai_id: null,
+      }),
+    },
+  )
+  const payload = await parseJsonResponse(response, 'Não foi possível responder ao chamado.')
+  return unwrapData(payload)
 }
