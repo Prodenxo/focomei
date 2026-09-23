@@ -24,13 +24,7 @@ async function invokeEdge(body) {
 }
 
 export async function listPendingAccessRequests() {
-  let data;
-  try {
-    data = await apiClient.get('/admin/access-requests/pending');
-  } catch (error) {
-    if (error?.status !== 404) throw error;
-    data = await invokeEdge({ action: 'list' });
-  }
+  const data = await invokeEdge({ action: 'list' });
   return Array.isArray(data?.requests) ? data.requests : [];
 }
 
@@ -46,10 +40,5 @@ export async function fetchAccessReport(limit = 50) {
 }
 
 export async function manageAccessRequest(action, userId) {
-  try {
-    return await apiClient.post('/admin/access-requests/manage', { action, userId });
-  } catch (error) {
-    if (error?.status !== 404) throw error;
-    return invokeEdge({ action, userId });
-  }
+  return invokeEdge({ action, userId });
 }
