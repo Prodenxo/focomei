@@ -21,10 +21,11 @@ import {
   fetchNfsePrestadorPrefill,
   lookupCnpj,
   removeCertificate,
+  setupEmitenteComposite,
   updateFiscalCompany,
   uploadCertificate,
-  importCnaesProdutos,
 } from '@/lib/fiscalApi';
+import { normalizeCnaeOptions } from '@/lib/fiscalPhase4';
 import {
   applyDocumentosAtivosToCompanyForm,
   buildEnrichedCertPageForm,
@@ -35,6 +36,7 @@ import {
 } from '@/lib/plugNotasEmpresaForm';
 import { resolveDocumentosPermitidos } from '@/lib/documentosAtivos';
 import { EmpresaFiscalForm } from '@/components/notas/EmpresaFiscalForm';
+import { CnaeImportDialog } from '@/components/notas/CnaeImportDialog';
 import { NumeracaoFiscalPanel } from '@/components/notas/NumeracaoFiscalPanel';
 import {
   describeCertificateState,
@@ -81,9 +83,12 @@ export default function CertificadoPage() {
   const [removing, setRemoving] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [plugnotasSyncMsg, setPlugnotasSyncMsg] = useState(null);
+  const [plugnotasResending, setPlugnotasResending] = useState(false);
 
   const [importCnaesLoading, setImportCnaesLoading] = useState(false);
   const [importCnaesMsg, setImportCnaesMsg] = useState(null);
+  const [cnaeOptions, setCnaeOptions] = useState([]);
+  const [showCnaeImport, setShowCnaeImport] = useState(false);
 
   const [empresaRegistered, setEmpresaRegistered] = useState(false);
   const [cnpjLookupLoading, setCnpjLookupLoading] = useState(false);
@@ -243,11 +248,12 @@ export default function CertificadoPage() {
       } else {
         setPlugnotasSyncMsg(null);
       }
-      setUploadFile(null);
-      setUploadPassword('');
-      // Limpa input file.
-      const input = document.getElementById('cert-upload-input');
-      if (input) input.value = '';
+      if (integration?.status !== 'failed') {
+        setUploadFile(null);
+        setUploadPassword('');
+        const input = document.getElementById('cert-upload-input');
+        if (input) input.value = '';
+      }
       await loadCert();
       const status = await fetchCertificateStatus().catch(() => certStatus);
       const cnpjDoc = status?.documento || documento;
@@ -305,11 +311,13 @@ export default function CertificadoPage() {
     setCnpjLookupError(null);
     try {
       const lookup = await lookupCnpj(digits);
+      setCnaeOptions(normalizeCnaeOptions(lookup));
       setCompanyForm((prev) => mergeCnpjLookupIntoCertPageForm(
         prev || currentForm,
         lookup,
         { onlyFillEmpty },
       ));
+      return lookup;
     } catch (err) {
       setCnpjLookupError(err instanceof Error ? err.message : 'Falha ao consultar CNPJ.');
     } finally {
@@ -365,19 +373,63 @@ export default function CertificadoPage() {
     setImportCnaesLoading(true);
     setImportCnaesMsg(null);
     try {
-      const result = await importCnaesProdutos();
-      const count = result?.count || result?.total || result?.imported || 0;
-      setImportCnaesMsg(
-        count > 0
-          ? `${count} produto${count === 1 ? '' : 's'} importado${count === 1 ? '' : 's'} a partir dos CNAEs.`
-          : 'Nenhum CNAE disponível para importação.',
-      );
+      const lookup = await lookupCnpj(documento || companyForm?.cpfCnpj || '');
+      const options = normalizeCnaeOptions(lookup);
+      setCnaeOptions(options);
+      if (options.length === 0) {
+        setImportCnaesMsg('Nenhum CNAE disponível no cadastro desse CNPJ.');
+        return;
+      }
+      setShowCnaeImport(true);
     } catch (err) {
       setImportCnaesMsg(
         err instanceof Error ? err.message : 'Falha ao importar CNAEs.',
       );
     } finally {
       setImportCnaesLoading(false);
+    }
+  };
+
+  const handleResendPlugNotas = async () => {
+    if (!uploadFile || !uploadPassword) {
+      setUploadError('Selecione novamente o .pfx e informe a senha para reenviar à PlugNotas.');
+      return;
+    }
+    if (!companyForm) {
+      setUploadError('Carregue e confira os dados da empresa antes do reenvio.');
+      return;
+    }
+    const validationMsg = getPlugNotasCompanyValidationMessage(companyForm);
+    if (validationMsg) {
+      setUploadError(validationMsg);
+      return;
+    }
+    setPlugnotasResending(true);
+    setUploadError(null);
+    setPlugnotasSyncMsg({ type: 'info', text: 'Reenviando certificado e empresa à PlugNotas…' });
+    try {
+      await setupEmitenteComposite({
+        file: uploadFile,
+        password: uploadPassword,
+        payload: buildPlugNotasEmpresaPayload(companyForm),
+      });
+      setPlugnotasSyncMsg({
+        type: 'success',
+        text: 'Certificado e empresa reenviados à PlugNotas com sucesso.',
+      });
+      setEmpresaRegistered(true);
+      setUploadFile(null);
+      setUploadPassword('');
+      const input = document.getElementById('cert-upload-input');
+      if (input) input.value = '';
+      await Promise.all([loadCert(), loadCompany()]);
+    } catch (err) {
+      setPlugnotasSyncMsg({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Falha ao reenviar à PlugNotas.',
+      });
+    } finally {
+      setPlugnotasResending(false);
     }
   };
 
@@ -527,6 +579,18 @@ export default function CertificadoPage() {
                 {uploadSubmitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <KeyRound className="h-4 w-4" aria-hidden />}
                 {hasCert ? 'Substituir' : 'Enviar certificado'}
               </button>
+
+              {hasUserCert ? (
+                <button
+                  type="button"
+                  onClick={handleResendPlugNotas}
+                  disabled={plugnotasResending}
+                  className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-amber-300 bg-amber-50 px-4 text-sm font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-60 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200"
+                >
+                  {plugnotasResending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RefreshCcw className="h-4 w-4" aria-hidden />}
+                  Reenviar à PlugNotas
+                </button>
+              ) : null}
 
               {hasCert ? (
                 <button
@@ -693,6 +757,24 @@ export default function CertificadoPage() {
       <p className="text-xs text-[var(--text-muted)]">
         O conteúdo e a senha do certificado são transmitidos de forma segura e nunca ficam visíveis após o envio.
       </p>
+
+      {showCnaeImport ? (
+        <CnaeImportDialog
+          cnaes={cnaeOptions}
+          onClose={() => setShowCnaeImport(false)}
+          onImported={(result) => {
+            const created = result?.created?.length || 0;
+            const skipped = result?.skipped?.length || 0;
+            setImportCnaesMsg(
+              created > 0
+                ? `${created} serviço${created === 1 ? '' : 's'} importado${created === 1 ? '' : 's'}${skipped ? `; ${skipped} já existia(m).` : '.'}`
+                : skipped > 0
+                  ? 'Os CNAEs selecionados já estavam no catálogo.'
+                  : 'Nenhum CNAE foi importado.',
+            );
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import {
   AlertCircle,
-  Database,
   Loader2,
   Save,
   Trash2,
@@ -13,7 +12,6 @@ import {
   criarCatalogoProduto,
   atualizarCatalogoProduto,
   excluirCatalogoProduto,
-  importCnaesProdutos,
 } from '@/lib/fiscalApi';
 import { maskMoney, parseMoney } from '@/lib/fiscalEmit';
 import {
@@ -37,7 +35,6 @@ export function ProdutoModal({ produto, catalogKind = 'nfse', onClose, onSuccess
   const resolvedDocumentType = produto?.document_type
     || (isNfse ? 'NFSE' : 'NFE');
   const [loading, setLoading] = useState(false);
-  const [importing, setImporting] = useState(false);
   const [error, setError] = useState(null);
 
   const initialNfseReforma = nfseCatalogProdutoFormFieldsFromMetadata(produto?.metadata_json);
@@ -139,22 +136,6 @@ export function ProdutoModal({ produto, catalogKind = 'nfse', onClose, onSuccess
     }
   };
 
-  const handleImportCnaes = async () => {
-    if (!window.confirm('Isso vai importar os CNAEs cadastrados para a empresa. Continuar?')) return;
-
-    setImporting(true);
-    setError(null);
-    try {
-      await importCnaesProdutos();
-      onSuccess?.();
-      alert('CNAEs importados com sucesso!');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao importar CNAEs.');
-    } finally {
-      setImporting(false);
-    }
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
       <div className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-[20px] border border-[var(--card-border)] bg-[var(--card-bg)] shadow-[var(--shadow-card)]">
@@ -180,29 +161,6 @@ export function ProdutoModal({ produto, catalogKind = 'nfse', onClose, onSuccess
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-5">
           <div className="flex flex-col gap-4">
-            {/* Importar CNAEs */}
-            {isNfse && !produto && (
-              <div className="rounded-[12px] border border-[var(--card-border)] bg-[var(--canvas)] p-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Database className="h-4 w-4 text-[var(--text-muted)]" />
-                    <span className="text-sm text-[var(--text-primary)]">Importar CNAEs do Simples</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleImportCnaes}
-                    disabled={importing}
-                    className="rounded-[8px] bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-60"
-                  >
-                    {importing ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Importar'}
-                  </button>
-                </div>
-                <p className="mt-1 text-[10px] text-[var(--text-muted)]">
-                  Importa os códigos de serviço da LC 116 para uso no catálogo.
-                </p>
-              </div>
-            )}
-
             {/* Código */}
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Código *</label>

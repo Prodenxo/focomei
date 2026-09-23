@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
@@ -15,11 +15,11 @@ import {
   X,
 } from 'lucide-react';
 import {
-  criarCatalogoCliente,
-  atualizarCatalogoCliente,
-  excluirCatalogoCliente,
+  fetchCatalogoClientes,
   lookupCnpj,
   lookupCep,
+  softHideCatalogoCliente,
+  syncCatalogoClienteDocumentTypes,
 } from '@/lib/fiscalApi';
 import { maskCep, maskCpfCnpj, onlyDigits, isValidCpfCnpj } from '@/lib/fiscalEmit';
 import { AppSelect } from '@/components/ui/AppSelect';
@@ -36,6 +36,10 @@ export function ClienteModal({ cliente, onClose, onSuccess }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [lookingUp, setLookingUp] = useState(false);
+  const [documentTypes, setDocumentTypes] = useState(() => {
+    const current = String(cliente?.document_type || '').toUpperCase();
+    return ['NFSE', 'NFE', 'NFCE'].includes(current) ? [current] : ['NFSE'];
+  });
 
   const [form, setForm] = useState({
     documento: cliente?.documento || '',
@@ -67,6 +71,27 @@ export function ClienteModal({ cliente, onClose, onSuccess }) {
   const handleEnderecoChange = (field, value) => {
     setForm((prev) => ({ ...prev, endereco: { ...prev.endereco, [field]: value } }));
   };
+
+  useEffect(() => {
+    if (!cliente?.documento) return;
+    let active = true;
+    fetchCatalogoClientes({
+      q: cliente.documento,
+      limit: 20,
+      includeInactive: true,
+    }).then((rows) => {
+      if (!active) return;
+      const documento = onlyDigits(cliente.documento);
+      const types = (Array.isArray(rows) ? rows : [])
+        .filter((row) => onlyDigits(row.documento) === documento && row.active !== false)
+        .map((row) => String(row.document_type || '').toUpperCase())
+        .filter((type) => ['NFSE', 'NFE', 'NFCE'].includes(type));
+      if (types.length > 0) setDocumentTypes([...new Set(types)]);
+    }).catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [cliente?.documento]);
 
   const handleLookupCnpj = async () => {
     const doc = onlyDigits(form.documento);
@@ -138,6 +163,10 @@ export function ClienteModal({ cliente, onClose, onSuccess }) {
       setError('Informe o nome/razão social.');
       return;
     }
+    if (documentTypes.length === 0) {
+      setError('Selecione ao menos um tipo de nota para o cliente.');
+      return;
+    }
     if (form.indIEDest === '1' && !onlyDigits(form.inscricaoEstadual)) {
       setError('Informe a Inscrição Estadual do cliente contribuinte de ICMS.');
       return;
@@ -148,17 +177,13 @@ export function ClienteModal({ cliente, onClose, onSuccess }) {
 
     try {
       const payload = {
+        documento: doc,
         nome: form.nome.trim(),
-        email: form.email?.trim() || undefined,
+        email: form.email?.trim() || null,
+        documentTypes,
         metadata_json: buildClienteFiscalMetadata(form),
       };
-
-      if (cliente?.id) {
-        // PATCH recusa `documento` — trocar CPF/CNPJ exige novo cadastro.
-        await atualizarCatalogoCliente(cliente.id, payload);
-      } else {
-        await criarCatalogoCliente({ documento: doc, ...payload });
-      }
+      await syncCatalogoClienteDocumentTypes(payload);
 
       onSuccess?.();
       onClose();
@@ -170,12 +195,12 @@ export function ClienteModal({ cliente, onClose, onSuccess }) {
   };
 
   const handleDelete = async () => {
-    if (!cliente?.id) return;
-    if (!window.confirm('Tem certeza que deseja excluir este cliente?')) return;
+    if (!cliente?.documento) return;
+    if (!window.confirm('Ocultar este cliente do catálogo ativo? Ele poderá ser reativado depois.')) return;
 
     setLoading(true);
     try {
-      await excluirCatalogoCliente(cliente.id);
+      await softHideCatalogoCliente(cliente.documento);
       onSuccess?.();
       onClose();
     } catch (err) {
@@ -215,7 +240,8 @@ export function ClienteModal({ cliente, onClose, onSuccess }) {
                   value={form.documento}
                   onChange={(e) => handleChange('documento', maskCpfCnpj(e.target.value))}
                   placeholder="000.000.000-00"
-                  className="flex-1 rounded-[10px] border border-[var(--card-border)] bg-[var(--card-bg)] px-3 py-2 text-sm"
+                  disabled={Boolean(cliente)}
+                  className="flex-1 rounded-[10px] border border-[var(--card-border)] bg-[var(--card-bg)] px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                 />
                 <button
                   type="button"
@@ -227,6 +253,33 @@ export function ClienteModal({ cliente, onClose, onSuccess }) {
                 </button>
               </div>
             </div>
+
+            <fieldset>
+              <legend className="mb-2 text-xs font-medium text-[var(--text-muted)]">
+                Tipos de nota deste cliente *
+              </legend>
+              <div className="flex flex-wrap gap-3">
+                {[
+                  ['NFSE', 'NFS-e'],
+                  ['NFE', 'NF-e'],
+                  ['NFCE', 'NFC-e'],
+                ].map(([value, label]) => (
+                  <label key={value} className="inline-flex items-center gap-2 text-sm text-[var(--text-primary)]">
+                    <input
+                      type="checkbox"
+                      checked={documentTypes.includes(value)}
+                      onChange={(event) => setDocumentTypes((current) => (
+                        event.target.checked
+                          ? [...new Set([...current, value])]
+                          : current.filter((type) => type !== value)
+                      ))}
+                      className="h-4 w-4 rounded border-[var(--card-border)] text-[var(--accent)]"
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
 
             {/* Nome */}
             <div>
@@ -413,7 +466,7 @@ export function ClienteModal({ cliente, onClose, onSuccess }) {
                 className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300"
               >
                 <Trash2 className="h-4 w-4" />
-                Excluir
+                Ocultar
               </button>
             )}
           </div>

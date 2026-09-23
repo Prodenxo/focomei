@@ -12,7 +12,7 @@ import {
 import { useAuth } from '@/context/AuthProvider';
 import {
   fetchCertificateStatus,
-  fetchDasPeriods,
+  fetchDasPeriodsByCnpj,
   fetchFiscalCompany,
   fetchLimiteFaturamento,
   fetchNotas,
@@ -96,7 +96,7 @@ export default function NotasInicioPage() {
 
     if (cnpjDigits) {
       try {
-        const data = await fetchDasPeriods(cnpjDigits, undefined, false);
+        const data = await fetchDasPeriodsByCnpj(cnpjDigits, false);
         const list = Array.isArray(data) ? data : (data?.periods || data?.items || []);
         setDasPeriods(list.filter((p) => p && p.status !== 'indisponivel'));
       } catch {

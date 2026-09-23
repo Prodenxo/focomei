@@ -34,8 +34,10 @@ import {
   fetchFiscalCompany,
   fetchNota,
   fetchNotas,
+  importarHistoricoPlugNotas,
   syncNotasEmProcessamento,
 } from '@/lib/fiscalApi';
+import { getE0014AutoArchiveIds } from '@/lib/fiscalPhase4';
 import {
   allowedEmitDocumentTypes,
   catalogDocumentTypeForKind,
@@ -122,6 +124,9 @@ export default function NotasFiscaisPage() {
   const [acting, setActing] = useState(null);
   const notasRef = useRef([]);
   const notasSyncInFlightRef = useRef(false);
+  const historyImportAttemptedRef = useRef(false);
+  const historyImportInFlightRef = useRef(null);
+  const e0014ArchiveAttemptedRef = useRef(new Set());
 
   const cnpj = company?.cpfCnpj || company?.cnpj || certStatus?.documento || null;
 
@@ -217,6 +222,17 @@ export default function NotasFiscaisPage() {
       setError(null);
     }
     try {
+      if (!historyImportAttemptedRef.current) {
+        historyImportAttemptedRef.current = true;
+        historyImportInFlightRef.current = importarHistoricoPlugNotas({
+          ...(cnpj ? { cnpj } : {}),
+          maxPages: 20,
+        }).catch(() => null);
+      }
+      if (historyImportInFlightRef.current) {
+        await historyImportInFlightRef.current;
+        historyImportInFlightRef.current = null;
+      }
       const data = await fetchNotas({
         documentType: documentType === 'all' ? undefined : documentType,
         includeArchived,
@@ -225,6 +241,27 @@ export default function NotasFiscaisPage() {
       const next = syncPending ? await syncNotasEmProcessamento(list) : list.map(normalizeNotaForUi);
       setNotas(next);
       notasRef.current = next;
+      const e0014Ids = getE0014AutoArchiveIds(next, e0014ArchiveAttemptedRef.current);
+      if (e0014Ids.length > 0) {
+        e0014Ids.forEach((id) => e0014ArchiveAttemptedRef.current.add(id));
+        void Promise.allSettled(e0014Ids.map((id) => arquivarNota(id))).then((results) => {
+          const archivedIds = new Set(
+            e0014Ids.filter((_, index) => results[index]?.status === 'fulfilled'),
+          );
+          if (archivedIds.size === 0) return;
+          setNotas((current) => {
+            const updated = includeArchived
+              ? current.map((item) => (
+                archivedIds.has(item.id)
+                  ? { ...item, archived_at: new Date().toISOString(), arquivada: true, archived: true }
+                  : item
+              ))
+              : current.filter((item) => !archivedIds.has(item.id));
+            notasRef.current = updated;
+            return updated;
+          });
+        });
+      }
       return next;
     } catch (err) {
       if (!silent) {
@@ -236,7 +273,7 @@ export default function NotasFiscaisPage() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [documentType, includeArchived]);
+  }, [cnpj, documentType, includeArchived]);
 
   const refreshPendingNotasStatus = useCallback(async () => {
     if (notasSyncInFlightRef.current) return;

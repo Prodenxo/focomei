@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
 import {
   AlertCircle,
   CheckCircle2,
@@ -16,10 +15,12 @@ import {
 import { useAuth } from '@/context/AuthProvider';
 import {
   fetchCertificateStatus,
-  fetchDasPeriods,
+  fetchDasPeriodsByCnpj,
   fetchDasIntegrationStatus,
   downloadDasPdf,
   gerarDas,
+  regenerarDas,
+  validarDas,
   fetchFiscalCompany,
 } from '@/lib/fiscalApi';
 import {
@@ -47,7 +48,6 @@ import { FilterSelect } from '@/components/ui/FilterSelect';
  */
 export default function DasPage() {
   const { userId } = useAuth();
-  const searchParams = useSearchParams();
 
   const [company, setCompany] = useState(null);
   const [certStatus, setCertStatus] = useState(null);
@@ -94,7 +94,7 @@ export default function DasPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchDasPeriods(cnpj, undefined, true);
+      const data = await fetchDasPeriodsByCnpj(cnpj, true);
       const list = Array.isArray(data) ? data : (data?.periods || data?.items || []);
       setPeriods(list.filter((p) => p && p.status !== 'indisponivel'));
     } catch (err) {
@@ -162,13 +162,19 @@ export default function DasPage() {
     setActingId(`${period.id || period.competencia}`);
     setActionMessage(null);
     try {
-      const result = await gerarDas({
-        cnpj,
-        periodoApuracao: apuracao,
-      });
+      const validation = await validarDas(cnpj, apuracao);
+      if (validation?.valid === false) {
+        throw new Error(validation.message || 'A Receita não liberou esta competência.');
+      }
+      const shouldRegenerate = period.vencida === true || Boolean(period.guideId || period.hasDas);
+      const result = shouldRegenerate
+        ? await regenerarDas({ cnpj, periodoApuracao: apuracao })
+        : await gerarDas({ cnpj, periodoApuracao: apuracao });
       setActionMessage({
         type: 'success',
-        text: result?.message || 'Guia DAS gerada com sucesso.',
+        text: result?.message || (shouldRegenerate
+          ? 'Guia DAS atualizada com sucesso.'
+          : 'Guia DAS gerada com sucesso.'),
       });
       await loadPeriods();
     } catch (err) {
@@ -356,15 +362,28 @@ export default function DasPage() {
                       <td className="px-5 py-3 text-right">
                         <div className="inline-flex flex-wrap items-center justify-end gap-2">
                           {status !== 'erro' ? (
-                            <button
-                              type="button"
-                              onClick={() => handleDownload(period)}
-                              disabled={downloading}
-                              className="inline-flex h-9 items-center gap-1 rounded-[10px] border border-[var(--accent)]/35 bg-[var(--accent-soft)] px-3 text-xs font-semibold text-[var(--accent)] hover:bg-[var(--accent-soft)]/80 disabled:opacity-60"
-                            >
-                              {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <FileDown className="h-3.5 w-3.5" aria-hidden />}
-                              Baixar PDF
-                            </button>
+                            <>
+                              {period.vencida ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleGerar(period)}
+                                  disabled={generating || !integrationOk}
+                                  className="inline-flex h-9 items-center gap-1 rounded-[10px] border border-amber-300 bg-amber-50 px-3 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-60 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200"
+                                >
+                                  {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <RefreshCcw className="h-3.5 w-3.5" aria-hidden />}
+                                  Atualizar guia
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                onClick={() => handleDownload(period)}
+                                disabled={downloading}
+                                className="inline-flex h-9 items-center gap-1 rounded-[10px] border border-[var(--accent)]/35 bg-[var(--accent-soft)] px-3 text-xs font-semibold text-[var(--accent)] hover:bg-[var(--accent-soft)]/80 disabled:opacity-60"
+                              >
+                                {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <FileDown className="h-3.5 w-3.5" aria-hidden />}
+                                Baixar PDF
+                              </button>
+                            </>
                           ) : (
                             <button
                               type="button"

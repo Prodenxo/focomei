@@ -165,28 +165,9 @@ export async function setupEmitenteComposite({ file, password, payload }) {
   if (file) formData.append('arquivo', file);
   if (password) formData.append('senha', password);
   if (payload) formData.append('payload', JSON.stringify(payload));
-  const token = typeof window !== 'undefined' ? getLocalAccessToken() : null;
-  const apiUrl = (typeof window !== 'undefined' && window.__FOCO_MEI_ENV__?.NEXT_PUBLIC_API_URL)
-    || process.env.NEXT_PUBLIC_API_URL
-    || process.env.NEXT_PUBLIC_API_URL_DEV
-    || 'http://localhost:3333';
-  const response = await fetch(`${apiUrl}/api/mei-notas/setup/plugnotas/emitente`, {
-    method: 'POST',
-    body: formData,
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  return apiClient.postForm('/mei-notas/setup/plugnotas/emitente', formData, {
+    timeoutMs: EMIT_FETCH_TIMEOUT_MS,
   });
-  const contentType = response.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) {
-    const data = await response.json();
-    if (!response.ok || data?.success === false) {
-      throw new Error(data?.message || response.statusText || 'Falha ao configurar emitente.');
-    }
-    return data.data;
-  }
-  if (!response.ok) {
-    throw new Error(response.statusText || 'Falha ao configurar emitente.');
-  }
-  return response.text();
 }
 
 /** Lista competências DAS. */
@@ -202,6 +183,15 @@ export async function fetchDasPeriods(cnpj, ano, refresh = false) {
   return apiClient.get(`/mei-guide/periods?${params.toString()}`);
 }
 
+/** Lista competências usando somente o CNPJ, conforme o contrato do PGMEI. */
+export async function fetchDasPeriodsByCnpj(cnpj, refresh = false) {
+  const params = new URLSearchParams({
+    cnpj: String(cnpj || '').replace(/\D/g, ''),
+  });
+  if (refresh) params.set('refresh', 'true');
+  return apiClient.get(`/mei-guide/periods-by-cnpj?${params.toString()}`);
+}
+
 /** Status da integração DAS. */
 export async function fetchDasIntegrationStatus() {
   return { ok: true, integrado: true };
@@ -215,6 +205,29 @@ export async function gerarDas(payload) {
     periodoApuracao: payload?.periodoApuracao,
     contribuinte: { numero: cnpj, tipo: 2 },
   });
+}
+
+/** Valida a competência na Receita antes de gerar ou regenerar uma guia. */
+export async function validarDas(cnpj, periodoApuracao) {
+  return apiClient.post('/mei-guide/validate', {
+    cnpj: String(cnpj || '').replace(/\D/g, ''),
+    periodoApuracao,
+  });
+}
+
+/** Regera uma guia existente (por exemplo, vencida) e atualiza o PDF guardado. */
+export async function regenerarDas(payload) {
+  const cnpj = String(payload?.cnpj || '').replace(/\D/g, '');
+  const periodoApuracao = String(payload?.periodoApuracao || '').trim();
+  return apiClient.post(
+    `/mei-guide/${encodeURIComponent(periodoApuracao)}/regenerate`,
+    {
+      cnpj,
+      periodoApuracao,
+      contribuinte: { numero: cnpj, tipo: 2 },
+    },
+    { timeoutMs: 60000 },
+  );
 }
 
 /** Download do PDF da guia DAS. */
@@ -288,6 +301,16 @@ export async function fetchNotas(options = {}) {
   if (options.documentType) params.set('documentType', options.documentType);
   if (options.limit) params.set('limit', String(options.limit));
   return apiClient.get(`/mei-notas?${params.toString()}`);
+}
+
+/** Importa uma vez o histórico fiscal existente no emissor para a base local. */
+export async function importarHistoricoPlugNotas(options = {}) {
+  return apiClient.post('/mei-notas/importar/historico', {
+    ...(options.cnpj ? { cnpj: String(options.cnpj).replace(/\D/g, '') } : {}),
+    ...(options.dataInicial ? { dataInicial: options.dataInicial } : {}),
+    ...(options.dataFinal ? { dataFinal: options.dataFinal } : {}),
+    ...(options.maxPages ? { maxPages: options.maxPages } : {}),
+  }, { timeoutMs: EMIT_FETCH_TIMEOUT_MS });
 }
 
 /** Detalhes de uma nota. Com `sync: true`, reconsulta o emissor (Plugnotas). */
@@ -411,22 +434,6 @@ export async function sugerirCatalogoCodigosServicos(options = {}) {
   return apiClient.get(`/mei-notas/catalogo/codigos-servicos/sugerir?${params.toString()}`);
 }
 
-/** Lista NCMs de referência. */
-export async function fetchCatalogoNcms(options = {}) {
-  const params = new URLSearchParams();
-  if (options.q) params.set('q', options.q);
-  if (options.limit) params.set('limit', String(options.limit));
-  return apiClient.get(`/mei-notas/catalogo/ncms?${params.toString()}`);
-}
-
-/** Sugere NCMs pelo texto. */
-export async function sugerirCatalogoNcms(options = {}) {
-  const params = new URLSearchParams();
-  if (options.q) params.set('q', options.q);
-  if (options.limit) params.set('limit', String(options.limit));
-  return apiClient.get(`/mei-notas/catalogo/ncms/sugerir?${params.toString()}`);
-}
-
 /** Cria um produto/serviço no catálogo. */
 export async function criarCatalogoProduto(payload) {
   return apiClient.post('/mei-notas/catalogo/produtos', payload);
@@ -442,14 +449,9 @@ export async function excluirCatalogoProduto(id) {
   return apiClient.delete(`/mei-notas/catalogo/produtos/${encodeURIComponent(id)}`);
 }
 
-/** Importa produtos a partir dos CNAEs da empresa. */
-export async function importCnaesProdutos() {
-  return apiClient.post('/mei-notas/catalogo/produtos/from-cnaes');
-}
-
-/** Calcula tributação de itens NF-e/NFC-e. */
-export async function calcularTributacaoItensNfe(payload) {
-  return apiClient.post('/mei-notas/tax/calculate-items', payload);
+/** Importa CNAEs selecionados, opcionalmente vinculados a códigos LC 116. */
+export async function importCnaesProdutos(input) {
+  return apiClient.post('/mei-notas/catalogo/produtos/from-cnaes', input);
 }
 
 /** Lookup de CNPJ para preenchimento automático de dados. */
