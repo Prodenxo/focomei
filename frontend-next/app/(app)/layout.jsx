@@ -10,6 +10,9 @@ import { ImpersonationBanner } from '@/components/layout/ImpersonationBanner';
 import { PendingApprovalScreen } from '@/components/auth/PendingApprovalScreen';
 import { useAccessGate } from '@/hooks/useAccessGate';
 import { useAppBootGates } from '@/hooks/useAppBootGates';
+import { SupportProvider } from '@/context/SupportProvider';
+import { SupportNotificationsBell } from '@/components/support/SupportNotificationsBell';
+import { SupportCenterModal } from '@/components/support/SupportCenterModal';
 
 function AppShellGate({ children }) {
   const router = useRouter();
@@ -86,14 +89,22 @@ function AppShellGate({ children }) {
             onClose={() => setDrawerOpen(false)}
           />
           <span className="text-sm font-semibold text-[var(--text-primary)]">Foco MEI</span>
+          <div className="ml-auto">
+            <SupportNotificationsBell />
+          </div>
         </div>
         <ImpersonationBanner />
         <main className="flex min-h-0 flex-1 flex-col px-4 py-5 sm:px-6 lg:px-7 lg:py-7">{children}</main>
       </div>
+      <SupportCenterModal />
     </div>
   );
 }
 
 export default function AppLayout({ children }) {
-  return <AppShellGate>{children}</AppShellGate>;
+  return (
+    <SupportProvider>
+      <AppShellGate>{children}</AppShellGate>
+    </SupportProvider>
+  );
 }

@@ -7,6 +7,7 @@ import {
   MessageCircle,
   Palette,
   Shield,
+  Ticket,
   User,
   Users,
 } from 'lucide-react';
@@ -34,8 +35,10 @@ import { SettingsProfileField } from '@/components/settings/SettingsProfileField
 import { SettingsPhoneField } from '@/components/settings/SettingsPhoneField';
 import { ThemeAppearancePicker } from '@/components/settings/ThemeAppearancePicker';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useSupport } from '@/context/SupportProvider';
 
 export default function MinhaContaPage() {
+  const { openCenter, unreadCount } = useSupport();
   const {
     displayName,
     email,
@@ -272,6 +275,12 @@ export default function MinhaContaPage() {
           title="Equipe e administração"
           description="Gerencie acessos e configurações."
         >
+          <SettingsActionLink
+            onClick={() => openCenter()}
+            title="Meus chamados"
+            description={unreadCount ? `${unreadCount} atualização(ões) não lida(s)` : 'Abra e acompanhe seus atendimentos'}
+            icon={Ticket}
+          />
           <SettingsActionLink
             href="/minha-conta/usuarios"
             title="Gerenciar usuários"

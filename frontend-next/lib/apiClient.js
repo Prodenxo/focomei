@@ -167,6 +167,11 @@ export const apiClient = {
       method: 'POST',
       body: body !== undefined ? JSON.stringify(body) : undefined,
     }, timeoutMs),
+  postForm: (path, formData, { timeoutMs } = {}) =>
+    requestJson(path, {
+      method: 'POST',
+      body: formData,
+    }, timeoutMs),
   getPublic: (path) => requestJsonPublic(path, { method: 'GET' }),
   postPublic: (path, body) =>
     requestJsonPublic(path, {

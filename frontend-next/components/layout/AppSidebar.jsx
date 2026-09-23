@@ -7,6 +7,7 @@ import { BrandWordmark } from '@/components/brand/BrandLogo';
 import { NAV_ITEMS, isNavActive } from '@/lib/navConfig';
 import { useAuth } from '@/context/AuthProvider';
 import { useTheme } from '@/context/ThemeProvider';
+import { SupportNotificationsBell } from '@/components/support/SupportNotificationsBell';
 
 function UserInitials({ name }) {
   const parts = String(name || 'U').trim().split(/\s+/);
@@ -38,8 +39,9 @@ export function AppSidebar({ className = '' }) {
       className={`sticky top-0 flex h-screen max-h-screen w-[240px] shrink-0 self-start flex-col overflow-hidden bg-[var(--sidebar)] text-white ${className}`}
       aria-label="Menu principal"
     >
-      <div className="shrink-0 border-b border-white/10 px-4 py-3">
+      <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-3">
         <BrandWordmark compact />
+        <SupportNotificationsBell inverse />
       </div>
 
       <nav className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-3">
