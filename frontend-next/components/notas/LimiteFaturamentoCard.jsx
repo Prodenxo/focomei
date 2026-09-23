@@ -17,11 +17,11 @@ function labelForBanda(banda) {
 function messageForBanda(banda) {
   switch (banda) {
     case 'seguro':
-      return 'Receita bruta confortável face ao limite anual do Simples Nacional.';
+      return 'Situação confortável face ao limite de referência do ano.';
     case 'atencao':
-      return 'Você já utilizou grande parte do limite anual de R$ 4,8 milhões.';
+      return 'Você já utilizou grande parte do limite de referência do ano.';
     case 'critico':
-      return 'Próximo do teto do Simples — planeje o enquadramento e consulte um contador.';
+      return 'Próximo do limite de referência — planeje próximos passos e consulte um contador se necessário.';
     default:
       return 'Limite de referência ou percentual não disponível para este período.';
   }
@@ -60,14 +60,9 @@ export function LimiteFaturamentoCard({
     && progresso.limiteReferenciaReais > 0
     && progresso.percentualUtilizadoParaBarra != null;
 
-  const sublimite = progresso.sublimiteReais;
-  const showSublimiteMarker = showBar
-    && sublimite != null
-    && sublimite > 0
-    && progresso.limiteReferenciaReais > 0;
-  const sublimiteLeftPct = showSublimiteMarker
-    ? Math.min(100, Math.max(0, (sublimite / progresso.limiteReferenciaReais) * 100))
-    : 0;
+  const isEmpty = !loading
+    && progresso.notasConsideradas === 0
+    && progresso.totalUtilizadoReais === 0;
 
   return (
     <Card className="relative overflow-hidden p-5 sm:p-6">
@@ -77,7 +72,7 @@ export function LimiteFaturamentoCard({
             Limite de faturamento · {anoCivil}
           </p>
           <h2 className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
-            Simples Nacional
+            Limite de faturamento (MEI)
           </h2>
           {vigenciaLabel ? (
             <p className="mt-0.5 text-xs text-[var(--text-muted)]">{vigenciaLabel}</p>
@@ -111,21 +106,18 @@ export function LimiteFaturamentoCard({
         </div>
       </div>
 
+      {isEmpty ? (
+        <p className="mt-5 text-sm text-[var(--text-muted)]">
+          Ainda não há NFS-e autorizadas neste ano para calcular o progresso. Quando emitir, o total aparece aqui.
+        </p>
+      ) : null}
+
       {showBar ? (
-        <div className="relative mt-5">
-          <div className="h-2.5 overflow-hidden rounded-full bg-[var(--canvas)]">
-            <div
-              className={`h-full rounded-full transition-all ${barColorClass(progresso.banda)}`}
-              style={{ width: `${progresso.percentualUtilizadoParaBarra}%` }}
-            />
-          </div>
-          {showSublimiteMarker ? (
-            <div
-              className="absolute top-0 h-2.5 w-0.5 bg-[var(--text-muted)]"
-              style={{ left: `${sublimiteLeftPct}%` }}
-              title={`Sublimite ICMS/ISS: ${formatCurrencyBRL(sublimite)}`}
-            />
-          ) : null}
+        <div className="mt-5 h-2.5 overflow-hidden rounded-full bg-[var(--canvas)]">
+          <div
+            className={`h-full rounded-full transition-all ${barColorClass(progresso.banda)}`}
+            style={{ width: `${progresso.percentualUtilizadoParaBarra}%` }}
+          />
         </div>
       ) : null}
 

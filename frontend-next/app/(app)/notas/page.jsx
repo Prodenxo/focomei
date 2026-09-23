@@ -184,18 +184,17 @@ export default function NotasInicioPage() {
     };
   }, [parcelamentos, hasCertificate, cnpj, loadingParc]);
 
-  const limiteProgresso = useMemo(() => computeMeiLimiteProgresso([], {
+  const limiteProgresso = useMemo(() => computeMeiLimiteProgresso(notas, {
     anoCivil,
-    regime: 'simples',
     agregadoServidor: limiteServidor
       ? {
         totalUtilizadoReais: limiteServidor.totalUtilizadoReais ?? 0,
         notasConsideradas: limiteServidor.notasConsideradas ?? 0,
       }
-      : { totalUtilizadoReais: 0, notasConsideradas: 0 },
-  }), [anoCivil, limiteServidor]);
+      : undefined,
+  }), [anoCivil, limiteServidor, notas]);
 
-  const vigenciaLabel = getVigenciaLabelParaAno(anoCivil, 'simples');
+  const vigenciaLabel = getVigenciaLabelParaAno(anoCivil);
 
   return (
     <div className="flex flex-col gap-5">
