@@ -273,6 +273,29 @@ export function anoCivilFromIsoCreatedAt(createdAt) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Dia civil (aaaa-mm-dd) no fuso de São Paulo. */
+export function diaCivilBr(iso) {
+  if (!iso) return null;
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: MEI_LIMITE_ANO_CIVIL_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(parsed);
+}
+
+/**
+ * Mesma data no calendário brasileiro. A PlugNotas só informa o dia da autorização
+ * em alguns modelos, então a hora já gravada é mais precisa e deve ser preservada.
+ */
+export function mesmoDiaCivilBr(isoA, isoB) {
+  const a = diaCivilBr(isoA);
+  const b = diaCivilBr(isoB);
+  return Boolean(a && b && a === b);
+}
+
 /** Data de emissão/autorização (PlugNotas) com fallback em created_at. */
 export function resolverDataEmissaoDaNota(record) {
   const fiscal = resolverDataAutorizacaoFiscalDaNota(record);
@@ -305,11 +328,39 @@ const FISCAL_DATE_FIELD_KEYS = [
   ...FISCAL_EMISSION_DATE_FIELD_KEYS,
 ];
 
-function parseDateIso(value) {
+/** Fuso fixo do Brasil (sem horário de verão desde 2019). */
+const BR_UTC_OFFSET = '-03:00';
+const BR_DATE_RE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/;
+
+/**
+ * A PlugNotas envia dd/mm/aaaa; `new Date` leria como mm/dd/aaaa e trocaria dia por mês.
+ * @returns {string | null} ISO em UTC
+ */
+export function parseDataBrIso(value) {
+  const match = BR_DATE_RE.exec(String(value ?? '').trim());
+  if (!match) return null;
+  const [, d, m, y, h = '0', min = '0', s = '0'] = match;
+  const dia = Number(d);
+  const mes = Number(m);
+  if (!(mes >= 1 && mes <= 12) || !(dia >= 1 && dia <= 31)) return null;
+  const pad = (n) => String(Number(n)).padStart(2, '0');
+  const iso = `${y}-${pad(mes)}-${pad(dia)}T${pad(h)}:${pad(min)}:${pad(s)}${BR_UTC_OFFSET}`;
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
+export function parseFiscalDateIso(value) {
   if (value == null || value === '') return null;
+  const fromBr = parseDataBrIso(value);
+  if (fromBr) return fromBr;
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
+}
+
+function parseDateIso(value) {
+  return parseFiscalDateIso(value);
 }
 
 function pickFirstDateFromObject(obj, keys) {

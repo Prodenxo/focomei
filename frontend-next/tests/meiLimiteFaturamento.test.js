@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import {
   computeMeiLimiteProgresso,
+  parseDataBrIso,
+  resolverDataEmissaoDaNota,
   somarNotasAutorizadasNoAnoCivil,
 } from '../lib/meiLimiteFaturamento.js';
 import { getLimiteReferenciaReaisParaAno } from '../lib/meiLimiteFaturamentoConfig.js';
@@ -137,4 +139,21 @@ test('cai para a soma local quando o servidor ainda não contabilizou a nota', (
   );
   assert.equal(progresso.totalUtilizadoReais, 1200);
   assert.equal(progresso.notasConsideradas, 1);
+});
+
+test('data da PlugNotas e lida como dia/mes/ano', () => {
+  assert.equal(parseDataBrIso('11/08/2026'), '2026-08-11T03:00:00.000Z');
+  assert.equal(parseDataBrIso('25/08/2026 14:30:00'), '2026-08-25T17:30:00.000Z');
+  assert.equal(parseDataBrIso('2026-08-11T12:00:00Z'), null);
+  assert.equal(parseDataBrIso('13/13/2026'), null);
+});
+
+test('emissao usa a data de autorizacao sem trocar dia por mes', () => {
+  const nota = {
+    status: 'CONCLUIDO',
+    document_type: 'NFE',
+    created_at: '2026-11-08T00:00:00.000Z',
+    response_json: { dataAutorizacao: '11/08/2026' },
+  };
+  assert.equal(resolverDataEmissaoDaNota(nota), '2026-08-11T03:00:00.000Z');
 });

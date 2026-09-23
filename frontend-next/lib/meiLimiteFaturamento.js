@@ -185,8 +185,30 @@ export function extrairValorLimiteMeiDaNota(record) {
 const FISCAL_AUTH_DATE_FIELD_KEYS = ['dataAutorizacao', 'dataAutorizacaoNfse'];
 const FISCAL_EMISSION_DATE_FIELD_KEYS = ['dataEmissao', 'data_emissao', 'emissao'];
 
+/** Fuso fixo do Brasil (sem horário de verão desde 2019). */
+const BR_UTC_OFFSET = '-03:00';
+const BR_DATE_RE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/;
+
+/** A PlugNotas envia dd/mm/aaaa; `new Date` leria como mm/dd/aaaa e trocaria dia por mês. */
+export function parseDataBrIso(value) {
+  const match = BR_DATE_RE.exec(String(value ?? '').trim());
+  if (!match) return null;
+  const [, d, m, y, h = '0', min = '0', s = '0'] = match;
+  const dia = Number(d);
+  const mes = Number(m);
+  if (!(mes >= 1 && mes <= 12) || !(dia >= 1 && dia <= 31)) return null;
+  const pad = (n) => String(Number(n)).padStart(2, '0');
+  const parsed = new Date(
+    `${y}-${pad(mes)}-${pad(dia)}T${pad(h)}:${pad(min)}:${pad(s)}${BR_UTC_OFFSET}`,
+  );
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
 function parseDateIso(value) {
   if (value == null || value === '') return null;
+  const fromBr = parseDataBrIso(value);
+  if (fromBr) return fromBr;
   const parsed = new Date(String(value));
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();

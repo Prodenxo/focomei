@@ -4,6 +4,7 @@ import { badRequest } from '../utils/errors.js';
 import { consultarNfsePorPeriodo } from './plugnotas/nfse.service.js';
 import { collectPeriodoNotas } from './plugnotas/plugnotas-empresa-rps-heal.js';
 import { getCertificateDocument, getEmitenteNfseSnapshot } from './mei-certificate-store.js';
+import { parseFiscalDateIso } from '../utils/meiLimitePayloadSum.js';
 import {
   extractPlugNotasId,
   extractIntegracaoId,
@@ -297,8 +298,8 @@ const extractEmissaoIsoFromPeriodoNota = (nota) => {
   ];
   for (const value of candidates) {
     if (value == null || value === '') continue;
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+    const iso = parseFiscalDateIso(value);
+    if (iso) return iso;
   }
   return new Date().toISOString();
 };

@@ -111,6 +111,7 @@ import {
 import { isPlugnotasDebugExplicitlyEnabled } from './plugnotas/plugnotas-debug-env.js';
 import {
   agregarLimiteMeiDasLinhas,
+  mesmoDiaCivilBr,
   resolverDataAutorizacaoFiscalDaNota,
   parseCreatedAtIsoFromIdIntegracao,
   sortNotasPorListaRecencia,
@@ -2295,11 +2296,10 @@ export const resolveCreatedAtPatchFromFiscalEmissao = (record, response) => {
   if (!Number.isFinite(fiscalMs)) return null;
 
   const currentMs = record?.created_at ? new Date(record.created_at).getTime() : NaN;
-  if (
-    Number.isFinite(currentMs)
-    && Math.abs(currentMs - fiscalMs) < CREATED_AT_FISCAL_TOLERANCE_MS
-  ) {
-    return null;
+  if (Number.isFinite(currentMs)) {
+    if (Math.abs(currentMs - fiscalMs) < CREATED_AT_FISCAL_TOLERANCE_MS) return null;
+    // Mesmo dia: a hora já gravada é mais precisa que a autorização sem horário.
+    if (mesmoDiaCivilBr(record.created_at, fiscalIso)) return null;
   }
 
   return fiscalIso;
