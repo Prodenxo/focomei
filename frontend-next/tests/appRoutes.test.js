@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import nextConfig from '../next.config.mjs';
 import {
   ACCESS_REQUEST_HREF,
   APP_HOME_HREF,
@@ -26,4 +27,16 @@ test('a rota canônica da visão geral reconhece apenas seu segmento', () => {
   assert.equal(isAppHomePath('/visao-geral/detalhe'), true);
   assert.equal(isAppHomePath('/'), false);
   assert.equal(isAppHomePath('/visao-geral-antiga'), false);
+});
+
+test('nenhum redirect devolve a visão geral para a página pública', async () => {
+  const redirects = await nextConfig.redirects();
+
+  for (const redirect of redirects) {
+    assert.notEqual(
+      redirect.source,
+      APP_HOME_HREF,
+      `o redirect de ${redirect.source} impede o acesso ao painel`,
+    );
+  }
 });

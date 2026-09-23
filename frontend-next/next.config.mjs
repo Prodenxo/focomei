@@ -8,7 +8,6 @@ const nextConfig = {
   output: 'standalone',
   async redirects() {
     return [
-      { source: '/visao-geral', destination: '/', permanent: false },
       { source: '/onboarding', destination: '/register', permanent: false },
       { source: '/mei', destination: '/notas', permanent: false },
       { source: '/mei/:path*', destination: '/notas/:path*', permanent: false },
