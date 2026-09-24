@@ -71,8 +71,8 @@ const buildOnboardingPayload = (input = {}, { requireEmail = false } = {}) => {
  * Admin da empresa sem CNPJ válido precisa concluir cadastro uma vez.
  */
 export const getEmpresaCnpjOnboardingStatus = async (accessToken) => {
-  const { role, empresaId } = await getRequesterContext(accessToken);
-  if (role !== 'admin') {
+  const { role, empresaId, mei } = await getRequesterContext(accessToken);
+  if (role !== 'admin' || mei !== true) {
     return { required: false, empresa: null };
   }
   if (!empresaId) {

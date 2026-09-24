@@ -20,7 +20,7 @@ export function ActivationSetup() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    if (await isEmpresaCnpjOnboardingRequired(role)) {
+    if (await isEmpresaCnpjOnboardingRequired(role, mei)) {
       router.replace('/empresa-cnpj');
       return;
     }
