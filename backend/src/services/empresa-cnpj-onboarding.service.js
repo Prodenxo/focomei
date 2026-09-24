@@ -35,6 +35,13 @@ const EMPRESA_ONBOARDING_FIELDS = [
   'email',
 ];
 
+/**
+ * `id` fica fora de EMPRESA_ONBOARDING_FIELDS porque aquela lista também monta o
+ * payload de update — mas as leituras precisam do `id`, senão o guarda
+ * `if (!data?.id)` derruba a chamada como "Empresa não encontrada".
+ */
+export const EMPRESA_ONBOARDING_SELECT = ['id', ...EMPRESA_ONBOARDING_FIELDS].join(', ');
+
 const normalizeEmpresaText = (value) => {
   if (value === undefined) return undefined;
   if (value === null) return null;
@@ -93,7 +100,7 @@ export const getEmpresaCnpjOnboardingStatus = async (accessToken) => {
   const adminClient = createSupabaseClient({ useServiceRole: true });
   const { data, error } = await adminClient
     .from('empresas')
-    .select(EMPRESA_ONBOARDING_FIELDS.join(', '))
+    .select(EMPRESA_ONBOARDING_SELECT)
     .eq('id', empresaId)
     .maybeSingle();
 
@@ -140,7 +147,7 @@ export const completeEmpresaCnpjOnboarding = async (accessToken, input = {}) => 
     .from('empresas')
     .update(updates)
     .eq('id', empresaId)
-    .select(EMPRESA_ONBOARDING_FIELDS.join(', '))
+    .select(EMPRESA_ONBOARDING_SELECT)
     .maybeSingle();
 
   if (error) throw badRequest(error.message || 'Erro ao salvar dados da empresa');
