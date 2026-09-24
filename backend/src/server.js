@@ -8,6 +8,7 @@ import routes from './routes/index.js';
 import * as stripeWebhookController from './controllers/stripe-webhook.controller.js';
 import { errorHandler } from './middlewares/errorHandler.js';
 import { startAgendaRemindersScheduler } from './services/agenda-reminders.scheduler.js';
+import { startCertificateExpirationReminderScheduler } from './services/certificate-expiration-reminders.scheduler.js';
 import { startMonthlyDasScheduler } from './services/mei-das.service.js';
 import { startSupportTicketSyncScheduler } from './services/support-ticket-sync.scheduler.js';
 import { bootstrapDatabase } from './services/db-bootstrap.service.js';
@@ -169,6 +170,7 @@ const startServer = async () => {
   const server = app.listen(env.PORT, () => {
     startMonthlyDasScheduler();
     startAgendaRemindersScheduler();
+    startCertificateExpirationReminderScheduler();
     startSupportTicketSyncScheduler();
     // eslint-disable-next-line no-console
     console.log(`[backend] rodando na porta ${env.PORT}`);

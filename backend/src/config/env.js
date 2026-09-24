@@ -327,6 +327,12 @@ export const env = {
   AGENDA_SCHEDULER_INTERVAL_MINUTES:
     process.env.AGENDA_SCHEDULER_INTERVAL_MINUTES || "2",
   /**
+   * `true`: avisa por WhatsApp os administradores do escritório quando um certificado
+   * digital de cliente vence em até 30 dias. O histórico no banco impede repetição.
+   */
+  CERTIFICATE_EXPIRATION_WHATSAPP_ENABLED:
+    process.env.CERTIFICATE_EXPIRATION_WHATSAPP_ENABLED || "true",
+  /**
    * `true`: após `emit_nfse` pelo OpenClaw, agenda envio do PDF via Z-API (cron
    * `/api/cron/nfse-whatsapp-pending`). Requer Z-API outbound (não usa n8n).
    */

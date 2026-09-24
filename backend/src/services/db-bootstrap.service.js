@@ -68,6 +68,13 @@ const parseBoolean = (value, defaultValue) => {
   return defaultValue;
 };
 
+const resolveBootstrapDbUrl = () => {
+  const localAuth = String(env.AUTH_MODE || '').trim().toLowerCase() === 'local';
+  return localAuth
+    ? env.DATABASE_URL || env.SUPABASE_DB_URL
+    : env.SUPABASE_DB_URL || env.DATABASE_URL;
+};
+
 const createPgClient = async (connectionString, sslEnabled) => {
   const client = new Client({
     connectionString,
@@ -103,8 +110,30 @@ create table if not exists public.calendar_upcoming_reminder_sent (
 );
 `;
 
+export const CERTIFICATE_EXPIRATION_NOTIFICATIONS_SQL = `
+create table if not exists public.certificate_expiration_notifications (
+  id uuid primary key default gen_random_uuid(),
+  certificate_id uuid not null
+    references public.user_mei_certificates (id) on delete cascade,
+  recipient_user_id uuid not null,
+  cert_valid_to timestamptz not null,
+  phone text,
+  channel text,
+  sent_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  unique (certificate_id, recipient_user_id, cert_valid_to)
+);
+
+create index if not exists idx_certificate_expiration_notifications_recipient
+  on public.certificate_expiration_notifications (recipient_user_id, sent_at desc);
+
+alter table public.certificate_expiration_notifications enable row level security;
+`;
+
 export const CALENDAR_AGENDA_WHATSAPP_SQL =
-  `${CALENDAR_CHECKLIST_COMPLETIONS_SQL}\n${CALENDAR_UPCOMING_REMINDER_SENT_SQL}`;
+  `${CALENDAR_CHECKLIST_COMPLETIONS_SQL}\n`
+  + `${CALENDAR_UPCOMING_REMINDER_SENT_SQL}\n`
+  + CERTIFICATE_EXPIRATION_NOTIFICATIONS_SQL;
 
 let calendarTableEnsured = false;
 
@@ -114,7 +143,7 @@ let calendarTableEnsured = false;
  */
 export const ensureCalendarChecklistTable = async (options = {}) => {
   if (calendarTableEnsured && !options.force) return { ok: true, cached: true };
-  const dbUrl = options.dbUrl ?? env.SUPABASE_DB_URL;
+  const dbUrl = options.dbUrl ?? resolveBootstrapDbUrl();
   if (!dbUrl) {
     return {
       ok: false,
@@ -155,7 +184,7 @@ export const bootstrapDatabase = async (options = {}) => {
     ?? parseBoolean(env.CALENDAR_CHECKLIST_SCHEMA_ENSURE, true);
   const failFast = options.failFast ?? parseBoolean(env.DB_BOOTSTRAP_FAIL_FAST, true);
   const sslEnabled = options.sslEnabled ?? parseBoolean(env.DB_BOOTSTRAP_SSL, true);
-  const dbUrl = options.dbUrl ?? env.SUPABASE_DB_URL;
+  const dbUrl = options.dbUrl ?? resolveBootstrapDbUrl();
   const dbClientFactory = options.dbClientFactory || createPgClient;
 
   const shouldConnect = autoSchema || ensureCalendarSchema || options.forceConnectionCheck;

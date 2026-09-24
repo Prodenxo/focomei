@@ -9,6 +9,7 @@ import {
   runAgendaWhatsappReminders,
 } from '../services/agenda-reminders.service.js';
 import { runOpenclawNfseWhatsappDeliveryJob } from '../services/nfse-whatsapp-delivery.service.js';
+import { runCertificateExpirationWhatsappReminders } from '../services/certificate-expiration-reminders.service.js';
 import { badRequest } from '../utils/errors.js';
 
 const router = Router();
@@ -148,6 +149,23 @@ router.get('/nfse-whatsapp-pending', requireCronSecret, async (req, res, next) =
     });
   } catch (error) {
     next(error);
+  }
+});
+
+/**
+ * Avisos de certificado digital vencendo em até 30 dias.
+ * Query de teste: `date=YYYY-MM-DD&force=1`.
+ */
+router.get('/certificados-vencimento', requireCronSecret, async (req, res, next) => {
+  try {
+    const todayIso = req.query.date ? String(req.query.date).trim() : undefined;
+    const force =
+      String(req.query.force || '').toLowerCase() === '1'
+      || String(req.query.force || '').toLowerCase() === 'true';
+    const summary = await runCertificateExpirationWhatsappReminders({ todayIso, force });
+    return res.json({ ok: true, summary });
+  } catch (error) {
+    return next(error);
   }
 });
 
