@@ -65,7 +65,7 @@ export function EmpresaCnpjOnboarding() {
   };
 
   const leaveIfDone = useCallback(async () => {
-    const still = await isEmpresaCnpjOnboardingRequired(role, mei);
+    const still = await isEmpresaCnpjOnboardingRequired(role);
     if (still) {
       setBooting(false);
       return;

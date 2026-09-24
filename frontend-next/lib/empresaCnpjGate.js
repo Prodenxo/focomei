@@ -4,8 +4,8 @@ import {
   getCurrentEmpresa,
 } from '@/lib/empresaOnboardingApi';
 
-export async function isEmpresaCnpjOnboardingRequired(role, mei) {
-  if (role !== 'admin' || mei !== true) return false;
+export async function isEmpresaCnpjOnboardingRequired(role) {
+  if (role !== 'admin') return false;
   try {
     const status = await fetchEmpresaCnpjOnboardingStatus();
     if (status !== null) return Boolean(status.required);

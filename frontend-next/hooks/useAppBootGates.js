@@ -50,7 +50,7 @@ export function useAppBootGates(accessGate) {
       const onAtivacao = pathname.startsWith('/ativacao');
 
       if (!cnpjDone.current && !onEmpresaCnpj) {
-        const needCnpj = await isEmpresaCnpjOnboardingRequired(role, mei);
+        const needCnpj = await isEmpresaCnpjOnboardingRequired(role);
         if (cancelled) return;
         cnpjDone.current = true;
         if (needCnpj) {

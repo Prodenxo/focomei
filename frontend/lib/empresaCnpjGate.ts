@@ -8,8 +8,8 @@ import { getEmpresa } from '../services/empresaService'
  * Usa API dedicada; se falhar, consulta GET /empresas/current como fallback.
  */
 export async function isEmpresaCnpjOnboardingRequired (): Promise<boolean> {
-  const { role, mei } = useAuthStore.getState()
-  if (role !== 'admin' || mei !== true) return false
+  const role = useAuthStore.getState().role
+  if (role !== 'admin') return false
 
   try {
     const status = await fetchEmpresaCnpjOnboardingStatus()
