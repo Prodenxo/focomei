@@ -12,6 +12,7 @@ const DOCUMENTOS = [
 export function NumeracaoFiscalPanel({ cnpj }) {
   const [data, setData] = useState(null);
   const [inputs, setInputs] = useState({ nfse: '', nfe: '' });
+  const [series, setSeries] = useState({ nfse: '', nfe: '' });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(null);
   const [message, setMessage] = useState(null);
@@ -27,6 +28,10 @@ export function NumeracaoFiscalPanel({ cnpj }) {
       setInputs({
         nfse: String(result?.nfse?.ultimoUtilizado ?? 0),
         nfe: String(result?.nfe?.ultimoUtilizado ?? 0),
+      });
+      setSeries({
+        nfse: String(result?.nfse?.serie ?? '1'),
+        nfe: String(result?.nfe?.serie ?? '1'),
       });
     } catch (error) {
       setMessage({
@@ -49,6 +54,12 @@ export function NumeracaoFiscalPanel({ cnpj }) {
       return;
     }
 
+    const serie = String(series[documentType] || '').trim();
+    if (!serie) {
+      setMessage({ type: 'error', text: 'Informe a série da nota.' });
+      return;
+    }
+
     const historicoMaximo = Number(data?.[documentType]?.historicoMaximo || 0);
     if (
       ultimoUtilizado < historicoMaximo
@@ -66,16 +77,20 @@ export function NumeracaoFiscalPanel({ cnpj }) {
         cnpj,
         documentType,
         ultimoUtilizado,
-        serie: data?.[documentType]?.serie,
+        serie,
       });
       setData(result);
       setInputs((current) => ({
         ...current,
         [documentType]: String(result?.[documentType]?.ultimoUtilizado ?? ultimoUtilizado),
       }));
+      setSeries((current) => ({
+        ...current,
+        [documentType]: String(result?.[documentType]?.serie ?? serie),
+      }));
       setMessage({
         type: 'success',
-        text: `Numeração salva. A próxima nota sairá com o número ${ultimoUtilizado + 1}.`,
+        text: `Numeração salva. A próxima nota sairá na série ${serie}, número ${ultimoUtilizado + 1}.`,
       });
     } catch (error) {
       setMessage({
@@ -94,8 +109,8 @@ export function NumeracaoFiscalPanel({ cnpj }) {
       <div>
         <h3 className="text-sm font-semibold text-[var(--text-primary)]">Numeração das notas</h3>
         <p className="mt-1 text-xs text-[var(--text-muted)]">
-          Informe o número da última nota emitida. A próxima sai com o número seguinte,
-          mesmo que o emissor tenha registrado uma numeração maior.
+          Informe a série e o número da última nota emitida. A próxima sai na mesma série
+          com o número seguinte, mesmo que o emissor tenha registrado uma numeração maior.
         </p>
       </div>
 
@@ -110,6 +125,18 @@ export function NumeracaoFiscalPanel({ cnpj }) {
             return (
               <div key={key} className="rounded-[12px] border border-[var(--card-border)] p-3">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <label className="flex flex-1 flex-col gap-1 text-xs sm:max-w-32">
+                    <span className="font-medium text-[var(--text-muted)]">Série</span>
+                    <input
+                      value={series[key]}
+                      onChange={(event) => setSeries((current) => ({
+                        ...current,
+                        [key]: event.target.value,
+                      }))}
+                      placeholder="Ex.: 1"
+                      className="h-10 rounded-[10px] border border-[var(--card-border)] bg-[var(--canvas)] px-3 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none"
+                    />
+                  </label>
                   <label className="flex flex-1 flex-col gap-1 text-xs">
                     <span className="font-medium text-[var(--text-muted)]">{label}</span>
                     <input
@@ -135,7 +162,8 @@ export function NumeracaoFiscalPanel({ cnpj }) {
                   </button>
                 </div>
                 <p className="mt-2 text-[11px] text-[var(--text-muted)]">
-                  A próxima nota sai com o número {Number(inputs[key] || 0) + 1}.
+                  A próxima nota sai na série {String(series[key] || '').trim() || '—'},
+                  {' '}com o número {Number(inputs[key] || 0) + 1}.
                   {entry?.historicoMaximo
                     ? ` Maior número já registrado no emissor: ${entry.historicoMaximo}.`
                     : ''}
