@@ -1,4 +1,4 @@
-import { normalizeRoleValue } from '@/lib/meiAccess';
+import { normalizeRoleValue } from './meiAccess.js';
 
 /**
  * O login continua no app Expo. No web o AsyncStorage grava direto no

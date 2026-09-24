@@ -1,36 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# Foco MEI Web
 
-## Getting Started
+Frontend oficial do Foco MEI em Next.js App Router.
 
-First, run the development server:
+## Desenvolvimento
 
 ```bash
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abra [http://localhost:3001](http://localhost:3001). O backend local deve estar
+em `http://localhost:3333`, salvo configuração diferente em `.env.local`.
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+## Qualidade
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run lint
+npm run test
+npm run typecheck
+```
 
-## Learn More
+## Easypanel
 
-To learn more about Next.js, take a look at the following resources:
+Configure o serviço com:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- contexto de build: `frontend-next`
+- Dockerfile: `frontend-next/Dockerfile` (ou `Dockerfile` quando o contexto já for a pasta)
+- porta interna: `3000`
+- health check: `/`
+- `NEXT_PUBLIC_API_URL=https://api.focomei.com.br`
+- `NEXT_PUBLIC_APP_PRODUCT=focomei`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+O container usa o build standalone do Next. O `docker-entrypoint.sh` cria
+`public/env-config.js` na inicialização, portanto a URL da API pode ser alterada
+no Easypanel sem reconstruir a imagem.
 
-## Deploy on Vercel
+Durante o corte, o serviço Expo anterior deve permanecer disponível sem tráfego
+para rollback. O domínio `focomei.com.br` só deve ser movido depois dos smoke
+tests no serviço Next.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Variáveis antigas `EXPO_PUBLIC_MEI_API_URL`, `EXPO_PUBLIC_APP_PRODUCT` e
+`VITE_API_URL` continuam aceitas temporariamente pelo entrypoint.

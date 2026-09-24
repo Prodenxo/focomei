@@ -10,6 +10,11 @@ import { badRequest, forbidden } from '../utils/errors.js';
 import { parseCatalogLimit } from '../utils/mei-catalog-query.js';
 import { sendCreated, sendSuccess } from '../utils/response.js';
 import { buildAccessRequestReport } from '../services/access-request-report.service.js';
+import {
+  approveAccessRequest,
+  listPendingAccessRequests,
+  rejectAccessRequest,
+} from '../services/access-request-manage.service.js';
 import { upsertDocumentosAtivosMirrorForAdmin } from '../services/mei-certificate-store.js';
 import { getNfsePrestadorPrefill } from '../services/mei-prestador-prefill.service.js';
 import {
@@ -513,6 +518,39 @@ export const getAccessRequestsReport = async (req, res, next) => {
       entries = entries.filter((e) => e.eventType === eventType);
     }
     return sendSuccess(res, { entries });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const listAccessRequests = async (_req, res, next) => {
+  try {
+    const requests = await listPendingAccessRequests();
+    return sendSuccess(res, { requests });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const manageAccessRequest = async (req, res, next) => {
+  try {
+    const action = String(req.body?.action || '').trim().toLowerCase();
+    const userId = String(req.body?.userId || '').trim();
+    if (!userId) throw badRequest('Usuário da solicitação não informado');
+
+    let result;
+    if (action === 'approve') {
+      result = await approveAccessRequest({ actorUserId: req.user.id, userId });
+    } else if (action === 'reject') {
+      result = await rejectAccessRequest({ userId });
+    } else {
+      throw badRequest('Ação inválida. Use approve ou reject');
+    }
+
+    if (!result?.ok) {
+      throw badRequest('Solicitação não encontrada ou já processada');
+    }
+    return sendSuccess(res, { ok: true });
   } catch (error) {
     return next(error);
   }

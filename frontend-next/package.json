@@ -8,8 +8,9 @@
     "dev:clean": "npm run clean && next dev -p 3001",
     "restart": "node scripts/restart-dev.js",
     "build": "next build",
-    "start": "next start -p 3001",
+    "start": "next start",
     "lint": "eslint",
+    "typecheck": "next build",
     "test": "node --test tests/*.test.js",
     "clean": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true})\""
   },

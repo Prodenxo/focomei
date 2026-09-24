@@ -1,5 +1,5 @@
-import { getApiBaseUrl } from './env';
-import { getLocalAccessToken } from './authSession';
+import { getApiBaseUrl } from './env.js';
+import { readAccessToken } from './session.js';
 
 const DEFAULT_FETCH_TIMEOUT_MS = 8000;
 /** Emissão fiscal (Plugnotas + validações) pode levar dezenas de segundos. */
@@ -7,8 +7,37 @@ export const EMIT_FETCH_TIMEOUT_MS = 120000;
 
 const normalizePath = (path) => (path.startsWith('/') ? path : `/${path}`);
 
+export class ApiError extends Error {
+  constructor(message, { code, status, details } = {}) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.status = status;
+    this.details = details;
+  }
+}
+
+export class NotAuthenticatedError extends ApiError {
+  constructor() {
+    super('Sessão não encontrada. Faça login no FocoMEI.', {
+      code: 'sem_sessao',
+      status: 401,
+    });
+    this.name = 'NotAuthenticatedError';
+  }
+}
+
+/** `AbortError` externo é troca de filtro/navegação, não falha da API. */
+export function isAbortError(error) {
+  return error?.name === 'AbortError';
+}
+
 async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_FETCH_TIMEOUT_MS) {
   const controller = new AbortController();
+  const externalSignal = options.signal;
+  const abortFromExternal = () => controller.abort(externalSignal?.reason);
+  if (externalSignal?.aborted) abortFromExternal();
+  else externalSignal?.addEventListener('abort', abortFromExternal, { once: true });
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
@@ -17,21 +46,29 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_FETCH_TIM
       signal: controller.signal,
     });
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Tempo esgotado ao conectar ao servidor.');
+    if (isAbortError(error)) {
+      if (externalSignal?.aborted) throw error;
+      throw new ApiError('Tempo esgotado ao conectar ao servidor.', {
+        code: 'timeout',
+      });
     }
     const message = error instanceof Error ? error.message : 'Falha na requisição.';
-    throw new Error(message.includes('fetch') ? 'Não foi possível conectar ao servidor.' : message);
+    throw new ApiError(
+      message.includes('fetch') ? 'Não foi possível conectar ao servidor.' : message,
+      { code: 'network_error' },
+    );
   } finally {
     clearTimeout(timeoutId);
+    externalSignal?.removeEventListener('abort', abortFromExternal);
   }
 }
 
 const getBaseUrl = () => {
   const apiUrl = getApiBaseUrl();
   if (!apiUrl) {
-    throw new Error(
+    throw new ApiError(
       'API não configurada. Defina NEXT_PUBLIC_API_URL (ou NEXT_PUBLIC_API_URL_DEV em localhost).',
+      { code: 'api_not_configured' },
     );
   }
   return `${apiUrl}/api`;
@@ -44,16 +81,19 @@ const resolveApiErrorMessage = (payload, statusText, fallback = 'Falha na requis
 };
 
 const createApiError = (message, response, payload) => {
-  const error = new Error(message);
-  error.status = response?.status;
-  error.code = payload?.code || payload?.error?.code;
-  error.details = payload?.details || payload?.error?.details;
-  return error;
+  return new ApiError(message, {
+    status: response?.status,
+    code:
+      payload?.code
+      || payload?.error?.code
+      || payload?.errors?.code,
+    details: payload?.details || payload?.error?.details,
+  });
 };
 
 async function buildAuthHeaders(extra) {
-  const token = getLocalAccessToken();
-  if (!token) throw new Error('Usuário não autenticado.');
+  const token = readAccessToken();
+  if (!token) throw new NotAuthenticatedError();
   return {
     Authorization: `Bearer ${token}`,
     ...(extra || {}),
@@ -161,15 +201,18 @@ async function requestJsonPublic(path, options = {}) {
 }
 
 export const apiClient = {
-  get: (path, { timeoutMs } = {}) => requestJson(path, { method: 'GET' }, timeoutMs),
-  post: (path, body, { timeoutMs } = {}) =>
+  get: (path, { timeoutMs, signal } = {}) =>
+    requestJson(path, { method: 'GET', signal }, timeoutMs),
+  post: (path, body, { timeoutMs, signal } = {}) =>
     requestJson(path, {
       method: 'POST',
+      signal,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     }, timeoutMs),
-  postForm: (path, formData, { timeoutMs } = {}) =>
+  postForm: (path, formData, { timeoutMs, signal } = {}) =>
     requestJson(path, {
       method: 'POST',
+      signal,
       body: formData,
     }, timeoutMs),
   getPublic: (path) => requestJsonPublic(path, { method: 'GET' }),
@@ -178,16 +221,19 @@ export const apiClient = {
       method: 'POST',
       body: body !== undefined ? JSON.stringify(body) : undefined,
     }),
-  put: (path, body, { timeoutMs } = {}) =>
+  put: (path, body, { timeoutMs, signal } = {}) =>
     requestJson(path, {
       method: 'PUT',
+      signal,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     }, timeoutMs),
-  patch: (path, body, { timeoutMs } = {}) =>
+  patch: (path, body, { timeoutMs, signal } = {}) =>
     requestJson(path, {
       method: 'PATCH',
+      signal,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     }, timeoutMs),
-  delete: (path, { timeoutMs } = {}) => requestJson(path, { method: 'DELETE' }, timeoutMs),
+  delete: (path, { timeoutMs, signal } = {}) =>
+    requestJson(path, { method: 'DELETE', signal }, timeoutMs),
   download: (path, { timeoutMs } = {}) => downloadBinary(path, timeoutMs),
 };

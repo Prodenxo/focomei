@@ -115,7 +115,10 @@ export function AuthProvider({ children }) {
     } catch (err) {
       const message = err instanceof Error ? err.message : '';
       const isAuthError =
-        message.includes('autenticado')
+        err?.status === 401
+        || err?.status === 403
+        || err?.code === 'sem_sessao'
+        || message.includes('autenticado')
         || message.includes('Sessão')
         || message.includes('401')
         || message.includes('Unauthorized');

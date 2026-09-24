@@ -160,7 +160,8 @@ export const listPendingAccessRequests = async (sb) => {
     return listPendingAccessRequestsLocal();
   }
 
-  const { data: pendingLinks, error: linksErr } = await sb
+  const client = sb || getServiceRoleClient();
+  const { data: pendingLinks, error: linksErr } = await client
     .from('role_x_user_x_empresa')
     .select('user_id, created_at')
     .eq('status', false);
@@ -171,10 +172,10 @@ export const listPendingAccessRequests = async (sb) => {
   const requests = (
     await Promise.all(
       pendingLinks.map(async (link) => {
-        const { data: authData } = await sb.auth.admin.getUserById(link.user_id);
+        const { data: authData } = await client.auth.admin.getUserById(link.user_id);
         const meta = authData?.user?.user_metadata ?? {};
 
-        const { data: empresa } = await sb
+        const { data: empresa } = await client
           .from('empresas')
           .select('empresa, cnpj, razao_social, nome_fantasia')
           .eq('requested_by', link.user_id)

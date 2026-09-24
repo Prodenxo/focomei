@@ -73,6 +73,18 @@ router.get(
   requireSuperAdmin,
   controller.getAccessRequestsReport,
 );
+router.get(
+  '/access-requests',
+  requireAuth,
+  requireSuperAdmin,
+  controller.listAccessRequests,
+);
+router.post(
+  '/access-requests/manage',
+  requireAuth,
+  requireSuperAdmin,
+  controller.manageAccessRequest,
+);
 
 router.get(
   '/billing/stripe/subscription-lines',
