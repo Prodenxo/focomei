@@ -253,10 +253,17 @@ const getMonthRangeFromInput = (year, month) => {
   return { startDate, endDate, start };
 };
 
-/** Mês civil 1–12 a partir de `data` em lançamento (YYYY-MM-DD ou ISO). */
-export const parseMonthFromLancamentoDate = (dataValue) => {
-  if (!dataValue) return null;
-  const s = String(dataValue);
+/**
+ * Mês civil 1–12 de uma coluna `date`.
+ * Supabase devolve texto; node-pg devolve Date (meia-noite local) — `String(Date)`
+ * vira "Thu Sep 17 2026 …" e não casa com YYYY-MM-DD.
+ */
+const parseMonthFromDateColumn = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.getMonth() + 1;
+  }
+  const s = String(value);
   const ymd = s.length >= 10 ? s.slice(0, 10) : s;
   const parts = ymd.split('-');
   if (parts.length < 2) return null;
@@ -265,17 +272,11 @@ export const parseMonthFromLancamentoDate = (dataValue) => {
   return month;
 };
 
+/** Mês civil 1–12 a partir de `data` em lançamento (YYYY-MM-DD ou ISO). */
+export const parseMonthFromLancamentoDate = parseMonthFromDateColumn;
+
 /** Mês civil 1–12 a partir de `date` de linha em orçamentos (início do mês). */
-export const parseMonthFromBudgetDate = (dateValue) => {
-  if (!dateValue) return null;
-  const s = String(dateValue);
-  const ymd = s.length >= 10 ? s.slice(0, 10) : s;
-  const parts = ymd.split('-');
-  if (parts.length < 2) return null;
-  const month = Number.parseInt(parts[1], 10);
-  if (Number.isNaN(month) || month < 1 || month > 12) return null;
-  return month;
-};
+export const parseMonthFromBudgetDate = parseMonthFromDateColumn;
 
 const ensureUserCategory = async (dbClient, userId, categoriaId) => {
   await ensureGlobalCategoriesCopiedForUser(dbClient, userId);
@@ -832,11 +833,13 @@ export const listCategoryBudgetsYearly = async (userId, year) => {
        WHERE user_id = $1 AND date >= $2 AND date <= $3`,
       [userId, startDate, endDate],
     );
-    return (rows || []).map((budget) => ({
-      categorias_id: Number(budget.categorias_id),
-      valor_orcado: budget.valor_orcado ?? null,
-      month: Number(String(budget.date).split('-')[1]) - 1,
-    }));
+    return (rows || [])
+      .map((budget) => ({
+        categorias_id: Number(budget.categorias_id),
+        valor_orcado: budget.valor_orcado ?? null,
+        month: (parseMonthFromBudgetDate(budget.date) ?? 0) - 1,
+      }))
+      .filter((budget) => budget.month >= 0);
   }
 
   const dbClient = createSupabaseClient({ useServiceRole: true });
@@ -850,11 +853,13 @@ export const listCategoryBudgetsYearly = async (userId, year) => {
 
   if (error) throw badRequest(error.message);
 
-  return (data || []).map((budget) => ({
-    categorias_id: budget.categorias_id,
-    valor_orcado: budget.valor_orçado ?? null,
-    month: Number(String(budget.date).split('-')[1]) - 1
-  }));
+  return (data || [])
+    .map((budget) => ({
+      categorias_id: budget.categorias_id,
+      valor_orcado: budget.valor_orçado ?? null,
+      month: (parseMonthFromBudgetDate(budget.date) ?? 0) - 1
+    }))
+    .filter((budget) => budget.month >= 0);
 };
 
 /**
