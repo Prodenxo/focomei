@@ -43,26 +43,6 @@ const STEP_COPY = {
     description: 'Lance gastos e receba DAS pelo celular.',
     route: 'settings:phone',
   },
-  first_account: {
-    title: 'Uma conta',
-    description: 'Carteira, banco ou dinheiro — onde entra e sai o dinheiro.',
-    route: 'contas:new',
-  },
-  first_transaction: {
-    title: 'Primeiro lançamento',
-    description: 'Entrada ou saída; pode ser de hoje.',
-    route: 'transactions:new',
-  },
-  first_budget: {
-    title: 'Um orçamento',
-    description: 'Limite mensal numa categoria (ex.: Alimentação).',
-    route: 'orcamentos',
-  },
-  google_calendar: {
-    title: 'Google Calendar',
-    description: 'Lembretes de pagamento na agenda.',
-    route: 'settings:google',
-  },
   mei_certificate: {
     title: 'Certificado MEI',
     description: 'Necessário para DAS e notas fiscais.',
@@ -80,15 +60,17 @@ const STEP_COPY = {
   },
 };
 
+/**
+ * Só entram passos que o app consegue abrir (ver ACTIVATION_ROUTE_TO_SCREEN no
+ * frontend). Passo sem destino fica invisível na lista e trava o gate de
+ * ativação para sempre, porque o usuário não tem como concluí-lo.
+ */
 const CORE_STEP_IDS = [
   'profile_name',
   'phone_whatsapp',
-  'first_account',
-  'first_transaction',
-  'first_budget',
 ];
 
-const OPTIONAL_STEP_IDS = ['google_calendar'];
+const OPTIONAL_STEP_IDS = [];
 
 const MEI_STEP_IDS = ['mei_certificate', 'mei_das_view', 'mei_nfse_catalog'];
 
@@ -106,22 +88,6 @@ export const evaluateStepStatus = (stepId, ctx) => {
         : { status: 'pending', completedAt: null };
     case 'phone_whatsapp':
       return ctx.hasPhone
-        ? { status: 'completed', completedAt: now }
-        : { status: 'pending', completedAt: null };
-    case 'first_account':
-      return ctx.accountsCount > 0
-        ? { status: 'completed', completedAt: now }
-        : { status: 'pending', completedAt: null };
-    case 'first_transaction':
-      return ctx.transactionsCount > 0
-        ? { status: 'completed', completedAt: now }
-        : { status: 'pending', completedAt: null };
-    case 'first_budget':
-      return ctx.hasBudgetThisMonth
-        ? { status: 'completed', completedAt: now }
-        : { status: 'pending', completedAt: null };
-    case 'google_calendar':
-      return ctx.hasGoogleCalendar
         ? { status: 'completed', completedAt: now }
         : { status: 'pending', completedAt: null };
     case 'mei_certificate':
@@ -235,16 +201,11 @@ export const gatherActivationContext = async (userId) => {
   }
 
   const admin = getActivationDbClient();
-  const monthStart = getMonthStartDateString();
 
   const [
     profileRes,
     authMeta,
     n8nRes,
-    accountsRes,
-    txRes,
-    budgetRes,
-    googleRes,
     nfseClientsRes,
     dasRes,
     showMei,
@@ -257,27 +218,6 @@ export const gatherActivationContext = async (userId) => {
       .maybeSingle(),
     fetchAuthMetadata(admin, userId),
     admin.from('n8n_link').select('user_number').eq('user_id', userId).maybeSingle(),
-    admin
-      .from('contas_financeiras')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .eq('ativo', true),
-    admin
-      .from('lancamentos_id')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId),
-    admin
-      .from('orçamentos')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('date', monthStart)
-      .not('valor_orçado', 'is', null)
-      .limit(1),
-    admin
-      .from('google_tokens_id')
-      .select('access_token')
-      .eq('user_id', userId)
-      .maybeSingle(),
     admin
       .from('mei_nfse_clientes')
       .select('id', { count: 'exact', head: true })
@@ -294,18 +234,11 @@ export const gatherActivationContext = async (userId) => {
   const displayName = profile?.display_name || authMeta.displayName;
   const phoneRaw = profile?.phone || authMeta.phone || n8nRes.data?.user_number;
 
-  const budgetRows = budgetRes.data || [];
-  const hasBudgetThisMonth = budgetRows.length > 0;
-
   return {
     showMei,
     ctx: {
       hasProfileName: isProfileNameComplete(displayName),
       hasPhone: isPhoneWhatsappComplete(phoneRaw),
-      accountsCount: accountsRes.count ?? 0,
-      transactionsCount: txRes.count ?? 0,
-      hasBudgetThisMonth,
-      hasGoogleCalendar: Boolean(googleRes.data?.access_token),
       hasMeiCertificate: Boolean(hasMeiCertificate),
       hasDasActivity: (dasRes.count ?? 0) > 0,
       nfseClientsCount: nfseClientsRes.count ?? 0,
@@ -313,16 +246,25 @@ export const gatherActivationContext = async (userId) => {
   };
 };
 
+/** Contagem tolerante: tabela MEI ausente não pode derrubar o checklist. */
+const countRowsPg = async (sql, params) => {
+  try {
+    const res = await query(sql, params);
+    return res.rows[0]?.c ?? 0;
+  } catch (error) {
+    console.warn('[activation] contagem local falhou:', error?.message || error);
+    return 0;
+  }
+};
+
 const gatherActivationContextPg = async (userId) => {
-  const monthStart = getMonthStartDateString();
   const [
     userRes,
     n8nRes,
-    accountsRes,
-    txRes,
-    budgetRes,
-    googleRes,
     linkRes,
+    nfseClientsCount,
+    dasCount,
+    hasMeiCertificate,
   ] = await Promise.all([
     query(
       `SELECT email, phone, raw_user_meta_data FROM public.users WHERE id = $1 LIMIT 1`,
@@ -333,30 +275,20 @@ const gatherActivationContextPg = async (userId) => {
       [userId],
     ),
     query(
-      `SELECT count(*)::int AS c FROM public.contas_financeiras
-       WHERE user_id = $1 AND ativo = true`,
-      [userId],
-    ),
-    query(
-      `SELECT count(*)::int AS c FROM public.lancamentos_id WHERE user_id = $1`,
-      [userId],
-    ),
-    query(
-      `SELECT id FROM public.orcamentos
-       WHERE user_id = $1 AND date = $2 AND valor_orcado IS NOT NULL
-       LIMIT 1`,
-      [userId, monthStart],
-    ),
-    query(
-      `SELECT access_token FROM public.google_tokens_id WHERE user_id = $1 LIMIT 1`,
-      [userId],
-    ),
-    query(
       `SELECT mei FROM public.role_x_user_x_empresa
        WHERE user_id = $1 AND status = true
        ORDER BY created_at DESC LIMIT 1`,
       [userId],
     ),
+    countRowsPg(
+      `SELECT count(*)::int AS c FROM public.mei_nfse_clientes WHERE user_id = $1`,
+      [userId],
+    ),
+    countRowsPg(
+      `SELECT count(*)::int AS c FROM public.das_mensal_status WHERE user_id = $1`,
+      [userId],
+    ),
+    userHasMeiCertificate(userId).catch(() => false),
   ]);
 
   const user = userRes.rows[0];
@@ -369,13 +301,9 @@ const gatherActivationContextPg = async (userId) => {
     ctx: {
       hasProfileName: isProfileNameComplete(displayName),
       hasPhone: isPhoneWhatsappComplete(phoneRaw),
-      accountsCount: accountsRes.rows[0]?.c ?? 0,
-      transactionsCount: txRes.rows[0]?.c ?? 0,
-      hasBudgetThisMonth: (budgetRes.rows || []).length > 0,
-      hasGoogleCalendar: Boolean(googleRes.rows[0]?.access_token),
-      hasMeiCertificate: false,
-      hasDasActivity: false,
-      nfseClientsCount: 0,
+      hasMeiCertificate: Boolean(hasMeiCertificate),
+      hasDasActivity: dasCount > 0,
+      nfseClientsCount,
     },
   };
 };
