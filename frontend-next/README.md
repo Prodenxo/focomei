@@ -28,7 +28,7 @@ Configure o serviço com:
 - construção: Dockerfile, campo Arquivo vazio (usa o `Dockerfile` da raiz, que aponta para `frontend-next/`)
 - porta interna: `3000`
 - health check: `/`
-- `NEXT_PUBLIC_API_URL=https://api.focomei.com.br`
+- `NEXT_PUBLIC_API_URL=https://auto-focomei-backend.4tnf3f.easypanel.host` (sem `/api` no final)
 - `NEXT_PUBLIC_APP_PRODUCT=focomei`
 
 O site antigo em Expo continua construível pelo `Dockerfile.expo` da raiz, na
