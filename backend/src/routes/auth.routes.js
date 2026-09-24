@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import * as controller from '../controllers/auth.controller.js';
 import { requireAuth } from '../middlewares/auth.js';
+import { publicCnpjLookupRateLimit } from '../middlewares/public-cnpj-lookup-rate-limit.js';
 
 const router = Router();
 
 router.post('/signup', controller.signUp);
 router.post('/register-empresa', controller.registerEmpresa);
+router.get('/cnpj-lookup/:cnpj', publicCnpjLookupRateLimit, controller.lookupCnpjPublic);
 router.post('/signin', controller.signIn);
 router.post('/reset-password', controller.resetPassword);
 router.post('/confirm-password-reset', controller.confirmPasswordReset);
@@ -16,6 +18,7 @@ router.post('/signout', requireAuth, controller.signOut);
 router.get('/session', requireAuth, controller.getSession);
 router.post('/update-password', requireAuth, controller.updatePassword);
 router.post('/update-phone', requireAuth, controller.updatePhone);
+router.post('/update-email', requireAuth, controller.updateEmail);
 router.post('/update-display-name', requireAuth, controller.updateDisplayName);
 router.post('/update-role', requireAuth, controller.updateRole);
 router.get('/last-seen-update', requireAuth, controller.getLastSeenUpdate);

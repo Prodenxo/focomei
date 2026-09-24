@@ -184,6 +184,18 @@ const resolveDocBlockAtivo = (empresa, key, fallbackWhenMissing = false) => {
   return { ativo: toPlugnotasDocAtivoFlag(block.ativo) };
 };
 
+const resolveNfceClientState = (empresa, ativo) => {
+  const block = empresa?.nfce ?? empresa?.nfCe;
+  const sefaz = block?.config?.sefaz;
+  const cscId = firstNonEmpty(sefaz?.idCodigoSegurancaContribuinte);
+  const csc = firstNonEmpty(sefaz?.codigoSegurancaContribuinte);
+  return {
+    ativo: Boolean(ativo),
+    cscConfigurado: Boolean(cscId && csc),
+    cscId: cscId || null,
+  };
+};
+
 /**
  * Resposta plana para o frontend (desembrulha GET `{ data: { ... } }` e normaliza NFSe/NFe/NFCe).
  * @param {unknown} empresaJson
@@ -225,9 +237,12 @@ export function normalizeEmpresaFiscalForClient(empresaJson) {
     nfe: docFlags
       ? { ativo: Boolean(docFlags.nfe) }
       : resolveDocBlockAtivo(empresa, 'nfe', false),
-    nfce: docFlags
-      ? { ativo: Boolean(docFlags.nfce) }
-      : resolveDocBlockAtivo(empresa, 'nfce', false),
+    nfce: resolveNfceClientState(
+      empresa,
+      docFlags
+        ? Boolean(docFlags.nfce)
+        : resolveDocBlockAtivo(empresa, 'nfce', false).ativo,
+    ),
   };
 }
 

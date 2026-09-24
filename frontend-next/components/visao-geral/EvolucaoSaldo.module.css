@@ -1,0 +1,78 @@
+.etiqueta {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 var(--e3);
+  border-radius: var(--r-pill);
+  background: var(--caixa-funda);
+  border: 1px solid var(--linha-suave);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--tinta-2);
+  white-space: nowrap;
+}
+
+.area {
+  position: relative;
+  width: 100%;
+}
+
+/* Escala proporcional: com preserveAspectRatio="none" os rótulos dos eixos esticam. */
+.svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  overflow: visible;
+}
+
+.grade {
+  stroke: var(--linha-suave);
+  stroke-width: 1;
+  stroke-dasharray: 4 6;
+}
+
+.marcaTexto {
+  font-size: 10px;
+  fill: var(--tinta-4);
+}
+
+.linha {
+  fill: none;
+  stroke: var(--verde);
+  stroke-width: 2;
+}
+
+.ponto {
+  fill: var(--verde);
+  stroke: var(--caixa);
+  stroke-width: 2;
+}
+
+.alvo {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.dica {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  background: var(--caixa);
+  border: 1px solid var(--linha);
+  border-radius: var(--r-md);
+  box-shadow: var(--sombra-alta);
+  padding: var(--e2) var(--e3);
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 2;
+}
+
+.dicaValor {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--verde-fundo);
+}
+
+.dicaData {
+  font-size: 11px;
+  color: var(--tinta-3);
+}

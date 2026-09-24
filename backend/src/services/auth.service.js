@@ -26,6 +26,7 @@ import {
   localSignIn,
   localSignOut,
   localSignUp,
+  localUpdateEmail,
   localUpdatePassword,
   localUpdatePhone,
   verifyLocalAccessToken,
@@ -627,6 +628,28 @@ export const updateDisplayName = async (accessToken, displayName) => {
     .from('profiles')
     .update({ display_name: displayName })
     .eq('id', user.id);
+};
+
+export const updateEmail = async (accessToken, email, authenticatedUser = null) => {
+  if (!accessToken) throw unauthorized();
+  const normalized = String(email || '').trim().toLowerCase();
+  if (!normalized || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+    throw badRequest('E-mail inválido');
+  }
+
+  if (isLocalAuthMode()) {
+    const user = authenticatedUser?.id
+      ? authenticatedUser
+      : verifyLocalAccessToken(accessToken);
+    if (!user?.id) throw unauthorized();
+    const updated = await localUpdateEmail(user.id, normalized);
+    return { email: updated, requiresConfirmation: false };
+  }
+
+  const supabase = createSupabaseClient({ accessToken });
+  const { error } = await supabase.auth.updateUser({ email: normalized });
+  if (error) throw badRequest(error.message);
+  return { email: normalized, requiresConfirmation: true };
 };
 
 export const getLastSeenUpdate = async (accessToken) => {

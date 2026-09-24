@@ -20,6 +20,8 @@ const SENSITIVE_LEAF_KEYS = new Set([
   'arquivo',
   'file',
   'token',
+  'codigosegurancacontribuinte',
+  'csc',
   'apikey',
   'api_key',
   'x-api-key',

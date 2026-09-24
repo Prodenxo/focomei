@@ -83,6 +83,7 @@ export interface NfeLikeForm {
   emitenteCpfCnpj: string;
   emitenteRazaoSocial: string;
   emitenteInscricaoEstadual: string;
+  consumidorNaoIdentificado: boolean;
   destinatarioCpfCnpj: string;
   destinatarioRazaoSocial: string;
   destinatarioEmail: string;
@@ -385,19 +386,26 @@ export function getNfeLikeValidationMessage(form: NfeLikeForm, documentType: Not
     return `Informe um CNPJ válido do emitente da ${label}.`;
   }
   const destinatarioDoc = normalizeDoc(form.destinatarioCpfCnpj);
-  if (!destinatarioDoc) {
-    return `CPF/CNPJ do destinatário da ${label} é obrigatório.`;
+  const consumidorNaoIdentificado = documentType === 'NFCE' && form.consumidorNaoIdentificado;
+  if (!consumidorNaoIdentificado) {
+    if (!destinatarioDoc) {
+      return `CPF/CNPJ do destinatário da ${label} é obrigatório.`;
+    }
+    if (!isValidCpfOrCnpjDigits(destinatarioDoc)) {
+      return `CPF/CNPJ do destinatário da ${label} inválido.`;
+    }
+    if (!hasRequiredText(form.destinatarioRazaoSocial)) {
+      return `Informe a razão social do destinatário da ${label}.`;
+    }
   }
-  if (!isValidCpfOrCnpjDigits(destinatarioDoc)) {
-    return `CPF/CNPJ do destinatário da ${label} inválido.`;
+  if (!consumidorNaoIdentificado) {
+    const ieMsg = getDestinatarioIeValidationMessage(
+      normalizeDestinatarioIndIeDest(form.destinatarioIndIEDest),
+      form.destinatarioInscricaoEstadual,
+      label,
+    );
+    if (ieMsg) return ieMsg;
   }
-  if (!hasRequiredText(form.destinatarioRazaoSocial)) return `Informe a razão social do destinatário da ${label}.`;
-  const ieMsg = getDestinatarioIeValidationMessage(
-    normalizeDestinatarioIndIeDest(form.destinatarioIndIEDest),
-    form.destinatarioInscricaoEstadual,
-    label,
-  );
-  if (ieMsg) return ieMsg;
   if (documentType === 'NFE') {
     const enderecoMsg = getDestinatarioEnderecoValidationMessage(form.destinatarioEndereco, label);
     if (enderecoMsg) return enderecoMsg;
@@ -485,6 +493,7 @@ export function getDefaultNfeLikeForm(): NfeLikeForm {
     emitenteCpfCnpj: '',
     emitenteRazaoSocial: '',
     emitenteInscricaoEstadual: '',
+    consumidorNaoIdentificado: true,
     destinatarioCpfCnpj: '',
     destinatarioRazaoSocial: '',
     destinatarioEmail: '',
@@ -531,12 +540,14 @@ function computeNfeItemsTotal(itens: NfeItemForm[]): number {
 
 export function buildNfeLikePayloadFromForm(form: NfeLikeForm, documentType: NotaDocumentType): NfeLikePayloadInput {
   const destDoc = normalizeDoc(form.destinatarioCpfCnpj);
+  const consumidorNaoIdentificado = documentType === 'NFCE' && form.consumidorNaoIdentificado;
   const indIEDest = normalizeDestinatarioIndIeDest(form.destinatarioIndIEDest);
   const ieFields = buildDestinatarioIePayload(indIEDest, form.destinatarioInscricaoEstadual);
   const enderecoPayload =
     documentType === 'NFE' ? mapDestinatarioEnderecoToPayload(form.destinatarioEndereco) : undefined;
   const destinatario: NfeEmitenteDestinatarioInput | undefined =
-    destDoc || form.destinatarioRazaoSocial.trim() || form.destinatarioEmail.trim()
+    !consumidorNaoIdentificado
+      && (destDoc || form.destinatarioRazaoSocial.trim() || form.destinatarioEmail.trim())
       ? {
           cpfCnpj: destDoc || '',
           ...(form.destinatarioRazaoSocial.trim() ? { razaoSocial: form.destinatarioRazaoSocial.trim() } : {}),

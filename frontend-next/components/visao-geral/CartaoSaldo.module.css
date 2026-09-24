@@ -1,0 +1,181 @@
+.cartao {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--text-primary);
+  padding: 28px;
+  min-height: 276px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-card);
+  min-width: 0;
+}
+
+.circuloMaior,
+.circuloMenor {
+  position: absolute;
+  border-radius: 999px;
+  border: 1px solid var(--decor-tone);
+  opacity: 0.28;
+  pointer-events: none;
+}
+
+.circuloMaior {
+  width: 240px;
+  height: 240px;
+  right: -92px;
+  top: -94px;
+}
+
+.circuloMenor {
+  width: 150px;
+  height: 150px;
+  right: -28px;
+  top: -40px;
+}
+
+.topo {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  position: relative;
+}
+
+.rotulo {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.olho {
+  color: var(--text-muted);
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  border: none;
+  background: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.olho:hover {
+  color: var(--text-primary);
+  background: var(--accent-soft);
+}
+
+.valor {
+  position: relative;
+  font-size: 46px;
+  font-weight: 700;
+  letter-spacing: -1.6px;
+  margin: 8px 0 6px;
+  line-height: 1;
+  color: var(--text-primary);
+}
+
+.oculto {
+  letter-spacing: 2px;
+}
+
+.rodape {
+  position: relative;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.esqueletoClaro {
+  background: var(--accent-soft);
+  border-radius: var(--r-sm);
+  display: block;
+}
+
+.fluxos {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-top: auto;
+  padding-top: 20px;
+  border-top: 1px solid var(--card-border);
+}
+
+.fluxo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding-right: 20px;
+}
+
+.fluxoSaida {
+  border-left: 1px solid var(--card-border);
+  padding-left: 20px;
+  padding-right: 0;
+}
+
+.fluxoIcone {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.entrada {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.saida {
+  color: var(--saida);
+  background: var(--expense-soft);
+}
+
+.fluxoRotulo {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.fluxoValor {
+  margin-top: 2px;
+  font-size: 18px;
+  line-height: 1.25;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .cartao {
+    min-height: 250px;
+    padding: 22px;
+  }
+
+  .valor {
+    font-size: 36px;
+  }
+
+  .fluxo {
+    padding-right: 12px;
+  }
+
+  .fluxoSaida {
+    padding-left: 12px;
+    padding-right: 0;
+  }
+
+  .fluxoIcone {
+    width: 34px;
+    height: 34px;
+  }
+
+  .fluxoValor {
+    font-size: 15px;
+  }
+}

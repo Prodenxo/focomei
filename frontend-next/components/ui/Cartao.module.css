@@ -1,0 +1,65 @@
+.cartao {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 24px;
+  min-width: 0;
+}
+
+.compacto {
+  padding: var(--e4);
+}
+
+.semPadding {
+  padding: 0;
+}
+
+.cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--e3);
+  margin-bottom: var(--e4);
+}
+
+.tituloGrupo {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  min-width: 0;
+}
+
+.tituloIcone {
+  color: var(--accent);
+  display: inline-flex;
+}
+
+.titulo {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.acao {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--e1);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: var(--e1) var(--e2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: color var(--transicao);
+}
+
+.acao:hover {
+  color: var(--verde);
+}

@@ -1,0 +1,103 @@
+'use client';
+
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import { useAuth } from '@/context/AuthProvider';
+import { isEmpresaCnpjOnboardingRequired } from '@/lib/empresaCnpjGate';
+import { resolveMeiBillingHref } from '@/lib/meiBillingGate';
+import { fetchActivationProgress, isActivationCoreComplete } from '@/lib/activationApi';
+import { isSessionActivationSkipped } from '@/lib/activationSession';
+
+const SHELL_LOCKED_PREFIXES = ['/empresa-cnpj', '/ativacao', '/planos', '/aguardando-contrato'];
+
+export function isShellLockedPath(pathname) {
+  return SHELL_LOCKED_PREFIXES.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`),
+  );
+}
+
+export function useAppBootGates(accessGate) {
+  const router = useRouter();
+  const pathname = usePathname() || '/';
+  const { role, mei, userId, booting, isAuthenticated } = useAuth();
+  const [bootPhase, setBootPhase] = useState('checking');
+  const cnpjDone = useRef(false);
+  const billingDone = useRef(false);
+  const activationDone = useRef(false);
+
+  const shellLocked = useMemo(() => isShellLockedPath(pathname), [pathname]);
+
+  useEffect(() => {
+    cnpjDone.current = false;
+    billingDone.current = false;
+    activationDone.current = false;
+  }, [userId]);
+
+  useEffect(() => {
+    if (booting || !isAuthenticated || accessGate !== 'ok') {
+      setBootPhase('checking');
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      setBootPhase('checking');
+
+      const onEmpresaCnpj = pathname.startsWith('/empresa-cnpj');
+      const onPlanos = pathname.startsWith('/planos');
+      const onAguardandoContrato = pathname.startsWith('/aguardando-contrato');
+      const onAtivacao = pathname.startsWith('/ativacao');
+
+      if (!cnpjDone.current && !onEmpresaCnpj) {
+        const needCnpj = await isEmpresaCnpjOnboardingRequired(role);
+        if (cancelled) return;
+        cnpjDone.current = true;
+        if (needCnpj) {
+          router.replace('/empresa-cnpj');
+          return;
+        }
+      } else if (onEmpresaCnpj) {
+        cnpjDone.current = true;
+      }
+
+      if (onPlanos || onAguardandoContrato) {
+        billingDone.current = true;
+        if (!cancelled) setBootPhase('ready');
+        return;
+      }
+
+      if (!billingDone.current && role === 'admin') {
+        const billingHref = await resolveMeiBillingHref(role, mei, userId);
+        if (cancelled) return;
+        billingDone.current = true;
+        if (billingHref) {
+          router.replace(billingHref);
+          return;
+        }
+      } else if (role !== 'admin') {
+        billingDone.current = true;
+      }
+
+      if (!activationDone.current && !onAtivacao && !isSessionActivationSkipped()) {
+        const data = await fetchActivationProgress();
+        if (cancelled) return;
+        activationDone.current = true;
+        if (data && !isActivationCoreComplete(data)) {
+          router.replace('/ativacao');
+          return;
+        }
+      } else if (onAtivacao) {
+        activationDone.current = true;
+      }
+
+      if (!cancelled) setBootPhase('ready');
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [booting, isAuthenticated, accessGate, pathname, role, mei, userId, router]);
+
+  return { bootPhase, shellLocked };
+}

@@ -421,7 +421,11 @@ export interface EmpresaFiscalData {
   endereco?: EmpresaFiscalEndereco | null;
   nfse?: { ativo?: boolean } | null;
   nfe?: { ativo?: boolean } | null;
-  nfce?: { ativo?: boolean } | null;
+  nfce?: {
+    ativo?: boolean;
+    cscConfigurado?: boolean;
+    cscId?: string | null;
+  } | null;
 }
 
 export async function consultarEmpresaFiscal(cnpj: string): Promise<EmpresaFiscalData> {

@@ -1,0 +1,68 @@
+.pagina {
+  width: 100%;
+}
+
+.conteudo {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--e5);
+}
+
+/* Hero financeiro + seis leituras rápidas */
+.destaques {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--e5);
+}
+
+/* Evolução + Últimas movimentações */
+.duasColunas {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--e5);
+  align-items: start;
+}
+
+.avisoSessao {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  color: var(--tinta-3);
+  font-size: 14px;
+}
+
+.faixaErro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--e3);
+  flex-wrap: wrap;
+  background: var(--saida-veu);
+  border: 1px solid var(--saida);
+  border-radius: var(--r-md);
+  padding: var(--e3) var(--e4);
+  font-size: 13px;
+  color: var(--tinta);
+}
+
+@media (max-width: 900px) {
+  .destaques {
+    grid-template-columns: 1fr;
+  }
+
+  .duasColunas {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .conteudo {
+    gap: var(--e3);
+  }
+
+  .destaques {
+    grid-template-columns: 1fr;
+  }
+}

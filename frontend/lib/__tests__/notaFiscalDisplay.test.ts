@@ -47,6 +47,18 @@ describe('notaFiscalDisplay', () => {
     expect(resolverTituloNotaFiscal(nota)).toBe('mei-123')
   })
 
+  it('mostra consumidor não identificado na NFC-e sem destinatário', () => {
+    const nota = {
+      id: 'nfce-1',
+      user_id: 'u1',
+      document_type: 'NFCE',
+      payload_json: { itens: [{ valor: 25 }] },
+    } as NfseRecord
+
+    expect(extrairNomeClienteDaNota(nota)).toBe('Consumidor não identificado')
+    expect(resolverTituloNotaFiscal(nota)).toBe('Consumidor não identificado')
+  })
+
   it('extrai cliente e valor de NFSe importada da PlugNotas (tomador string)', () => {
     const nota = {
       id: 'abc',

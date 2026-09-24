@@ -113,6 +113,9 @@ export function extrairNomeClienteDaNota(
   const fromCatalog = lookupNomeNoCatalogo(extrairDocumentoTomadorDaNota(record), catalogByDoc)
   if (fromCatalog) return fromCatalog
 
+  if (String(record.document_type ?? '').trim().toUpperCase() === 'NFCE') {
+    return 'Consumidor não identificado'
+  }
   return null
 }
 

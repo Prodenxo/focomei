@@ -1,0 +1,271 @@
+.barra {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--e3);
+  flex-wrap: wrap;
+  margin-bottom: var(--e4);
+}
+
+.grupoEsquerdo {
+  display: flex;
+  align-items: center;
+  gap: var(--e3);
+  flex-wrap: wrap;
+}
+
+.modos {
+  display: inline-flex;
+  border: 1px solid var(--linha);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.modo {
+  border: none;
+  background: var(--caixa);
+  padding: 8px var(--e4);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--tinta-3);
+  cursor: pointer;
+}
+
+.modo + .modo {
+  border-left: 1px solid var(--linha);
+}
+
+.modoAtivo {
+  background: var(--verde-veu);
+  color: var(--verde-fundo);
+}
+
+.colunas {
+  display: inline-flex;
+  gap: var(--e1);
+  flex-wrap: wrap;
+}
+
+.coluna {
+  border: 1px solid var(--linha);
+  background: var(--caixa);
+  border-radius: var(--r-pill);
+  padding: 5px var(--e3);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--tinta-3);
+  cursor: pointer;
+}
+
+.colunaAtiva {
+  background: var(--verde-veu);
+  border-color: var(--verde);
+  color: var(--verde-fundo);
+}
+
+.busca {
+  height: 34px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--controle-linha);
+  background: var(--controle);
+  padding: 0 var(--e3);
+  font-size: 12.5px;
+  min-width: 190px;
+  color: var(--tinta);
+}
+
+.rolagem {
+  overflow-x: auto;
+  border: 1px solid var(--linha-suave);
+  border-radius: var(--r-md);
+}
+
+.tabela {
+  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+  font-size: 12px;
+}
+
+.tabela th,
+.tabela td {
+  padding: 7px var(--e3);
+  border-bottom: 1px solid var(--linha-suave);
+  white-space: nowrap;
+  text-align: right;
+}
+
+.tabela thead th {
+  background: var(--caixa-funda);
+  color: var(--tinta-3);
+  font-weight: 600;
+  font-size: 11px;
+  position: sticky;
+  top: 0;
+}
+
+.categoriaCol {
+  text-align: left;
+  position: sticky;
+  left: 0;
+  background: var(--caixa);
+  z-index: 1;
+  min-width: 190px;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-right: 1px solid var(--linha-suave);
+}
+
+.tabela thead .categoriaCol {
+  background: var(--caixa-funda);
+  z-index: 2;
+}
+
+.secao td {
+  background: var(--caixa-funda);
+  font-weight: 700;
+  color: var(--tinta);
+  text-align: left;
+  font-size: 11.5px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.totalLinha td {
+  font-weight: 700;
+  color: var(--tinta);
+  background: var(--caixa-funda);
+}
+
+.mesGrupo {
+  border-left: 1px solid var(--linha-suave);
+}
+
+.negativo {
+  color: var(--saida);
+}
+
+.positivo {
+  color: var(--verde-fundo);
+}
+
+/* Gráficos por categoria */
+.cartaoGrafico + .cartaoGrafico {
+  margin-top: var(--e3);
+}
+
+.tituloSecao {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--e3);
+  margin: var(--e5) 0 var(--e3);
+}
+
+.tituloSecaoTexto {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--tinta);
+}
+
+.tituloSecaoContagem {
+  font-size: 11.5px;
+  color: var(--tinta-4);
+}
+
+.graficoTopo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--e3);
+  margin-bottom: var(--e3);
+  flex-wrap: wrap;
+}
+
+.graficoNome {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--tinta);
+}
+
+.graficoResumo {
+  font-size: 11.5px;
+  color: var(--tinta-3);
+}
+
+.legenda {
+  display: inline-flex;
+  gap: var(--e3);
+  font-size: 11px;
+  color: var(--tinta-3);
+}
+
+.legendaItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legendaPonto {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.barras {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--e2);
+  align-items: end;
+  height: 132px;
+}
+
+.barraColuna {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  justify-content: flex-end;
+}
+
+.barraPar {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 100%;
+  width: 100%;
+  justify-content: center;
+}
+
+.barra {
+  width: 42%;
+  border-radius: 3px 3px 0 0;
+  min-height: 2px;
+}
+
+.barraOrcado {
+  background: var(--linha-forte);
+}
+
+.barraRealizado {
+  background: var(--verde);
+}
+
+.barraMes {
+  font-size: 9.5px;
+  color: var(--tinta-4);
+}
+
+@media (max-width: 680px) {
+  .barras {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    height: auto;
+    row-gap: var(--e4);
+  }
+
+  .barraColuna {
+    height: 96px;
+  }
+}

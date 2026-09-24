@@ -7,14 +7,16 @@
 export const MEI_LIMITE_ANO_CIVIL_TZ = 'America/Sao_Paulo';
 
 const NFSE = 'NFSE';
+const NFE = 'NFE';
+const NFCE = 'NFCE';
 
 /**
- * Somatório do limite MEI (FR-GUIA-FISC-17): apenas **NFSE** entra no agregado; NFE/NFCE ficam de fora até PRD futuro.
+ * Somatório do limite MEI: NFS-e, NF-e e NFC-e autorizadas entram no agregado.
  * Paridade com `isDocumentTypeMeiLimiteRelevante` no frontend.
  */
 export function isDocumentTypeMeiLimiteRelevante(documentType) {
   const dt = String(documentType ?? '').trim().toUpperCase();
-  return dt === NFSE;
+  return dt === NFSE || dt === NFE || dt === NFCE;
 }
 
 function nfseStatusAsciiLower(status) {
@@ -106,15 +108,28 @@ function hasServicoInObj(obj) {
   return s != null;
 }
 
+function hasItensInObj(obj) {
+  const i = obj.itens ?? obj.items;
+  return i != null;
+}
+
 export function isNfseDocumentoRow(record) {
   const dt = String(record?.document_type ?? '').trim().toUpperCase();
-  if (dt !== '') {
-    return isDocumentTypeMeiLimiteRelevante(record?.document_type);
-  }
+  if (dt !== '') return dt === NFSE;
   const p = resolverPayloadJsonDaNota(record);
   if (p && hasServicoInObj(p)) return true;
   const r = resolverResponseJsonDaNota(record);
   return Boolean(r && hasServicoInObj(r));
+}
+
+/** Linha que entra no somatório do limite: NFS-e, NF-e ou legado sem tipo. */
+export function isDocumentoLimiteMeiRow(record) {
+  const dt = String(record?.document_type ?? '').trim();
+  if (dt !== '') return isDocumentTypeMeiLimiteRelevante(dt);
+  const p = resolverPayloadJsonDaNota(record);
+  if (p && (hasServicoInObj(p) || hasItensInObj(p))) return true;
+  const r = resolverResponseJsonDaNota(record);
+  return Boolean(r && (hasServicoInObj(r) || hasItensInObj(r)));
 }
 
 function valorLimiteDeItemServico(item) {
@@ -165,6 +180,80 @@ export function extrairValorLimiteMeiDaNota(record) {
   return extrairValorTotalServicosDeObjeto(payload);
 }
 
+function valorUnitarioDeItemProduto(item) {
+  const vu = item.valorUnitario;
+  if (vu && typeof vu === 'object' && !Array.isArray(vu)) {
+    const c = parseValorMonetarioBr(vu.comercial);
+    if (c !== null && c >= 0) return c;
+    const t = parseValorMonetarioBr(vu.tributavel);
+    if (t !== null && t >= 0) return t;
+  }
+  return parseValorMonetarioBr(vu);
+}
+
+function quantidadeDeItemProduto(item) {
+  const q = item.quantidade;
+  if (q && typeof q === 'object' && !Array.isArray(q)) {
+    const c = parseValorMonetarioBr(q.comercial);
+    if (c !== null && c >= 0) return c;
+    const t = parseValorMonetarioBr(q.tributavel);
+    if (t !== null && t >= 0) return t;
+  }
+  return parseValorMonetarioBr(q);
+}
+
+function valorLimiteDeItemProduto(item) {
+  const direct = parseValorMonetarioBr(item.valor);
+  if (direct !== null && direct >= 0) return direct;
+  const quantidade = quantidadeDeItemProduto(item);
+  const unitario = valorUnitarioDeItemProduto(item);
+  if (quantidade !== null && unitario !== null) {
+    const total = quantidade * unitario;
+    return Number.isFinite(total) && total >= 0 ? total : null;
+  }
+  return null;
+}
+
+/** Total de uma NF-e: valor autorizado no retorno ou a soma dos itens do payload. */
+export function extrairValorTotalProdutosDeObjeto(raw) {
+  if (!raw) return null;
+  const topLevel = parseValorMonetarioBr(raw.valorTotal ?? raw.valorNota ?? raw.valor);
+  if (topLevel !== null && topLevel >= 0) return topLevel;
+  let itens = raw.itens ?? raw.items;
+  if (itens && !Array.isArray(itens)) {
+    itens = [itens];
+  }
+  if (!Array.isArray(itens)) return null;
+  let sum = 0;
+  let any = false;
+  for (const item of itens) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const n = valorLimiteDeItemProduto(item);
+    if (n !== null) {
+      sum += n;
+      any = true;
+    }
+  }
+  return any ? sum : null;
+}
+
+function extrairValorProdutosDaNota(record) {
+  const resp = resolverResponseJsonDaNota(record);
+  if (resp) {
+    const fromResp = extrairValorTotalProdutosDeObjeto(resp);
+    if (fromResp !== null) return fromResp;
+  }
+  return extrairValorTotalProdutosDeObjeto(resolverPayloadJsonDaNota(record));
+}
+
+/** Valor que a nota soma no limite, conforme o modelo do documento. */
+export function extrairValorParaLimiteMei(record) {
+  const dt = String(record?.document_type ?? '').trim().toUpperCase();
+  if (dt === NFE || dt === NFCE) return extrairValorProdutosDaNota(record);
+  if (dt === NFSE) return extrairValorLimiteMeiDaNota(record);
+  return extrairValorLimiteMeiDaNota(record) ?? extrairValorProdutosDaNota(record);
+}
+
 export function extrairValorServicoTotalDoPayload(payloadJson) {
   const raw = normalizarPayloadJsonNfse(payloadJson);
   return extrairValorTotalServicosDeObjeto(raw);
@@ -182,6 +271,29 @@ export function anoCivilFromIsoCreatedAt(createdAt) {
   if (!y) return null;
   const n = parseInt(y, 10);
   return Number.isFinite(n) ? n : null;
+}
+
+/** Dia civil (aaaa-mm-dd) no fuso de São Paulo. */
+export function diaCivilBr(iso) {
+  if (!iso) return null;
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: MEI_LIMITE_ANO_CIVIL_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(parsed);
+}
+
+/**
+ * Mesma data no calendário brasileiro. A PlugNotas só informa o dia da autorização
+ * em alguns modelos, então a hora já gravada é mais precisa e deve ser preservada.
+ */
+export function mesmoDiaCivilBr(isoA, isoB) {
+  const a = diaCivilBr(isoA);
+  const b = diaCivilBr(isoB);
+  return Boolean(a && b && a === b);
 }
 
 /** Data de emissão/autorização (PlugNotas) com fallback em created_at. */
@@ -216,11 +328,39 @@ const FISCAL_DATE_FIELD_KEYS = [
   ...FISCAL_EMISSION_DATE_FIELD_KEYS,
 ];
 
-function parseDateIso(value) {
+/** Fuso fixo do Brasil (sem horário de verão desde 2019). */
+const BR_UTC_OFFSET = '-03:00';
+const BR_DATE_RE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/;
+
+/**
+ * A PlugNotas envia dd/mm/aaaa; `new Date` leria como mm/dd/aaaa e trocaria dia por mês.
+ * @returns {string | null} ISO em UTC
+ */
+export function parseDataBrIso(value) {
+  const match = BR_DATE_RE.exec(String(value ?? '').trim());
+  if (!match) return null;
+  const [, d, m, y, h = '0', min = '0', s = '0'] = match;
+  const dia = Number(d);
+  const mes = Number(m);
+  if (!(mes >= 1 && mes <= 12) || !(dia >= 1 && dia <= 31)) return null;
+  const pad = (n) => String(Number(n)).padStart(2, '0');
+  const iso = `${y}-${pad(mes)}-${pad(dia)}T${pad(h)}:${pad(min)}:${pad(s)}${BR_UTC_OFFSET}`;
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
+export function parseFiscalDateIso(value) {
   if (value == null || value === '') return null;
+  const fromBr = parseDataBrIso(value);
+  if (fromBr) return fromBr;
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
+}
+
+function parseDateIso(value) {
+  return parseFiscalDateIso(value);
 }
 
 function pickFirstDateFromObject(obj, keys) {
@@ -341,11 +481,11 @@ export function agregarLimiteMeiDasLinhas(rows, anoCivil) {
   let total = 0;
   let notasConsideradas = 0;
   for (const record of rows || []) {
-    if (!isNfseDocumentoRow(record)) continue;
+    if (!isDocumentoLimiteMeiRow(record)) continue;
     if (!nfseDeveEntrarNoSomatorioLimite(record.status)) continue;
     const y = anoCivilFromIsoCreatedAt(resolverDataEmissaoDaNota(record));
     if (y !== anoCivil) continue;
-    const valor = extrairValorLimiteMeiDaNota(record);
+    const valor = extrairValorParaLimiteMei(record);
     if (valor === null) continue;
     total += valor;
     notasConsideradas += 1;
