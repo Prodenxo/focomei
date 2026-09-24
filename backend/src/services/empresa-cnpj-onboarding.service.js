@@ -1,10 +1,21 @@
 import { createSupabaseClient } from '../config/supabase.js';
+import { env } from '../config/env.js';
 import { badRequest, forbidden } from '../utils/errors.js';
 import { getRequesterContext } from './users.service.js';
 
 const ONLY_DIGITS = (s) => String(s || '').replace(/\D/g, '');
 
 export const isValidEmpresaCnpj = (cnpj) => ONLY_DIGITS(cnpj).length === 14;
+
+/** Liberação pontual por empresa (ver EMPRESA_CNPJ_ONBOARDING_EXEMPT_IDS). */
+const isEmpresaExemptFromCnpjOnboarding = (empresaId) => {
+  if (!empresaId) return false;
+  return String(env.EMPRESA_CNPJ_ONBOARDING_EXEMPT_IDS || '')
+    .split(',')
+    .map((id) => id.trim().toLowerCase())
+    .filter(Boolean)
+    .includes(String(empresaId).trim().toLowerCase());
+};
 
 const EMPRESA_ONBOARDING_FIELDS = [
   'empresa',
@@ -90,7 +101,9 @@ export const getEmpresaCnpjOnboardingStatus = async (accessToken) => {
   if (!data?.id) throw badRequest('Empresa não encontrada');
 
   return {
-    required: !isValidEmpresaCnpj(data.cnpj),
+    required:
+      !isValidEmpresaCnpj(data.cnpj)
+      && !isEmpresaExemptFromCnpjOnboarding(empresaId),
     empresa: data,
   };
 };

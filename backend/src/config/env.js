@@ -393,6 +393,14 @@ export const env = {
   MEI_SELF_SERVE_BILLING_MODE: (
     process.env.MEI_SELF_SERVE_BILLING_MODE || "contract_first"
   ).trim().toLowerCase(),
+  /**
+   * IDs de empresas (separados por vírgula) liberadas do cadastro de CNPJ.
+   * Uso pontual: revendedor de licenças MEI que ainda não abriu o próprio CNPJ.
+   * O CNPJ continua obrigatório na geração de contrato.
+   */
+  EMPRESA_CNPJ_ONBOARDING_EXEMPT_IDS: (
+    process.env.EMPRESA_CNPJ_ONBOARDING_EXEMPT_IDS || ""
+  ).trim(),
   /** ScrumHub — formulário de suporte (API key só no servidor). */
   SCRUMHUB_API_BASE_URL: (process.env.SCRUMHUB_API_BASE_URL || "").trim(),
   SCRUMHUB_PUBLIC_ORIGIN: (process.env.SCRUMHUB_PUBLIC_ORIGIN || "").trim(),
