@@ -606,6 +606,7 @@ function MeiScreenContent() {
     tomadorEmail: '',
     tomadorEndereco: getDefaultNfeDestinatarioEndereco(),
     servico: { codigo: '', discriminacao: '', cnae: '', aliquota: '', valorServico: '' },
+    informacoesComplementares: '',
   }));
   const [nfeLikeForm, setNfeLikeForm] = useState<NfeLikeForm>(() => getDefaultNfeLikeForm());
   const [emitirNotaLoading, setEmitirNotaLoading] = useState(false);
@@ -2497,6 +2498,12 @@ function MeiScreenContent() {
           setTomadorCnpjLookupLoading(false);
         }
       }
+
+      const infoComplementares = (formToEmit.informacoesComplementares ?? '').trim();
+      formToEmit = {
+        ...formToEmit,
+        informacoesComplementares: infoComplementares || undefined,
+      };
 
       const msg = getNfseValidationMessage(formToEmit);
       if (msg) {
@@ -4728,6 +4735,16 @@ function MeiScreenContent() {
                     value={String(nfseForm.servico?.valorServico ?? '')}
                     onChangeText={(t) => setNfseForm((f) => ({ ...f, servico: { ...f.servico, valorServico: t } }))}
                     keyboardType="decimal-pad"
+                  />
+                  <MeiFormField
+                    label="Informações complementares (opcional)"
+                    placeholder="Texto livre que sai na nota"
+                    hint="Use quando a prefeitura não aceitar algum dado no campo próprio."
+                    value={String(nfseForm.informacoesComplementares ?? '')}
+                    onChangeText={(t) => setNfseForm((f) => ({ ...f, informacoesComplementares: t }))}
+                    multiline
+                    maxLength={2000}
+                    style={{ minHeight: 80, textAlignVertical: 'top' }}
                   />
                 </>
               )}
