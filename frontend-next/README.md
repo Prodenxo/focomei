@@ -24,12 +24,15 @@ npm run typecheck
 
 Configure o serviço com:
 
-- contexto de build: `frontend-next`
-- Dockerfile: `frontend-next/Dockerfile` (ou `Dockerfile` quando o contexto já for a pasta)
+- caminho de build: `/` (raiz do repositório)
+- construção: Dockerfile, campo Arquivo vazio (usa o `Dockerfile` da raiz, que aponta para `frontend-next/`)
 - porta interna: `3000`
 - health check: `/`
 - `NEXT_PUBLIC_API_URL=https://api.focomei.com.br`
 - `NEXT_PUBLIC_APP_PRODUCT=focomei`
+
+O site antigo em Expo continua construível pelo `Dockerfile.expo` da raiz, na
+porta `80`, caso seja preciso reverter.
 
 O container usa o build standalone do Next. O `docker-entrypoint.sh` cria
 `public/env-config.js` na inicialização, portanto a URL da API pode ser alterada

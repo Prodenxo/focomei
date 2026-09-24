@@ -1,0 +1,2 @@
+# Scripts copiados para dentro de imagens Linux quebram com CRLF no shebang.
+*.sh text eol=lf
