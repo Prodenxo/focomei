@@ -3,7 +3,8 @@
  * Port de frontend/lib/plugNotasEmpresaForm.ts.
  */
 
-import { DEFAULT_EMPRESA_BUSINESS_TYPE, normalizeEmpresaBusinessType } from '@/lib/empresaBusinessType';
+// Relativo (mesmo módulo `lib/`) para o arquivo rodar também fora do bundler, nos testes.
+import { DEFAULT_EMPRESA_BUSINESS_TYPE, normalizeEmpresaBusinessType } from './empresaBusinessType.js';
 
 const normalizeDoc = (value) => String(value || '').replace(/\D/g, '');
 const hasRequiredText = (value) => String(value || '').trim().length > 0;
@@ -36,9 +37,18 @@ export function formatTelefoneEmpresa(telefone) {
   return '';
 }
 
-/** CRT enviado à PlugNotas como `regimeTributario` (Foco MEI = Simples Nacional). */
+/**
+ * Único regime da plataforma. Na PlugNotas, MEI é `regimeTributario` 1 somado a
+ * `regimeTributarioEspecial` 5 — quem marca o MEI é o regime especial, que o backend
+ * força sozinho. Na NF-e o backend troca o regime para 5 (é esse valor que gera
+ * `<CRT>4</CRT>` no XML) e devolve para 1 depois. Por isso aqui o valor é sempre 1.
+ */
+export const PLUGNOTAS_REGIME_TRIBUTARIO_MEI = '1';
+
+export const PLUGNOTAS_REGIME_TRIBUTARIO_MEI_LABEL = 'Simples Nacional + MEI';
+
 export const PLUGNOTAS_REGIME_TRIBUTARIO_OPTIONS = [
-  { value: '1', label: 'Simples Nacional (CRT 1)' },
+  { value: PLUGNOTAS_REGIME_TRIBUTARIO_MEI, label: PLUGNOTAS_REGIME_TRIBUTARIO_MEI_LABEL },
 ];
 
 export function getDefaultPlugNotasCompanyForm() {

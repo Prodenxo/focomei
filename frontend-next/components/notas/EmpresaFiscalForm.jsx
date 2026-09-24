@@ -5,6 +5,7 @@ import { Loader2 } from 'lucide-react';
 import { EMPRESA_BUSINESS_TYPE_OPTIONS } from '@/lib/empresaBusinessType';
 import {
   getInscricaoMunicipalFieldHint,
+  PLUGNOTAS_REGIME_TRIBUTARIO_MEI,
   PLUGNOTAS_REGIME_TRIBUTARIO_OPTIONS,
 } from '@/lib/plugNotasEmpresaForm';
 import { AppSelect } from '@/components/ui/AppSelect';
@@ -82,12 +83,18 @@ export function EmpresaFiscalForm({
           <Field label="Inscrição estadual" value={form.inscricaoEstadual} onChange={(v) => onChange('inscricaoEstadual', v)} hint="NF-e. Deixe vazio se isento." />
           <Field label="E-mail fiscal" value={form.email} onChange={(v) => onChange('email', v)} type="email" required />
           <Field label="Telefone" value={form.telefone} onChange={(v) => onChange('telefone', v)} />
-          <AppSelect
-            label="Regime tributário (CRT)"
-            value={String(form.regimeTributario ?? '1')}
-            onChange={(v) => onChange('regimeTributario', v)}
-            options={PLUGNOTAS_REGIME_TRIBUTARIO_OPTIONS}
-          />
+          <div>
+            <AppSelect
+              label="Regime tributário"
+              value={PLUGNOTAS_REGIME_TRIBUTARIO_MEI}
+              onChange={(v) => onChange('regimeTributario', v)}
+              options={PLUGNOTAS_REGIME_TRIBUTARIO_OPTIONS}
+            />
+            <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+              Único regime da plataforma. O enquadramento MEI vai junto para o emissor
+              automaticamente, sem precisar escolher.
+            </p>
+          </div>
         </div>
         {cnpjLookupLoading ? (
           <p className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
