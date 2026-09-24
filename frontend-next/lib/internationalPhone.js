@@ -26,11 +26,29 @@ export function formatPhoneBrCell(digits) {
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7, 11)}`;
 }
 
+/** Brasil: DDD + 9 dígitos. Fora dele, o teto do E.164 menos o código do país. */
+const NATIONAL_MAX_DIGITS = { br: 11 };
+const NATIONAL_MAX_DIGITS_FALLBACK = 15;
+
+/**
+ * A máscara brasileira só desenha 11 dígitos. Como o campo relê o próprio texto
+ * formatado a cada tecla, dígito além do teto some e embaralha o resto — então o
+ * corte tem de acontecer aqui, antes de virar estado.
+ */
+export function limitNationalDigits(countryIso, nationalDigits) {
+  const digits = normalizePhoneDigits(nationalDigits);
+  const max = NATIONAL_MAX_DIGITS[countryIso] ?? NATIONAL_MAX_DIGITS_FALLBACK;
+  return digits.slice(0, max);
+}
+
+/**
+ * Recebe só os dígitos nacionais (DDD + número) — o código do país fica no seletor
+ * ao lado. `formatPhoneBrCell` já trata os dois primeiros dígitos como DDD, então
+ * nada de prefixo aqui: DDD 55 (Santa Maria) é um DDD legítimo.
+ */
 export function formatNationalPhoneInput(countryIso, nationalDigits) {
-  const digits = String(nationalDigits || '').replace(/\D/g, '');
+  const digits = limitNationalDigits(countryIso, nationalDigits);
   if (!digits) return '';
-  if (countryIso === 'br') {
-    return formatPhoneBrCell(`55${digits}`).replace(/^55\s*/, '');
-  }
+  if (countryIso === 'br') return formatPhoneBrCell(digits);
   return digits;
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import {
   buildInternationalPhone,
@@ -10,7 +10,8 @@ import {
 } from '@/lib/phoneCountries';
 import {
   formatNationalPhoneInput,
-  normalizePhoneDigits,
+  limitNationalDigits,
+  phonesMatch,
 } from '@/lib/internationalPhone';
 import { AppSelect } from '@/components/ui/AppSelect';
 
@@ -25,8 +26,16 @@ export function SettingsPhoneField({
   const parsed = splitInternationalPhone(value);
   const [countryIso, setCountryIso] = useState(parsed.country.iso);
   const [national, setNational] = useState(parsed.nationalDigits);
+  const emitted = useRef(null);
 
+  /**
+   * Só reler o `value` quando ele vem de fora (carregou a conta, trocou de usuário).
+   * Reler o que o próprio campo acabou de emitir fazia o seletor de país ser
+   * readivinhado a cada tecla e atropelar a escolha de quem está digitando.
+   */
   useEffect(() => {
+    if (emitted.current !== null && phonesMatch(value, emitted.current)) return;
+    emitted.current = null;
     const next = splitInternationalPhone(value);
     setCountryIso(next.country.iso);
     setNational(next.nationalDigits);
@@ -36,7 +45,9 @@ export function SettingsPhoneField({
 
   const emitChange = (iso, nationalDigits) => {
     const c = getPhoneCountryByIso(iso);
-    onChange(buildInternationalPhone(c, nationalDigits));
+    const next = buildInternationalPhone(c, limitNationalDigits(iso, nationalDigits));
+    emitted.current = next;
+    onChange(next);
   };
 
   return (
@@ -48,8 +59,10 @@ export function SettingsPhoneField({
             ariaLabel="País do telefone"
             value={countryIso}
             onChange={(iso) => {
+              const digits = limitNationalDigits(iso, national);
               setCountryIso(iso);
-              emitChange(iso, national);
+              setNational(digits);
+              emitChange(iso, digits);
             }}
             compact
             className="w-[108px] shrink-0"
@@ -63,7 +76,7 @@ export function SettingsPhoneField({
             inputMode="numeric"
             value={formatNationalPhoneInput(countryIso, national)}
             onChange={(e) => {
-              const digits = normalizePhoneDigits(e.target.value);
+              const digits = limitNationalDigits(countryIso, e.target.value);
               setNational(digits);
               emitChange(countryIso, digits);
             }}
