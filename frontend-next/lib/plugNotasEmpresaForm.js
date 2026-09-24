@@ -45,7 +45,7 @@ export function formatTelefoneEmpresa(telefone) {
  */
 export const PLUGNOTAS_REGIME_TRIBUTARIO_MEI = '1';
 
-export const PLUGNOTAS_REGIME_TRIBUTARIO_MEI_LABEL = 'Simples Nacional + MEI';
+export const PLUGNOTAS_REGIME_TRIBUTARIO_MEI_LABEL = 'MEI';
 
 export const PLUGNOTAS_REGIME_TRIBUTARIO_OPTIONS = [
   { value: PLUGNOTAS_REGIME_TRIBUTARIO_MEI, label: PLUGNOTAS_REGIME_TRIBUTARIO_MEI_LABEL },

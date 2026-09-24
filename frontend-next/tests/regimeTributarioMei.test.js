@@ -10,7 +10,12 @@ import {
 test('a plataforma é só MEI: o regime não é uma escolha', () => {
   assert.equal(PLUGNOTAS_REGIME_TRIBUTARIO_OPTIONS.length, 1);
   assert.equal(PLUGNOTAS_REGIME_TRIBUTARIO_OPTIONS[0].label, PLUGNOTAS_REGIME_TRIBUTARIO_MEI_LABEL);
-  assert.match(PLUGNOTAS_REGIME_TRIBUTARIO_MEI_LABEL, /MEI/);
+});
+
+/** A tela fala MEI e só MEI — "Simples Nacional" confunde quem é MEI. */
+test('o rótulo do regime é apenas MEI', () => {
+  assert.equal(PLUGNOTAS_REGIME_TRIBUTARIO_MEI_LABEL, 'MEI');
+  assert.doesNotMatch(PLUGNOTAS_REGIME_TRIBUTARIO_MEI_LABEL, /simples/i);
 });
 
 /**

@@ -91,8 +91,7 @@ export function EmpresaFiscalForm({
               options={PLUGNOTAS_REGIME_TRIBUTARIO_OPTIONS}
             />
             <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-              Único regime da plataforma. O enquadramento MEI vai junto para o emissor
-              automaticamente, sem precisar escolher.
+              A plataforma atende somente MEI. Nada para escolher aqui.
             </p>
           </div>
         </div>
