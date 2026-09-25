@@ -66,6 +66,7 @@ import {
   enrichCodigosServicosComNbs,
   resolveCodigoNbsForServico,
 } from './nfse-codigo-nbs.js';
+import { applyNfseDiscriminacaoLineBreaks } from './nfse-discriminacao.js';
 import {
   applyNfseObraFromTomadorEndereco,
   assertNfseServicoObraSuportado,
@@ -931,12 +932,13 @@ const buildPayloadByDocumentType = (input, userId, documentType) => {
   if (documentType === DOCUMENT_TYPE_NFSE) {
     if (payloadBase) {
       return {
-        payload: payloadBase,
+        payload: applyNfseDiscriminacaoLineBreaks(payloadBase),
         prestadorDoc: normalizeDoc(payloadBase?.prestador?.cpfCnpj || ''),
         tomadorDoc: normalizeDoc(payloadBase?.tomador?.cpfCnpj || '')
       };
     }
-    return buildPayloadFromInput(input, userId);
+    const built = buildPayloadFromInput(input, userId);
+    return { ...built, payload: applyNfseDiscriminacaoLineBreaks(built.payload) };
   }
 
   if (payloadBase) {
