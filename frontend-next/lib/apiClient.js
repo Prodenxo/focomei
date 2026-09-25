@@ -1,4 +1,5 @@
 import { getApiBaseUrl } from './env.js';
+import { neutralizeProviderNames } from './providerNeutralText.js';
 import { readAccessToken } from './session.js';
 
 const DEFAULT_FETCH_TIMEOUT_MS = 8000;
@@ -76,8 +77,7 @@ const getBaseUrl = () => {
 
 const resolveApiErrorMessage = (payload, statusText, fallback = 'Falha na requisição.') => {
   const message = String(payload?.message ?? '').trim();
-  if (message) return message;
-  return statusText?.trim() || fallback;
+  return neutralizeProviderNames(message || statusText?.trim() || fallback);
 };
 
 const createApiError = (message, response, payload) => {
@@ -138,7 +138,10 @@ async function requestJson(path, options = {}, timeoutMs = DEFAULT_FETCH_TIMEOUT
 
   const text = await response.text();
   if (!response.ok) {
-    throw createApiError(text || response.statusText || 'Falha na requisição.', response);
+    throw createApiError(
+      neutralizeProviderNames(text || response.statusText || 'Falha na requisição.'),
+      response,
+    );
   }
   return text;
 }
@@ -164,7 +167,7 @@ async function downloadBinary(path, timeoutMs = DEFAULT_FETCH_TIMEOUT_MS) {
       const payload = await response.json();
       throw new Error(resolveApiErrorMessage(payload, response.statusText, 'Falha no download.'));
     }
-    throw new Error(response.statusText || 'Falha no download.');
+    throw new Error(neutralizeProviderNames(response.statusText || 'Falha no download.'));
   }
 
   return response.blob();
@@ -196,7 +199,9 @@ async function requestJsonPublic(path, options = {}) {
   }
 
   const text = await response.text();
-  if (!response.ok) throw new Error(text || response.statusText || 'Falha na requisição.');
+  if (!response.ok) {
+    throw new Error(neutralizeProviderNames(text || response.statusText || 'Falha na requisição.'));
+  }
   return text;
 }
 

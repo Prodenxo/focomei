@@ -31,12 +31,14 @@ import {
 import { isValidCpf, normalizeCpf } from '@/lib/adminManagementHelpers';
 import { updateUser } from '@/lib/userManagement';
 import { MEI_PUBLIC_PACKAGES } from '@/lib/meiBillingPricing';
+import { neutralizeProviderNames } from '@/lib/providerNeutralText';
 
 const money = (value) =>
   Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dateTime = (value) =>
   value ? new Date(value).toLocaleString('pt-BR') : '—';
-const errorMessage = (error, fallback) => error instanceof Error ? error.message : fallback;
+const errorMessage = (error, fallback) =>
+  neutralizeProviderNames(error instanceof Error ? error.message : fallback);
 
 function StatusBadge({ children, tone = 'muted' }) {
   const colors = {
@@ -93,7 +95,7 @@ export function AdminBillingTab({ empresas, initialEmpresaId, stripeReturn, onFe
         if (ready.length === 1) setFunilId(String(ready[0].id));
       })
       .catch((error) => {
-        if (active) onFeedback({ type: 'error', text: errorMessage(error, 'Falha ao carregar funis Onety.') });
+        if (active) onFeedback({ type: 'error', text: errorMessage(error, 'Falha ao carregar funis comerciais.') });
       });
     return () => { active = false; };
   }, [onFeedback]);
@@ -102,22 +104,22 @@ export function AdminBillingTab({ empresas, initialEmpresaId, stripeReturn, onFe
     if (!stripeReturn || reconciledReturn.current) return;
     reconciledReturn.current = true;
     if (stripeReturn.status === 'cancel') {
-      onFeedback({ type: 'error', text: 'O checkout Stripe foi cancelado; nenhuma cobrança foi confirmada.' });
+      onFeedback({ type: 'error', text: 'O pagamento foi cancelado; nenhuma cobrança foi confirmada.' });
       return;
     }
     if (!stripeReturn.checkoutSessionId) {
-      onFeedback({ type: 'error', text: 'Retorno Stripe sem identificador da sessão.' });
+      onFeedback({ type: 'error', text: 'O serviço de pagamento não devolveu o identificador da sessão.' });
       return;
     }
     setLoading(true);
     reconcileStripeMeiPayment({ checkoutSessionId: stripeReturn.checkoutSessionId, emitContrato: true })
       .then(() => {
-        onFeedback({ type: 'success', text: 'Pagamento Stripe reconciliado e acesso atualizado.' });
+        onFeedback({ type: 'success', text: 'Pagamento reconciliado e acesso atualizado.' });
         return Promise.all([load(), onEmpresasChanged()]);
       })
       .catch((error) => onFeedback({
         type: 'error',
-        text: errorMessage(error, 'Falha ao reconciliar o retorno Stripe.'),
+        text: errorMessage(error, 'Falha ao reconciliar o pagamento.'),
       }))
       .finally(() => setLoading(false));
   }, [load, onEmpresasChanged, onFeedback, stripeReturn]);
@@ -144,7 +146,7 @@ export function AdminBillingTab({ empresas, initialEmpresaId, stripeReturn, onFe
 
   const handleContrato = async (item) => {
     if (!funilId) {
-      onFeedback({ type: 'error', text: 'Selecione um funil Onety antes de emitir o contrato.' });
+      onFeedback({ type: 'error', text: 'Selecione um funil comercial antes de emitir o contrato.' });
       return;
     }
     setEmitting(item.lineId);
@@ -185,7 +187,7 @@ export function AdminBillingTab({ empresas, initialEmpresaId, stripeReturn, onFe
       <Card className="space-y-3 p-4">
         <div className="grid gap-3 md:grid-cols-2">
           <AppSelect label="Empresa para cobrança" value={empresaId} onChange={setEmpresaId} options={empresaOptions} placeholder="Selecione a empresa" />
-          <AppSelect label="Funil comercial Onety" value={funilId} onChange={setFunilId} options={funilOptions} placeholder="Selecione o funil" emptyHint="Nenhum funil pronto no backend" />
+          <AppSelect label="Funil comercial" value={funilId} onChange={setFunilId} options={funilOptions} placeholder="Selecione o funil" emptyHint="Nenhum funil disponível" />
         </div>
         <button type="button" disabled={!empresaId} onClick={() => openEmpresa(empresaId)} className="inline-flex h-10 items-center gap-2 rounded-[12px] bg-[var(--accent)] px-4 text-sm font-semibold text-white disabled:opacity-50">
           <CreditCard className="h-4 w-4" /> Abrir cobrança da empresa
@@ -304,12 +306,12 @@ function EmpresaBillingModal({ empresa, funis, initialFunilId, onClose, onFeedba
 
   const emitContract = () => {
     if (!funilId) {
-      onFeedback({ type: 'error', text: 'Selecione um funil Onety.' });
+      onFeedback({ type: 'error', text: 'Selecione um funil comercial.' });
       return;
     }
     void run(
       () => emitStripeMeiContrato({ empresaId: empresa.id, funilId: Number(funilId) }),
-      'Contrato enviado ao Onety.',
+      'Contrato enviado para assinatura.',
     );
   };
 
@@ -320,7 +322,7 @@ function EmpresaBillingModal({ empresa, funis, initialFunilId, onClose, onFeedba
           <header className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-[var(--card-border)] bg-[var(--card-bg)] p-4">
             <div>
               <h2 id="billing-title" className="break-words font-semibold">Cobrança MEI — {empresa.nome_fantasia || empresa.empresa}</h2>
-              <p className="text-xs text-[var(--text-muted)]">Stripe, PIX, contrato e limite da empresa</p>
+              <p className="text-xs text-[var(--text-muted)]">Cobranças, PIX, contratos e limite da empresa</p>
             </div>
             <button type="button" onClick={onClose} aria-label="Fechar cobrança" className="rounded-full p-2 hover:bg-[var(--canvas)]"><X className="h-4 w-4" /></button>
           </header>
@@ -328,14 +330,14 @@ function EmpresaBillingModal({ empresa, funis, initialFunilId, onClose, onFeedba
             <section className="grid gap-3 sm:grid-cols-3">
               <AppSelect label="Pacote" value={slots} onChange={setSlots} options={MEI_PUBLIC_PACKAGES.map((pkg) => ({ value: String(pkg.meiSlots), label: `${pkg.label} — ${money(pkg.total)}/mês` }))} />
               <AppSelect label="Cobrança" value={timing} onChange={setTiming} options={[{ value: 'checkout', label: 'Link de pagamento' }, { value: 'next_cycle', label: 'Próxima fatura' }]} />
-              <AppSelect label="Funil Onety" value={funilId} onChange={setFunilId} options={funis.map((funil) => ({ value: String(funil.id), label: funil.name }))} placeholder="Selecione" />
+              <AppSelect label="Funil comercial" value={funilId} onChange={setFunilId} options={funis.map((funil) => ({ value: String(funil.id), label: funil.name }))} placeholder="Selecione" />
             </section>
 
             <div className="flex flex-wrap gap-2">
               <button type="button" disabled={loading} onClick={() => void run(async () => {
                 const result = await createMeiStripeCheckout({ empresaId: empresa.id, meiSlots: Number(slots), billingTiming: timing });
                 setCheckoutUrl(result?.checkoutUrl || '');
-              }, timing === 'checkout' ? 'Link Stripe gerado.' : 'Pacote incluído na próxima fatura.')} className="rounded-[10px] bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Processar cobrança</button>
+              }, timing === 'checkout' ? 'Link de pagamento gerado.' : 'Pacote incluído na próxima fatura.')} className="rounded-[10px] bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Processar cobrança</button>
               <button type="button" disabled={loading} onClick={() => setConfirm({ kind: 'pix' })} className="rounded-[10px] border border-[var(--card-border)] px-3 py-2 text-xs font-semibold">Confirmar PIX</button>
               <button type="button" disabled={loading} onClick={() => void run(() => reconcileStripeMeiPayment({ empresaId: empresa.id, emitContrato: true }), 'Pagamento reconciliado.')} className="rounded-[10px] border border-[var(--card-border)] px-3 py-2 text-xs font-semibold">Reconciliar</button>
               <button type="button" disabled={loading} onClick={() => void run(() => syncMaxMeiFromStripeLines(empresa.id), 'Limite MEI alinhado.')} className="rounded-[10px] border border-[var(--card-border)] px-3 py-2 text-xs font-semibold">Alinhar limite</button>

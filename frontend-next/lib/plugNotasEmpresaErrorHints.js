@@ -1,16 +1,18 @@
 /**
  * Mensagem curta para erros do cadastro empresa PlugNotas (sem textão repetitivo).
  */
+import { neutralizeProviderNames } from './providerNeutralText.js';
+
 export function shortPlugNotasEmpresaError(raw) {
-  const text = String(raw || '').trim();
-  if (!text) return 'A PlugNotas recusou o cadastro.';
+  const text = neutralizeProviderNames(raw).trim();
+  if (!text) return 'O emissor fiscal recusou o cadastro.';
 
   const lower = text.toLowerCase();
   if (lower.includes('homologad')) {
-    return 'A PlugNotas recusou o cadastro (município/IBGE). Confira NFS-e Nacional marcado e tente de novo; se persistir, a conta Tecnospeed precisa liberar o CNPJ no emissor.';
+    return 'O emissor fiscal recusou o cadastro do município. Confira o código IBGE e a opção NFS-e Nacional; se persistir, solicite a liberação do CNPJ no emissor.';
   }
   if (lower.includes('codigoibgecidade') && lower.includes('tabela')) {
-    return 'PlugNotas: código IBGE da cidade não aceito. Confira os 7 dígitos (ex.: 3300159).';
+    return 'Código IBGE da cidade não aceito pelo emissor. Confira os 7 dígitos (ex.: 3300159).';
   }
   if (text.length > 220) {
     return `${text.slice(0, 220)}…`;

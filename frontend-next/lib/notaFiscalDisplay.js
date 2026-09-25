@@ -1,6 +1,7 @@
 /**
  * Normalização de registros `mei_nfse` (snake_case + payload_json) para a UI web.
  */
+import { neutralizeProviderNames } from './providerNeutralText.js';
 
 export function getNfseStatusKey(status) {
   const text = String(status || '').toLowerCase();
@@ -281,7 +282,7 @@ export function normalizeNotaForUi(record) {
 }
 
 function normalizeFailureText(value) {
-  const t = String(value ?? '').trim();
+  const t = neutralizeProviderNames(value).trim();
   return t || null;
 }
 

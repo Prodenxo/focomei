@@ -49,6 +49,7 @@ import { ErrorPanel } from '@/components/ui/ErrorPanel';
 import { LoadingPanel } from '@/components/ui/LoadingPanel';
 import { CertificateIllustration } from '@/components/illustrations/CertificateIllustration';
 import { shortPlugNotasEmpresaError } from '@/lib/plugNotasEmpresaErrorHints';
+import { neutralizeProviderNames } from '@/lib/providerNeutralText';
 
 /**
  * Aba Certificado — gerencia o certificado digital e dados da empresa fiscal.
@@ -241,10 +242,10 @@ export default function CertificadoPage() {
       if (integration?.status === 'failed') {
         setPlugnotasSyncMsg({
           type: 'error',
-          text: `Certificado salvo no Foco MEI, mas a PlugNotas não aceitou: ${integration.reason || 'erro desconhecido'}. Use "Enviar certificado à PlugNotas".`,
+          text: `Certificado salvo no Foco MEI, mas o emissor fiscal não aceitou: ${neutralizeProviderNames(integration.reason || 'erro desconhecido')}. Use "Reenviar ao emissor".`,
         });
       } else if (integration?.status === 'ok') {
-        setPlugnotasSyncMsg({ type: 'success', text: 'Certificado registrado na PlugNotas.' });
+        setPlugnotasSyncMsg({ type: 'success', text: 'Certificado registrado no emissor fiscal.' });
       } else {
         setPlugnotasSyncMsg(null);
       }
@@ -359,7 +360,7 @@ export default function CertificadoPage() {
         window.dispatchEvent(new CustomEvent('focomei:fiscal-refresh'));
       }
     } catch (err) {
-      const raw = err instanceof Error ? err.message : 'Falha ao cadastrar a empresa na PlugNotas.';
+      const raw = err instanceof Error ? err.message : 'Falha ao cadastrar a empresa no emissor fiscal.';
       setCompanyError(raw.trim() || shortPlugNotasEmpresaError(raw));
       if (!company) {
         setCompany({ cpfCnpj: companyForm.cpfCnpj || documento });
@@ -392,7 +393,7 @@ export default function CertificadoPage() {
 
   const handleResendPlugNotas = async () => {
     if (!uploadFile || !uploadPassword) {
-      setUploadError('Selecione novamente o .pfx e informe a senha para reenviar à PlugNotas.');
+      setUploadError('Selecione novamente o .pfx e informe a senha para reenviar ao emissor.');
       return;
     }
     if (!companyForm) {
@@ -406,7 +407,7 @@ export default function CertificadoPage() {
     }
     setPlugnotasResending(true);
     setUploadError(null);
-    setPlugnotasSyncMsg({ type: 'info', text: 'Reenviando certificado e empresa à PlugNotas…' });
+    setPlugnotasSyncMsg({ type: 'info', text: 'Reenviando certificado e empresa ao emissor fiscal…' });
     try {
       await setupEmitenteComposite({
         file: uploadFile,
@@ -415,7 +416,7 @@ export default function CertificadoPage() {
       });
       setPlugnotasSyncMsg({
         type: 'success',
-        text: 'Certificado e empresa reenviados à PlugNotas com sucesso.',
+        text: 'Certificado e empresa reenviados ao emissor fiscal com sucesso.',
       });
       setEmpresaRegistered(true);
       setUploadFile(null);
@@ -426,7 +427,9 @@ export default function CertificadoPage() {
     } catch (err) {
       setPlugnotasSyncMsg({
         type: 'error',
-        text: err instanceof Error ? err.message : 'Falha ao reenviar à PlugNotas.',
+        text: neutralizeProviderNames(
+          err instanceof Error ? err.message : 'Falha ao reenviar ao emissor fiscal.',
+        ),
       });
     } finally {
       setPlugnotasResending(false);
@@ -510,7 +513,7 @@ export default function CertificadoPage() {
                   ) : null}
                   {hasUserCert ? (
                     <p className="mt-2 text-xs">
-                      <span className="text-[var(--text-muted)]">PlugNotas (emissão): </span>
+                      <span className="text-[var(--text-muted)]">Emissão fiscal: </span>
                       <span className={plugnotasCertLinked ? 'font-semibold text-emerald-600 dark:text-emerald-400' : 'font-semibold text-amber-700 dark:text-amber-400'}>
                         {plugnotasCertLinked ? 'Certificado vinculado' : 'Ainda não vinculado'}
                       </span>
@@ -588,7 +591,7 @@ export default function CertificadoPage() {
                   className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-amber-300 bg-amber-50 px-4 text-sm font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-60 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200"
                 >
                   {plugnotasResending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RefreshCcw className="h-4 w-4" aria-hidden />}
-                  Reenviar à PlugNotas
+                  Reenviar ao emissor
                 </button>
               ) : null}
 
@@ -670,7 +673,7 @@ export default function CertificadoPage() {
                 <div className="rounded-[12px] border border-red-200 bg-red-50 p-3 dark:border-red-900/40 dark:bg-red-950/30">
                   {hasUserCert && !plugnotasCertLinked ? (
                     <p className="text-xs text-amber-800 dark:text-amber-200">
-                      Vincule o certificado na PlugNotas (botão à esquerda) antes de cadastrar a empresa lá.
+                      Vincule o certificado ao emissor (botão à esquerda) antes de cadastrar a empresa.
                     </p>
                   ) : (
                     <p className="flex items-start gap-2 text-xs text-red-800 dark:text-red-200">
@@ -739,7 +742,7 @@ export default function CertificadoPage() {
                   className="inline-flex h-10 items-center gap-2 rounded-[12px] bg-[var(--accent)] px-4 text-sm font-semibold text-white shadow-[var(--shadow-card)] hover:opacity-90 disabled:opacity-60"
                 >
                   {companySaving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <CheckCircle2 className="h-4 w-4" aria-hidden />}
-                  {companyError ? 'Tentar cadastrar na PlugNotas' : 'Salvar na PlugNotas'}
+                  {companyError ? 'Tentar cadastrar novamente' : 'Salvar dados fiscais'}
                 </button>
                 {companySavedAt ? (
                   <span className="text-xs text-[var(--text-muted)]">
