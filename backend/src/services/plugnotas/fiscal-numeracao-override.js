@@ -6,6 +6,10 @@
  * numeração vinda de outro emissor. O override registrado aqui vence o histórico
  * uma única vez: é consumido na primeira tentativa de emissão e, se houver
  * duplicidade de verdade, o retry volta à regra automática.
+ *
+ * A série é diferente: ela é uma escolha do usuário e continua valendo depois que
+ * o número é consumido. Sem isso a próxima nota cairia na série do cadastro do
+ * emissor (normalmente 1) e bateria em numeração já usada — duplicidade.
  */
 
 const TABLE = 'mei_fiscal_numeracao_overrides';
@@ -72,9 +76,11 @@ export async function setFiscalNumeracaoOverride(getDb, input = {}) {
 }
 
 /**
+ * Lê a numeração manual. `numero` vem `null` quando já foi consumido e só a série
+ * escolhida pelo usuário continua guardada.
  * @param {() => import('@supabase/supabase-js').SupabaseClient} getDb
  * @param {{ cnpj: string, documentType: string }} input
- * @returns {Promise<{ numero: number, serie: string|null }|null>}
+ * @returns {Promise<{ numero: number|null, serie: string|null }|null>}
  */
 export async function readFiscalNumeracaoOverride(getDb, input = {}) {
   const key = resolveKey(input.cnpj, input.documentType);
@@ -89,9 +95,12 @@ export async function readFiscalNumeracaoOverride(getDb, input = {}) {
       .maybeSingle();
     if (error) throw new Error(error.message);
 
-    const numero = parsePositiveInt(data?.next_numero, 0);
-    if (!numero) return null;
-    return { numero, serie: data?.serie ?? null };
+    const numero = parsePositiveInt(data?.next_numero, 0) || null;
+    const serie = data?.serie === undefined || data?.serie === null
+      ? null
+      : String(data.serie).trim() || null;
+    if (!numero && !serie) return null;
+    return { numero, serie };
   } catch (error) {
     warnAndIgnore('ler numeração manual', error);
     return null;
@@ -99,13 +108,27 @@ export async function readFiscalNumeracaoOverride(getDb, input = {}) {
 }
 
 /**
- * Remove o override — chamado assim que o número é levado para a emissão.
+ * Consome o número — chamado assim que ele é levado para a emissão. A série fica
+ * guardada para as próximas notas. Em banco antigo (coluna ainda `not null`) cai
+ * no comportamento anterior e apaga o registro inteiro.
  * @param {() => import('@supabase/supabase-js').SupabaseClient} getDb
  * @param {{ cnpj: string, documentType: string }} input
  */
 export async function consumeFiscalNumeracaoOverride(getDb, input = {}) {
   const key = resolveKey(input.cnpj, input.documentType);
   if (!key) return;
+
+  try {
+    const { error } = await getDb()
+      .from(TABLE)
+      .update({ next_numero: null })
+      .eq('cnpj', key.cnpj)
+      .eq('document_type', key.documentType);
+    if (!error) return;
+    warnAndIgnore('consumir numeração manual mantendo a série', new Error(error.message));
+  } catch (error) {
+    warnAndIgnore('consumir numeração manual mantendo a série', error);
+  }
 
   try {
     const { error } = await getDb()

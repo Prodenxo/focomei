@@ -1710,17 +1710,22 @@ const emitNfeWithAutoNumeracaoRecovery = async (
   let response;
   let emitSerie = 1;
 
-  /** Vale só na primeira tentativa: em duplicidade o retry volta à numeração automática. */
+  /**
+   * O número manual vale só na primeira tentativa: em duplicidade o retry volta à
+   * numeração automática. A série escolhida pelo usuário vale em todas as tentativas
+   * e nas próximas emissões — ela não é consumida.
+   */
   const manual = await readFiscalNumeracaoOverride(getDb, {
     cnpj: cnpjEmitente,
     documentType: 'nfe',
   });
-  if (manual) {
+  if (manual?.numero) {
     await consumeFiscalNumeracaoOverride(getDb, {
       cnpj: cnpjEmitente,
       documentType: 'nfe',
     });
   }
+  const manualSerie = manual?.serie ?? null;
 
   for (let attempt = 0; attempt < NFE_EMIT_DUPLICIDADE_RETRY_MAX; attempt += 1) {
     emitPayload = { ...basePayload };
@@ -1728,7 +1733,7 @@ const emitNfeWithAutoNumeracaoRecovery = async (
       localMaxNumero: localMax,
       relatorioMaxNumero: prep.relatorioMax ?? 0,
       forcedNumero: attempt === 0 ? manual?.numero : null,
-      forcedSerie: attempt === 0 ? manual?.serie ?? null : null,
+      forcedSerie: manualSerie,
       userId,
     });
     if (numeracao?.serie !== undefined && numeracao?.serie !== null) {
@@ -1919,7 +1924,7 @@ export const consultarNumeracaoFiscal = async (userId, cpfCnpj) => {
       ultimoUtilizado: Math.max(proximo - 1, 0),
       historicoMaximo: historico,
       serie: String(manual?.serie ?? serie ?? '1').trim() || '1',
-      ajusteManualPendente: Boolean(manual),
+      ajusteManualPendente: Boolean(manual?.numero),
     };
   };
 

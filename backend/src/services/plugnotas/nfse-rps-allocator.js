@@ -169,7 +169,8 @@ export async function queryKnownNfseRpsMax(getDb, cnpj, localMax = 0) {
  *
  * Exceção: numeração corrigida à mão pelo usuário vence o histórico uma vez (ver
  * `fiscal-numeracao-override.js`). Se o número estiver mesmo ocupado, o retry de
- * E0014 na emissão descarta o override e volta à regra automática.
+ * E0014 na emissão descarta o override e volta à regra automática. A série escolhida
+ * continua valendo nas próximas notas.
  * @param {() => import('@supabase/supabase-js').SupabaseClient} getDb
  * @param {string} cnpj
  * @param {number} localMax
@@ -199,7 +200,7 @@ export async function allocateNfseRpsForEmit(getDb, cnpj, localMax = 0, empresaJ
     empresaNumero >= 1 ? empresaNumero : 1,
   );
   const safeNext = override?.numero ?? automaticNext;
-  if (override) {
+  if (override?.numero) {
     await consumeFiscalNumeracaoOverride(getDb, {
       cnpj: normalizedCnpj,
       documentType: 'nfse',

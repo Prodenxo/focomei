@@ -20,7 +20,13 @@ const makeDb = (handlers = {}) => {
           return handlers.upsert ?? { error: null };
         },
         delete() {
+          ctx.op = 'delete';
           calls.push({ op: 'delete', table, ctx });
+          return chain;
+        },
+        update(row) {
+          ctx.op = 'update';
+          calls.push({ op: 'update', table, row, ctx });
           return chain;
         },
         select(columns) {
@@ -36,7 +42,10 @@ const makeDb = (handlers = {}) => {
           return handlers.maybeSingle ?? { data: null, error: null };
         },
         then(resolve) {
-          return Promise.resolve(handlers.delete ?? { error: null }).then(resolve);
+          const result = ctx.op === 'update'
+            ? (handlers.update ?? { error: null })
+            : (handlers.delete ?? { error: null });
+          return Promise.resolve(result).then(resolve);
         },
       };
       return chain;
@@ -108,8 +117,44 @@ test('readFiscalNumeracaoOverride devolve número e série gravados', async () =
   }), { numero: 43, serie: '2' });
 });
 
-test('consumeFiscalNumeracaoOverride filtra por CNPJ e tipo', async () => {
+test('readFiscalNumeracaoOverride devolve só a série depois que o número foi consumido', async () => {
+  const { getDb } = makeDb({
+    maybeSingle: { data: { next_numero: null, serie: '2' }, error: null },
+  });
+
+  assert.deepEqual(await readFiscalNumeracaoOverride(getDb, {
+    cnpj: CNPJ,
+    documentType: 'NFE',
+  }), { numero: null, serie: '2' });
+});
+
+test('readFiscalNumeracaoOverride devolve null quando não sobrou número nem série', async () => {
+  const { getDb } = makeDb({
+    maybeSingle: { data: { next_numero: null, serie: null }, error: null },
+  });
+
+  assert.equal(await readFiscalNumeracaoOverride(getDb, {
+    cnpj: CNPJ,
+    documentType: 'NFE',
+  }), null);
+});
+
+test('consumeFiscalNumeracaoOverride zera o número e mantém a série', async () => {
   const { getDb, calls } = makeDb();
+
+  await consumeFiscalNumeracaoOverride(getDb, { cnpj: CNPJ, documentType: 'NFSE' });
+
+  const upd = calls.find((c) => c.op === 'update');
+  assert.equal(upd.table, 'mei_fiscal_numeracao_overrides');
+  assert.deepEqual(upd.row, { next_numero: null });
+  assert.deepEqual(upd.ctx.filters, { cnpj: CNPJ, document_type: 'nfse' });
+  assert.equal(calls.some((c) => c.op === 'delete'), false);
+});
+
+test('consumeFiscalNumeracaoOverride apaga o registro quando o banco ainda não aceita número nulo', async () => {
+  const { getDb, calls } = makeDb({
+    update: { error: { message: 'null value in column "next_numero" violates not-null constraint' } },
+  });
 
   await consumeFiscalNumeracaoOverride(getDb, { cnpj: CNPJ, documentType: 'NFSE' });
 

@@ -130,10 +130,41 @@ create index if not exists idx_certificate_expiration_notifications_recipient
 alter table public.certificate_expiration_notifications enable row level security;
 `;
 
+/**
+ * Numeração manual de notas (NFS-e/NF-e). Espelha as migrações
+ * 20260922090000 e 20260928120000: a série fica guardada depois que o número é consumido.
+ */
+export const FISCAL_NUMERACAO_OVERRIDES_SQL = `
+create table if not exists public.mei_fiscal_numeracao_overrides (
+  cnpj text not null,
+  document_type text not null,
+  next_numero integer null,
+  serie text null,
+  requested_by uuid null references public.users (id) on delete set null,
+  created_at timestamptz not null default now(),
+  constraint mei_fiscal_numeracao_overrides_pkey primary key (cnpj, document_type),
+  constraint mei_fiscal_numeracao_overrides_document_type_check
+    check (document_type in ('nfse', 'nfe'))
+);
+
+alter table public.mei_fiscal_numeracao_overrides
+  alter column next_numero drop not null;
+
+alter table public.mei_fiscal_numeracao_overrides
+  drop constraint if exists mei_fiscal_numeracao_overrides_next_numero_check;
+
+alter table public.mei_fiscal_numeracao_overrides
+  add constraint mei_fiscal_numeracao_overrides_next_numero_check
+    check (next_numero is null or next_numero >= 1);
+
+alter table public.mei_fiscal_numeracao_overrides enable row level security;
+`;
+
 export const CALENDAR_AGENDA_WHATSAPP_SQL =
   `${CALENDAR_CHECKLIST_COMPLETIONS_SQL}\n`
   + `${CALENDAR_UPCOMING_REMINDER_SENT_SQL}\n`
-  + CERTIFICATE_EXPIRATION_NOTIFICATIONS_SQL;
+  + `${CERTIFICATE_EXPIRATION_NOTIFICATIONS_SQL}\n`
+  + FISCAL_NUMERACAO_OVERRIDES_SQL;
 
 let calendarTableEnsured = false;
 
