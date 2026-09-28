@@ -2591,7 +2591,7 @@ export const emitirNota = async (userId, input) => {
       return { nfseRejectionCode: 'E0014' };
     })();
     const createdAtPatch = resolveCreatedAtPatchFromFiscalEmissao(
-      { status, created_at: null },
+      { status, created_at: new Date().toISOString() },
       response,
     );
     const created = await insertRecord(userId, {

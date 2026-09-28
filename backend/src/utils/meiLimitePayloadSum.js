@@ -450,8 +450,16 @@ export function resolverDataExibicaoEmissaoDaNota(record) {
   return parseDateIso(record?.created_at ?? record?.createdAt);
 }
 
+/**
+ * O emissor devolve a autorização só com a data (meia-noite). No mesmo dia, a hora
+ * real da emissão (id de integração ou gravação local) desempata as notas do dia.
+ */
 function notaListaOrdenacaoMs(record) {
-  const iso = resolverDataExibicaoEmissaoDaNota(record)
+  const fiscal = resolverDataAutorizacaoFiscalDaNota(record);
+  const precisa = parseCreatedAtIsoFromIdIntegracao(record?.id_integracao)
+    || parseDateIso(record?.created_at ?? record?.createdAt);
+  const iso = (fiscal && precisa && mesmoDiaCivilBr(fiscal, precisa) ? precisa : null)
+    || resolverDataExibicaoEmissaoDaNota(record)
     || parseDateIso(record?.updated_at)
     || parseDateIso(record?.created_at ?? record?.createdAt);
   if (!iso) return 0;

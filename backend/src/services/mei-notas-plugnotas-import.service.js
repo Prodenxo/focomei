@@ -5,7 +5,7 @@ import { consultarNfsePorPeriodo } from './plugnotas/nfse.service.js';
 import { consultarNfePorPeriodo } from './plugnotas/nfe.service.js';
 import { collectPeriodoNotas } from './plugnotas/plugnotas-empresa-rps-heal.js';
 import { getCertificateDocument, getEmitenteNfseSnapshot } from './mei-certificate-store.js';
-import { parseFiscalDateIso } from '../utils/meiLimitePayloadSum.js';
+import { mesmoDiaCivilBr, parseFiscalDateIso } from '../utils/meiLimitePayloadSum.js';
 import {
   extractPlugNotasId,
   extractIntegracaoId,
@@ -244,7 +244,7 @@ const loadExistingImportIndex = async (userId) => {
   const db = getDb();
   const { data, error } = await db
     .from(TABLE)
-    .select('id, id_integracao, plugnotas_id, protocol, metadata_json')
+    .select('id, id_integracao, plugnotas_id, protocol, metadata_json, created_at')
     .eq('user_id', userId)
     .limit(5000);
   if (error) throw badRequest(error.message || 'Falha ao consultar notas existentes');
@@ -254,7 +254,7 @@ const loadExistingImportIndex = async (userId) => {
   const byProtocol = new Map();
   const storeRow = (map, key, row) => {
     if (!key) return;
-    map.set(String(key), { id: row.id, metadata_json: row.metadata_json });
+    map.set(String(key), { id: row.id, metadata_json: row.metadata_json, created_at: row.created_at });
   };
   for (const row of data || []) {
     storeRow(byIntegracao, row.id_integracao, row);
@@ -277,6 +277,13 @@ const findExistingRecord = (dedupe, index) => {
   const plugId = dedupe.kind === 'plugnotas_id' ? dedupe.value : null;
   if (plugId && index.byPlugId.has(plugId)) return index.byPlugId.get(plugId);
   return null;
+};
+
+/** O histórico só traz o dia; a hora já gravada no mesmo dia é mais precisa e fica. */
+const resolveCreatedAtForUpdate = (existingCreatedAt, importedCreatedAt) => {
+  if (!existingCreatedAt) return importedCreatedAt;
+  const existingIso = new Date(existingCreatedAt).toISOString();
+  return mesmoDiaCivilBr(existingIso, importedCreatedAt) ? existingIso : importedCreatedAt;
 };
 
 const findExistingRecordId = (dedupe, index) => findExistingRecord(dedupe, index)?.id ?? null;
@@ -496,7 +503,7 @@ export const importarHistoricoPlugnotas = async (
               payload_json: mapped.row.payload_json,
               response_json: mapped.row.response_json,
               metadata_json: metadataJson,
-              created_at: mapped.row.created_at,
+              created_at: resolveCreatedAtForUpdate(existingRecord.created_at, mapped.row.created_at),
               archived_at: archivedAt,
               updated_at: mapped.row.updated_at,
             })
@@ -614,7 +621,7 @@ export const importarHistoricoPlugnotas = async (
               payload_json: mapped.row.payload_json,
               response_json: mapped.row.response_json,
               metadata_json: mergeImportMetadata(existingRecord.metadata_json, normalizedStatus, nowIso),
-              created_at: mapped.row.created_at,
+              created_at: resolveCreatedAtForUpdate(existingRecord.created_at, mapped.row.created_at),
               archived_at: archivedAt,
               updated_at: mapped.row.updated_at,
             })
