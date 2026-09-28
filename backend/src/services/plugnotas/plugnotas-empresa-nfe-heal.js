@@ -112,29 +112,42 @@ export function readNfeNumeroFromHistoryRow(row) {
 }
 
 /**
+ * O emissor acumula uma entrada por série e não substitui a lista. A primeira fica
+ * presa na série antiga; a série em uso precisa ser lida pelo número dela.
  * @param {unknown} empresaJson
+ * @param {number|string|null|undefined} [expectedSerie]
  * @returns {{ serie: number|string, numero: number }|null}
  */
-export function readPlugnotasNfeNextFromEmpresa(empresaJson) {
+export function readPlugnotasNfeNextFromEmpresa(empresaJson, expectedSerie) {
   const empresa = unwrapPlugnotasEmpresaRecord(empresaJson);
   const config = empresa?.nfe?.config;
   if (!config || typeof config !== 'object' || Array.isArray(config)) return null;
 
-  const numeracaoFirst = Array.isArray(config.numeracao) ? config.numeracao[0] : null;
+  const entries = Array.isArray(config.numeracao)
+    ? config.numeracao.filter((entry) => entry && typeof entry === 'object')
+    : [];
+  const seriePedida = expectedSerie === undefined || expectedSerie === null
+    ? ''
+    : String(expectedSerie).trim();
   const numeracaoObj = config.numeracao && typeof config.numeracao === 'object' && !Array.isArray(config.numeracao)
     ? config.numeracao
     : null;
+  const chosen = seriePedida
+    ? entries.find((entry) => String(entry.serie ?? '').trim() === seriePedida) || null
+    : entries[0] || numeracaoObj;
 
-  const serieRaw = numeracaoFirst?.serie
-    ?? numeracaoObj?.serie
+  if (seriePedida && !chosen) return null;
+
+  const serieRaw = chosen?.serie
     ?? config.serie
-    ?? config.serieNfe;
+    ?? config.serieNfe
+    ?? (seriePedida || undefined);
   const serie = serieRaw === undefined || serieRaw === null || serieRaw === ''
     ? 1
     : serieRaw;
   const numero = parsePositiveInt(
-    numeracaoFirst?.numero
-      ?? numeracaoObj?.numero
+    chosen?.numero
+      ?? chosen?.numeracaoAtual
       ?? config.numero
       ?? config.numeroAtual
       ?? config.proximoNumero,
@@ -409,7 +422,7 @@ export async function syncPlugnotasNfeNumeracaoBeforeEmit(cnpjInput, target, emp
   }
 
   const empresaRecord = unwrapPlugnotasEmpresaRecord(empresa) || {};
-  const current = empresa ? readPlugnotasNfeNextFromEmpresa(empresa) : null;
+  const current = empresa ? readPlugnotasNfeNextFromEmpresa(empresa, usedSerie) : null;
   const numeracaoAutomaticaAtiva = empresaRecord?.nfe?.config?.numeracaoAutomatica !== false;
   /** Número certo com automática ligada ainda emite nNF=1 — força PATCH mínimo. */
   if (
@@ -538,8 +551,9 @@ export const isMeiNfeNumeracaoHealEnabled = () => {
  * Confirma que o cadastro PlugNotas refletiu o próximo nNF antes do POST /nfe.
  * @param {string} cnpjInput
  * @param {number} expectedNumero
+ * @param {number|string|null|undefined} [expectedSerie]
  */
-export async function assertPlugnotasNfeNumeracaoAtLeast(cnpjInput, expectedNumero) {
+export async function assertPlugnotasNfeNumeracaoAtLeast(cnpjInput, expectedNumero, expectedSerie) {
   const cnpj = normalizeDoc(cnpjInput);
   const expected = parsePositiveInt(expectedNumero);
   if (cnpj.length !== 14 || !Number.isFinite(expected)) return;
@@ -552,7 +566,7 @@ export async function assertPlugnotasNfeNumeracaoAtLeast(cnpjInput, expectedNume
     throw new Error(`Não foi possível confirmar a numeração NF-e na PlugNotas: ${message}`);
   }
 
-  const current = readPlugnotasNfeNextFromEmpresa(empresaJson);
+  const current = readPlugnotasNfeNextFromEmpresa(empresaJson, expectedSerie);
   if (current && current.numero >= expected) return;
 
   throw new Error(
@@ -579,7 +593,9 @@ export async function ensurePlugnotasNfeNumeracaoBeforeEmit(cnpjInput, opts = {}
     empresaJson = opts.empresaJson ?? null;
   }
 
-  const fromEmpresa = empresaJson ? readPlugnotasNfeNextFromEmpresa(empresaJson) : null;
+  const fromEmpresa = empresaJson
+    ? readPlugnotasNfeNextFromEmpresa(empresaJson, opts.forcedSerie ?? null)
+    : null;
   /** Numeração corrigida à mão pelo usuário vence o histórico (ver `fiscal-numeracao-override.js`). */
   const forcedNumero = parsePositiveInt(opts.forcedNumero, 0);
   const safeNext = forcedNumero || resolveNextNfeNumeroFromSources({
@@ -597,7 +613,7 @@ export async function ensurePlugnotasNfeNumeracaoBeforeEmit(cnpjInput, opts = {}
   );
 
   await sleepMs(400);
-  await assertPlugnotasNfeNumeracaoAtLeast(cnpj, safeNext);
+  await assertPlugnotasNfeNumeracaoAtLeast(cnpj, safeNext, serie);
 
   console.info('[plugnotas-nfe] numeração alinhada antes da emissão', {
     cnpj14: `${cnpj.slice(0, 4)}***${cnpj.slice(-2)}`,

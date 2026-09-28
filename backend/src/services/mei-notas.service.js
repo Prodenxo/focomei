@@ -1913,7 +1913,9 @@ export const consultarNumeracaoFiscal = async (userId, cpfCnpj) => {
   ]);
 
   const nfseEmpresa = readPlugnotasNfseNextRpsFromEmpresa(empresaJson);
-  const nfeEmpresa = empresaJson ? readPlugnotasNfeNextFromEmpresa(empresaJson) : null;
+  const nfeEmpresa = empresaJson
+    ? readPlugnotasNfeNextFromEmpresa(empresaJson, nfeManual?.serie)
+    : null;
 
   const buildEntry = (historicoMax, manual, empresaNumero, serie) => {
     const historico = parsePositiveIntLocal(historicoMax, 0);

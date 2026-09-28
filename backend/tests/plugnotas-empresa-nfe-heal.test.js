@@ -4,6 +4,7 @@ import {
   parseNnfFromNfeChaveAcesso,
   isPlugnotasNfeDuplicidadeMessage,
   readNfeNumeroFromPlugnotasBody,
+  readPlugnotasNfeNextFromEmpresa,
   resolveNextNfeNumeroFromSources,
   buildPlugnotasNfeConfigForNumeracaoPatch,
   applyPlugnotasNfeNumeracaoToEmitPayload,
@@ -49,6 +50,22 @@ test('buildPlugnotasNfeConfigForNumeracaoPatch grava numeracao[] e preserva pl_0
   assert.equal(config.numeracaoAutomatica, false);
   assert.equal(config.producao, true);
   assert.equal(config.versaoEsquema, undefined);
+});
+
+test('lê a numeração da série pedida, não a primeira da lista', () => {
+  const empresa = {
+    nfe: {
+      config: {
+        numeracao: [
+          { serie: 1, numero: 18 },
+          { serie: 2, numero: 19 },
+        ],
+      },
+    },
+  };
+  assert.deepEqual(readPlugnotasNfeNextFromEmpresa(empresa), { serie: 1, numero: 18 });
+  assert.deepEqual(readPlugnotasNfeNextFromEmpresa(empresa, 2), { serie: 2, numero: 19 });
+  assert.equal(readPlugnotasNfeNextFromEmpresa(empresa, '3'), null);
 });
 
 test('applyPlugnotasNfeNumeracaoToEmitPayload define serie e numero no JSON', () => {
