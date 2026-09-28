@@ -109,7 +109,7 @@ export const listar = async (req, res, next) => {
   }
 };
 
-/** Importa NFS-e já emitidas na PlugNotas para a lista local do usuário. */
+/** Importa NFS-e e NF-e já emitidas no emissor para a lista local do usuário. */
 export const importarHistorico = async (req, res, next) => {
   try {
     const body = req.body && typeof req.body === 'object' ? req.body : {};

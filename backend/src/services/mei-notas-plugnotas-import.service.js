@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { createSupabaseClient } from '../config/supabase.js';
 import { badRequest } from '../utils/errors.js';
 import { consultarNfsePorPeriodo } from './plugnotas/nfse.service.js';
+import { consultarNfePorPeriodo } from './plugnotas/nfe.service.js';
 import { collectPeriodoNotas } from './plugnotas/plugnotas-empresa-rps-heal.js';
 import { getCertificateDocument, getEmitenteNfseSnapshot } from './mei-certificate-store.js';
 import { parseFiscalDateIso } from '../utils/meiLimitePayloadSum.js';
@@ -14,6 +15,7 @@ import {
 const TABLE = 'mei_nfse';
 const CLIENTS_TABLE = 'mei_nfse_clientes';
 const DOCUMENT_TYPE_NFSE = 'NFSE';
+const DOCUMENT_TYPE_NFE = 'NFE';
 const PROVIDER_PLUGNOTAS = 'plugnotas';
 const DEFAULT_MAX_PAGES = 40;
 const DEFAULT_LOOKBACK_DAYS = 365 * 5;
@@ -173,13 +175,54 @@ const buildPayloadFromPeriodoNota = (nota, { cnpjPrestador, catalogByDoc = new M
   return payload;
 };
 
+/** Histórico de NF-e do período vem sem os itens da nota; o valor vai num item só para a lista. */
+const buildPayloadFromNfePeriodoNota = (nota, { cnpjPrestador, catalogByDoc = new Map() }) => {
+  const payload = {
+    emitente: { cpfCnpj: cnpjPrestador },
+    prestador: { cpfCnpj: cnpjPrestador },
+  };
+
+  const dest = nota?.destinatario;
+  if (dest && typeof dest === 'object' && !Array.isArray(dest)) {
+    payload.destinatario = dest;
+  } else {
+    const documento = normalizeDoc(
+      typeof dest === 'string' || typeof dest === 'number'
+        ? dest
+        : nota?.cpfCnpjDestinatario ?? nota?.documentoDestinatario,
+    );
+    const nomeApi = String(
+      nota?.nomeDestinatario ?? nota?.destinatarioNome ?? nota?.razaoSocialDestinatario ?? '',
+    ).trim();
+    const nome = nomeApi || (documento ? catalogByDoc.get(documento) : '') || null;
+    if (documento || nome) {
+      payload.destinatario = {
+        ...(documento ? { cpfCnpj: documento } : {}),
+        razaoSocial: nome,
+        nome,
+      };
+    }
+  }
+
+  const valor = nota?.valorTotal ?? nota?.valorNfe ?? nota?.total ?? nota?.valor;
+  if (Array.isArray(nota?.itens) && nota.itens.length) {
+    payload.itens = nota.itens;
+  } else if (valor !== undefined && valor !== null && valor !== '' && typeof valor !== 'object') {
+    payload.valor = valor;
+    payload.itens = [{ valor }];
+  }
+
+  if (nota?.serie != null) payload.serie = nota.serie;
+  if (nota?.numero != null) payload.numero = nota.numero;
+  return payload;
+};
+
 const loadClienteCatalogByDocument = async (userId) => {
   const db = getDb();
   const { data, error } = await db
     .from(CLIENTS_TABLE)
     .select('documento, nome')
     .eq('user_id', userId)
-    .eq('document_type', DOCUMENT_TYPE_NFSE)
     .limit(5000);
   if (error) return new Map();
 
@@ -304,14 +347,27 @@ const extractEmissaoIsoFromPeriodoNota = (nota) => {
   return new Date().toISOString();
 };
 
-const mapPeriodoNotaToRow = (nota, { userId, cnpjPrestador, archivedAt = null, catalogByDoc = new Map() }) => {
+const mapPeriodoNotaToRow = (nota, {
+  userId,
+  cnpjPrestador,
+  archivedAt = null,
+  catalogByDoc = new Map(),
+  documentType = DOCUMENT_TYPE_NFSE,
+}) => {
   const dedupe = buildImportDedupeKey(nota);
   const plugnotasId = extractPlugNotasId(nota);
   const idIntegracao = resolveIdIntegracaoForImport(nota, dedupe);
   const protocol = extractProtocol(nota);
   const status = extractPlugNotasStatus(nota);
-  const payloadJson = buildPayloadFromPeriodoNota(nota, { cnpjPrestador, catalogByDoc });
-  const cnpjTomador = normalizeDoc(payloadJson?.tomador?.cpfCnpj ?? nota?.tomador);
+  const payloadJson = documentType === DOCUMENT_TYPE_NFE
+    ? buildPayloadFromNfePeriodoNota(nota, { cnpjPrestador, catalogByDoc })
+    : buildPayloadFromPeriodoNota(nota, { cnpjPrestador, catalogByDoc });
+  const cnpjTomador = normalizeDoc(
+    payloadJson?.tomador?.cpfCnpj
+    ?? payloadJson?.destinatario?.cpfCnpj
+    ?? nota?.tomador
+    ?? nota?.destinatario,
+  );
   const emissaoIso = extractEmissaoIsoFromPeriodoNota(nota);
   const now = new Date().toISOString();
 
@@ -324,7 +380,7 @@ const mapPeriodoNotaToRow = (nota, { userId, cnpjPrestador, archivedAt = null, c
       id_integracao: idIntegracao,
       protocol,
       status,
-      document_type: DOCUMENT_TYPE_NFSE,
+      document_type: documentType,
       provider: PROVIDER_PLUGNOTAS,
       cnpj_prestador: cnpjPrestador,
       cnpj_tomador: cnpjTomador || null,
@@ -498,6 +554,108 @@ export const importarHistoricoPlugnotas = async (
     hasMore = true;
   }
 
+  let nfeImported = 0;
+  let nfeUpdated = 0;
+  let nfePagesFetched = 0;
+  let nfePagesRemaining = safeMaxPages;
+  for (const window of windows) {
+    if (nfePagesRemaining <= 0) break;
+    let windowHash;
+    let windowExhausted = false;
+    do {
+      let body;
+      try {
+        body = await consultarNfePorPeriodo({
+          cpfCnpj: cnpjPrestador,
+          dataInicial: window.dataInicial,
+          dataFinal: window.dataFinal,
+          ...(windowHash ? { hashProximaPagina: windowHash } : {}),
+        });
+      } catch (error) {
+        console.warn(
+          '[mei-notas-import] histórico de NF-e indisponível',
+          error instanceof Error ? error.message : error,
+        );
+        windowExhausted = true;
+        nfePagesRemaining = 0;
+        break;
+      }
+
+      nfePagesFetched += 1;
+      nfePagesRemaining -= 1;
+      const notas = collectPeriodoNotas(body);
+      totalFetched += notas.length;
+
+      for (const nota of notas) {
+        const normalizedStatus = extractPlugNotasStatus(nota);
+        if (!shouldPersistImportedNota(normalizedStatus)) {
+          ignored += 1;
+          continue;
+        }
+        const nowIso = new Date().toISOString();
+        const archivedAt = resolveArchivedAtForImport(normalizedStatus, nowIso);
+        const mapped = mapPeriodoNotaToRow(nota, {
+          userId,
+          cnpjPrestador,
+          archivedAt,
+          catalogByDoc,
+          documentType: DOCUMENT_TYPE_NFE,
+        });
+        const existingRecord = findExistingRecord(mapped.dedupe, index);
+        if (existingRecord?.id) {
+          const { error } = await db
+            .from(TABLE)
+            .update({
+              plugnotas_id: mapped.row.plugnotas_id,
+              status: mapped.row.status,
+              document_type: DOCUMENT_TYPE_NFE,
+              cnpj_prestador: mapped.row.cnpj_prestador,
+              cnpj_tomador: mapped.row.cnpj_tomador,
+              payload_json: mapped.row.payload_json,
+              response_json: mapped.row.response_json,
+              metadata_json: mergeImportMetadata(existingRecord.metadata_json, normalizedStatus, nowIso),
+              created_at: mapped.row.created_at,
+              archived_at: archivedAt,
+              updated_at: mapped.row.updated_at,
+            })
+            .eq('id', existingRecord.id)
+            .eq('user_id', userId);
+          if (error) {
+            skipped += 1;
+            continue;
+          }
+          nfeUpdated += 1;
+          updated += 1;
+          continue;
+        }
+
+        const { data: created, error } = await db
+          .from(TABLE)
+          .insert(mapped.row)
+          .select('id, id_integracao, plugnotas_id, protocol')
+          .single();
+        if (error) {
+          skipped += 1;
+          continue;
+        }
+        nfeImported += 1;
+        imported += 1;
+        if (created?.id_integracao) index.byIntegracao.set(String(created.id_integracao), created.id);
+        if (created?.plugnotas_id) index.byPlugId.set(String(created.plugnotas_id), created.id);
+        if (created?.protocol) index.byProtocol.set(String(created.protocol), created.id);
+      }
+
+      const nextHash = body?.hashProximaPagina;
+      if (nextHash && typeof nextHash === 'string') {
+        windowHash = nextHash;
+        if (nfePagesRemaining <= 0) break;
+      } else {
+        windowExhausted = true;
+        windowHash = undefined;
+      }
+    } while (!windowExhausted && nfePagesRemaining > 0);
+  }
+
   return {
     cnpjPrestador,
     dataInicial: periodo.dataInicial,
@@ -512,9 +670,14 @@ export const importarHistoricoPlugnotas = async (
     ignored,
     importedConcluidas,
     importedArquivadas,
+    nfeImported,
+    nfeUpdated,
+    nfePagesFetched,
     hasMore,
     hashProximaPagina,
   };
 };
+
+export { mapPeriodoNotaToRow };
 
 export { shouldPersistImportedNota };
