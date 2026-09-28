@@ -3,6 +3,7 @@
  * Apenas JavaScript, sem TypeScript.
  */
 
+import { catalogProdutoValorSugeridoInput } from '@/lib/catalogProdutoDisplay';
 import { applyCatalogProdutoToNfseServico } from '@/lib/nfseCatalogProdutoMetadata';
 import { mapCatalogProdutoToNfeItem } from '@/lib/mapCatalogProdutoToNfeItem';
 import { getNfseObraValidationMessage } from '@/lib/nfseObraForm';
@@ -527,8 +528,6 @@ export function applyProdutoToNfseServico(produto) {
     aliquota: fromCatalog.aliquota
       ? String(fromCatalog.aliquota).replace('.', ',')
       : '',
-    valorServico: produto.valor_sugerido
-      ? String(produto.valor_sugerido.toFixed(2)).replace('.', ',')
-      : fromCatalog.valorServico,
+    valorServico: catalogProdutoValorSugeridoInput(produto.valor_sugerido) || fromCatalog.valorServico,
   };
 }

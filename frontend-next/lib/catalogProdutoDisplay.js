@@ -45,3 +45,14 @@ export function catalogProdutoValorSugerido(value) {
   }
   return null;
 }
+
+/**
+ * Valor sugerido pronto para campo de dinheiro ("150,00").
+ * A API devolve a coluna numérica como texto, então nunca chamar `.toFixed` direto.
+ * @param {unknown} value
+ */
+export function catalogProdutoValorSugeridoInput(value) {
+  const n = catalogProdutoValorSugerido(value);
+  if (n === null || n <= 0) return '';
+  return n.toFixed(2).replace('.', ',');
+}

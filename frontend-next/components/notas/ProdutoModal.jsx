@@ -13,6 +13,7 @@ import {
   atualizarCatalogoProduto,
   excluirCatalogoProduto,
 } from '@/lib/fiscalApi';
+import { catalogProdutoValorSugeridoInput } from '@/lib/catalogProdutoDisplay';
 import { maskMoney, parseMoney } from '@/lib/fiscalEmit';
 import {
   buildNfseCatalogProdutoMetadata,
@@ -47,7 +48,7 @@ export function ProdutoModal({ produto, catalogKind = 'nfse', onClose, onSuccess
     ncm: produto?.ncm || '',
     cnae: produto?.cnae || '',
     cfop: produto?.cfop || '5102',
-    valor_sugerido: produto?.valor_sugerido ? String(produto.valor_sugerido.toFixed(2)).replace('.', ',') : '',
+    valor_sugerido: catalogProdutoValorSugeridoInput(produto?.valor_sugerido),
     aliquota: produto?.aliquota ? String(produto.aliquota).replace('.', ',') : '',
     nfseReforma: initialNfseReforma,
   });
