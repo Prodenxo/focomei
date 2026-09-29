@@ -49,6 +49,7 @@ import { clearCompetenciaPaidStatus } from './mei-period-status.service.js';
 import {
   assertSerproDasPeriodoDisponivel,
   competenciaLabelFromPeriod,
+  isDasLimiteApuracoesError,
   isPeriodoIndisponivelSerproError,
   isPeriodoIndisponivelSerproMessage,
   isPeriodoPagoSerproError,
@@ -1806,6 +1807,8 @@ const fetchDasPdfFromSerpro = async ({
     lastError = badRequest(serproHint || 'PDF do DAS não retornado');
   } catch (error) {
     if (isPeriodoIndisponivelSerproError(error)) throw error;
+    // Bloqueio do PGMEI no CNPJ: consultar de novo não muda nada, devolve o motivo real.
+    if (isDasLimiteApuracoesError(error)) throw error;
     lastError = normalizeDasSerproError(error, 'PDF do DAS não retornado');
   }
 
@@ -2041,14 +2044,17 @@ export const fetchDasPdfBase64ForUser = async (userId, payload = {}) => {
         vencida: isDasCompetenciaVencida(competencia),
       };
     } catch (error) {
+      const limiteApuracoes = isDasLimiteApuracoesError(error);
       const fallback = canFallbackToStoredDas({
         serproUnavailable: isSerproUnavailableError(error),
+        limiteApuracoes,
         hasStored: Boolean(storedBackup),
       });
       if (!fallback) throw error;
-      console.warn('[mei-guide] Receita fora do ar; enviando guia guardada como reserva', {
+      console.warn('[mei-guide] Receita não gerou guia nova; enviando guia guardada como reserva', {
         userId,
         periodoApuracao: period,
+        motivo: limiteApuracoes ? 'limite_apuracoes' : 'receita_indisponivel',
         message: error instanceof Error ? error.message : String(error),
       });
       try {
@@ -2062,6 +2068,7 @@ export const fetchDasPdfBase64ForUser = async (userId, payload = {}) => {
         source: 'cache_stale',
         refreshed: false,
         stale: true,
+        staleReason: limiteApuracoes ? 'limite_apuracoes' : 'receita_indisponivel',
         vencida: isDasCompetenciaVencida(competencia),
       };
     }

@@ -29,7 +29,11 @@ import {
   upsertDasBase64,
 } from './mei-guide-das-base64.service.js';
 import * as meiGuideService from './mei-guide.service.js';
-import { isPeriodoIndisponivelSerproError } from './mei-guide-serpro-period-guard.js';
+import {
+  DAS_LIMITE_APURACOES_USER_MESSAGE,
+  isDasLimiteApuracoesError,
+  isPeriodoIndisponivelSerproError,
+} from './mei-guide-serpro-period-guard.js';
 import * as calendarEventsService from './calendar-events.service.js';
 import {
   isWhatsappOutboundConfigured,
@@ -97,8 +101,40 @@ import {
 
 const MAX_LIST = 40;
 
+/** Aviso anexado quando a guia enviada é a guardada (Receita não gerou uma nova). */
+const buildDasStaleAviso = (pdfResult) => {
+  if (pdfResult?.stale !== true) return '';
+  if (pdfResult?.staleReason === 'limite_apuracoes') {
+    return ' A Receita Federal bloqueou novas guias deste CNPJ neste ano (limite de recálculos atingido), então enviei a'
+      + ' guia que já estava guardada: ela pode estar com o vencimento e o valor antigos. Para liberar novas guias, é'
+      + ' preciso abrir um chamado no Fale Conosco da Receita Federal (Simples Nacional / MEI).';
+  }
+  return ' A Receita Federal está fora do ar agora, então enviei a guia que já estava guardada: ela pode estar com o'
+    + ' vencimento e o valor antigos. Antes de pagar, peça a guia de novo mais tarde para vir atualizada.';
+};
+
+const buildDasStaleAgentInstruction = (pdfResult) => {
+  if (pdfResult?.stale !== true) return '';
+  if (pdfResult?.staleReason === 'limite_apuracoes') {
+    return ' Guia enviada é a guardada (Receita bloqueou novas apurações do CNPJ): AVISE que vencimento e valor podem'
+      + ' estar antigos e que a liberação depende de chamado no Fale Conosco da Receita Federal.';
+  }
+  return ' Guia enviada é a guardada (Receita fora do ar): AVISE que vencimento e valor podem estar antigos e que deve'
+    + ' pedir de novo antes de pagar.';
+};
+
 /** Erros de DAS com texto claro para o agente WhatsApp (não pedir CNPJ/certificado no chat). */
 const rethrowDasFetchErrorForBot = (err, display) => {
+  if (isDasLimiteApuracoesError(err)) {
+    throw badRequest(`DAS ${display}: ${DAS_LIMITE_APURACOES_USER_MESSAGE}`, {
+      code: 'MEI_DAS_LIMITE_APURACOES',
+      mes: display,
+      serproMessage: err?.errors?.serproMessage ?? null,
+      botHint:
+        'NÃO diga que a Receita está fora do ar. Explique que a Receita bloqueou novas guias deste CNPJ neste ano e '
+        + 'que é preciso abrir chamado no Fale Conosco da Receita Federal. Não peça CNPJ nem certificado.',
+    });
+  }
   if (isPeriodoIndisponivelSerproError(err)) {
     throw badRequest(err.message, {
       code: 'MEI_DAS_PERIODO_INDISPONIVEL',
@@ -1760,15 +1796,18 @@ export const runOpenclawAction = async (input) => {
       const owner = dasSubject ? buildDasOwnerLabel(dasSubject.account) : null;
       return {
         ok: true,
-        message: sent
+        message: (sent
           ? `PDF DAS ${display} enviado no WhatsApp (${owner}).`
           : `DAS ${display} de ${owner}. Envio WhatsApp: ${whatsapp.whatsappStatus}. `
-            + `Use exec: mf-das-send.sh ${destinationPhone || 'TELEFONE_PAINEL'} ${display}`,
+            + `Use exec: mf-das-send.sh ${destinationPhone || 'TELEFONE_PAINEL'} ${display}`)
+          + buildDasStaleAviso(pdfResult),
         data: {
           fileName,
           mes: display,
           mimeType: 'application/pdf',
           includeBase64: false,
+          stale: pdfResult.stale === true,
+          staleReason: pdfResult.staleReason ?? null,
           whatsappStatus: whatsapp.whatsappStatus,
           whatsappError: whatsapp.whatsappError ?? null,
           hint: whatsapp.hint ?? null,
@@ -1783,7 +1822,8 @@ export const runOpenclawAction = async (input) => {
             'Use dasOwnerLabel/meiCertificadoRazaoSocial (certificado), NÃO displayName. Para enviar PDF: send_das_whatsapp ou mf-das-send.sh.'
             + (dasComp.resolvedBy === 'vencimento_dia_20'
               ? ` Competência ${display} (vencimento ${dasComp.vencimentoDisplay || 'dia 20'}).`
-              : ''),
+              : '')
+            + buildDasStaleAgentInstruction(pdfResult),
           competenciaResolvida: dasComp.resolvedBy ?? null,
           vencimentoDisplay: dasComp.vencimentoDisplay ?? null,
           actorContext,
@@ -1795,12 +1835,14 @@ export const runOpenclawAction = async (input) => {
   const owner = dasSubject ? buildDasOwnerLabel(dasSubject.account) : null;
   return {
     ok: true,
-    message: `DAS encontrado (${owner}).`,
+    message: `DAS encontrado (${owner}).${buildDasStaleAviso(pdfResult)}`,
       data: {
         fileName,
         mimeType: 'application/pdf',
         base64: pdfBase64,
         mes: display,
+        stale: pdfResult.stale === true,
+        staleReason: pdfResult.staleReason ?? null,
         competenciaResolvida: dasComp.resolvedBy ?? null,
         vencimentoDisplay: dasComp.vencimentoDisplay ?? null,
         dasAccount: dasSubject?.account ?? null,
@@ -1876,9 +1918,7 @@ export const runOpenclawAction = async (input) => {
     const pdfBase64 = pdfResult.pdfBase64;
     const fileName = pdfResult.fileName || `DAS-${display.replace('/', '-')}.pdf`;
     const stale = pdfResult.stale === true;
-    const staleAviso = stale
-      ? ` A Receita Federal está fora do ar agora, então enviei a guia que já estava guardada: ela pode estar com o vencimento e o valor antigos. Antes de pagar, peça a guia de novo mais tarde para vir atualizada.`
-      : '';
+    const staleAviso = buildDasStaleAviso(pdfResult);
     const destinationPhone = resolveOpenclawWhatsappPhone(phoneDigits, matchedUserNumber);
     const whatsapp = await trySendDasWhatsappWebhook({
       userId: dasUserId,
@@ -1901,6 +1941,7 @@ export const runOpenclawAction = async (input) => {
         mes: display,
         fileName,
         stale,
+        staleReason: pdfResult.staleReason ?? null,
         pdfSource: pdfResult.source ?? null,
         competenciaResolvida: dasComp.resolvedBy ?? null,
         vencimentoDisplay: dasComp.vencimentoDisplay ?? null,
@@ -1918,9 +1959,7 @@ export const runOpenclawAction = async (input) => {
           ? `Confirme só que o PDF da competência ${display} foi enviado.`
             + (dasComp.vencimentoDisplay ? ` Vencimento ${dasComp.vencimentoDisplay}.` : '')
           : 'OBRIGATÓRIO exec mf-das-send.sh com telefone do PAINEL. Não diga que enviou sem whatsappStatus=sent.')
-          + (stale
-            ? ' Guia enviada é a guardada (Receita fora do ar): AVISE que vencimento e valor podem estar antigos e que deve pedir de novo antes de pagar.'
-            : ''),
+          + buildDasStaleAgentInstruction(pdfResult),
         actorContext,
         ...(dasSubject?.dataLinkDebug ?? linkDebug),
       },

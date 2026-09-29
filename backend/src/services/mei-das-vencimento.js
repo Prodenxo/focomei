@@ -73,11 +73,15 @@ export const shouldRegenerateDasBeforeSend = ({
   || (Boolean(competencia) && !paid && isDasCompetenciaVencida(competencia, refDate));
 
 /**
- * Quando a Receita está fora, a guia guardada pode ser enviada como reserva, com aviso.
+ * A guia guardada pode ser enviada como reserva, com aviso, quando a Receita não gera uma nova:
+ * Receita fora do ar, ou PGMEI bloqueou as apurações do CNPJ no ano (só a RFB libera).
  * Sem PDF guardado ou com outro tipo de erro, a falha segue para o cliente.
  */
-export const canFallbackToStoredDas = ({ serproUnavailable = false, hasStored = false } = {}) =>
-  Boolean(serproUnavailable && hasStored);
+export const canFallbackToStoredDas = ({
+  serproUnavailable = false,
+  limiteApuracoes = false,
+  hasStored = false,
+} = {}) => Boolean((serproUnavailable || limiteApuracoes) && hasStored);
 
 /**
  * Enriquece item de período DAS com flags de vencimento.

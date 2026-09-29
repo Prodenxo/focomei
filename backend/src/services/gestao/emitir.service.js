@@ -5,6 +5,10 @@ import {
 } from '../../constants/mei-guide-error-codes.js';
 import { badRequest, serviceUnavailable } from '../../utils/errors.js';
 import {
+  dasLimiteApuracoesError,
+  isDasLimiteApuracoesSerproMessage
+} from '../mei-guide-serpro-period-guard.js';
+import {
   obterTokenProcurador,
   armazenarTokenNoCache,
   autenticarViaCertificado,
@@ -21,14 +25,50 @@ const getDocTypeNumber = (numero) => {
   return null;
 };
 
+/** Texto das `mensagens[]` do Integra Contador (código + texto), que é onde a Receita explica o erro. */
+const serproMensagensText = (payload) => {
+  const mensagens = payload?.mensagens;
+  if (!Array.isArray(mensagens)) return '';
+  return mensagens
+    .map((item) => {
+      if (typeof item === 'string') return item;
+      const codigo = item?.codigo ? `[${item.codigo}] ` : '';
+      return `${codigo}${item?.texto ?? item?.mensagem ?? item?.descricao ?? ''}`.trim();
+    })
+    .filter(Boolean)
+    .join(' | ');
+};
+
 const parseErrorMessage = async (response) => {
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
-    const payload = await response.json();
-    return payload?.message || payload?.error || response.statusText;
+    const payload = await response.json().catch(() => null);
+    return serproMensagensText(payload) || payload?.message || payload?.error || response.statusText;
   }
-  const text = await response.text();
+  const text = await response.text().catch(() => '');
   return text || response.statusText;
+};
+
+/** Erro 5xx da Receita: registra o texto real devolvido, senão "fora do ar" vira desculpa para qualquer falha. */
+const serproUpstreamUnavailableError = (scope, upstreamStatus, upstreamMessage) => {
+  console.warn(`[${scope}] Serpro respondeu ${upstreamStatus}`, {
+    integration: MEI_GUIDE_INTEGRATION_SERPRO,
+    upstreamStatus,
+    upstreamMessage: String(upstreamMessage || '').slice(0, 500) || null
+  });
+  // PGMEI usa 500 também para regra de negócio: CNPJ estourou o limite de apurações do ano.
+  if (isDasLimiteApuracoesSerproMessage(upstreamMessage)) {
+    return dasLimiteApuracoesError(upstreamMessage);
+  }
+  return serviceUnavailable(
+    'O serviço da Receita Federal está temporariamente indisponível. Tente novamente em alguns minutos.',
+    {
+      code: MEI_GUIDE_SERPRO_UNAVAILABLE,
+      integration: MEI_GUIDE_INTEGRATION_SERPRO,
+      upstreamStatus,
+      upstreamMessage: String(upstreamMessage || '').slice(0, 500) || null
+    }
+  );
 };
 
 const isAuthTokenError = (status, message) => {
@@ -224,21 +264,7 @@ export const emitirServico = async ({
   if (!result.response.ok) {
     const upstreamStatus = result.response.status;
     if (upstreamStatus >= 500) {
-      if (env.NODE_ENV !== 'production') {
-        // eslint-disable-next-line no-console
-        console.info('[emitir] Serpro upstream erro', {
-          integration: MEI_GUIDE_INTEGRATION_SERPRO,
-          upstreamStatus
-        });
-      }
-      throw serviceUnavailable(
-        'O serviço da Receita Federal está temporariamente indisponível. Tente novamente em alguns minutos.',
-        {
-          code: MEI_GUIDE_SERPRO_UNAVAILABLE,
-          integration: MEI_GUIDE_INTEGRATION_SERPRO,
-          upstreamStatus
-        }
-      );
+      throw serproUpstreamUnavailableError('emitir', upstreamStatus, result.message);
     }
     throw badRequest(result.message || 'Falha ao emitir serviço');
   }
@@ -334,21 +360,7 @@ export const emitirRelatorio = async (
     if (!result.response.ok) {
       const upstreamStatus = result.response.status;
       if (upstreamStatus >= 500) {
-        if (env.NODE_ENV !== 'production') {
-          // eslint-disable-next-line no-console
-          console.info('[emitir relatorio] Serpro upstream erro', {
-            integration: MEI_GUIDE_INTEGRATION_SERPRO,
-            upstreamStatus
-          });
-        }
-        throw serviceUnavailable(
-          'O serviço da Receita Federal está temporariamente indisponível. Tente novamente em alguns minutos.',
-          {
-            code: MEI_GUIDE_SERPRO_UNAVAILABLE,
-            integration: MEI_GUIDE_INTEGRATION_SERPRO,
-            upstreamStatus
-          }
-        );
+        throw serproUpstreamUnavailableError('emitir relatorio', upstreamStatus, result.message);
       }
       throw badRequest(result.message || 'Falha ao emitir relatório');
     }

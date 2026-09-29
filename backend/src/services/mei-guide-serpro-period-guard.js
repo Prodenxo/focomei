@@ -1,5 +1,9 @@
 import { badRequest, serviceUnavailable } from '../utils/errors.js';
-import { MEI_DAS_PAID_NO_PDF, MEI_GUIDE_SERPRO_UNAVAILABLE } from '../constants/mei-guide-error-codes.js';
+import {
+  MEI_DAS_LIMITE_APURACOES,
+  MEI_DAS_PAID_NO_PDF,
+  MEI_GUIDE_SERPRO_UNAVAILABLE,
+} from '../constants/mei-guide-error-codes.js';
 
 export const MEI_DAS_PERIODO_INDISPONIVEL_CODE = 'MEI_DAS_PERIODO_INDISPONIVEL';
 
@@ -48,9 +52,47 @@ export const isPeriodoPagoSerproError = (error) => {
   return isPeriodoPagoSerproMessage(error?.message);
 };
 
+/**
+ * PGMEI devolve HTTP 500 com estas mensagens quando o CNPJ estourou o número de apurações
+ * (recálculos) permitidas no ano. Não é a Receita fora do ar: só o Fale Conosco da RFB libera.
+ */
+const LIMITE_APURACOES_PATTERNS = [
+  /MSG_23999/i,
+  /\b23999\b/,
+  /MSG_23028/i,
+  /\b23028\b/,
+  /falha\s+ao\s+gerar\s+a\s+apura[cç][aã]o.*limite\s+m[aá]ximo\s+excedido/i,
+  /n[uú]mero\s+m[aá]ximo\s+de\s+apura[cç][oõ]es/i,
+];
+
+export const isDasLimiteApuracoesSerproMessage = (message) => {
+  const text = String(message || '').trim();
+  if (!text) return false;
+  return LIMITE_APURACOES_PATTERNS.some((pattern) => pattern.test(text));
+};
+
+export const isDasLimiteApuracoesError = (error) => {
+  if (!error) return false;
+  if (error?.errors?.code === MEI_DAS_LIMITE_APURACOES) return true;
+  return isDasLimiteApuracoesSerproMessage(error?.message)
+    || isDasLimiteApuracoesSerproMessage(error?.errors?.upstreamMessage);
+};
+
+export const DAS_LIMITE_APURACOES_USER_MESSAGE =
+  'A Receita Federal bloqueou a geração de novas guias DAS para este CNPJ neste ano: o limite de recálculos '
+  + '(apurações) permitido foi atingido. Isso não é uma falha do sistema. Para liberar, é preciso abrir um chamado '
+  + 'no Fale Conosco da Receita Federal (Simples Nacional / MEI) pedindo a liberação das apurações do CNPJ.';
+
+export const dasLimiteApuracoesError = (serproText) =>
+  badRequest(DAS_LIMITE_APURACOES_USER_MESSAGE, {
+    code: MEI_DAS_LIMITE_APURACOES,
+    serproMessage: serproText ? String(serproText).slice(0, 500) : null,
+  });
+
 /** SERPRO/Receita fora do ar ou timeout (503) — distinto de erro de negócio. */
 export const isSerproUnavailableError = (error) => {
   if (!error) return false;
+  if (isDasLimiteApuracoesError(error)) return false;
   if (error?.errors?.code === MEI_GUIDE_SERPRO_UNAVAILABLE) return true;
   if (error?.status === 503) return true;
   const msg = String(error?.message || '');
