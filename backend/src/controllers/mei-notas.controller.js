@@ -598,6 +598,17 @@ export const detalhar = async (req, res, next) => {
   }
 };
 
+export const downloadPdfEtiqueta = async (req, res, next) => {
+  try {
+    const file = await meiNotasService.baixarPdfEtiqueta(req.user.id, req.params.id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="danfe-etiqueta-${req.params.id}.pdf"`);
+    return res.send(file.buffer);
+  } catch (error) {
+    return next(error);
+  }
+};
+
 export const downloadPdf = async (req, res, next) => {
   try {
     const file = await meiNotasService.baixarPdf(req.user.id, req.params.id);

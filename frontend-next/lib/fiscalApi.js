@@ -327,6 +327,11 @@ export async function downloadNotaPdf(id) {
   return apiClient.download(`/mei-notas/${encodeURIComponent(id)}/pdf`, { timeoutMs: 60000 });
 }
 
+/** DANFE simplificada em etiqueta, para nota de produto já autorizada. */
+export async function downloadNotaEtiqueta(id) {
+  return apiClient.download(`/mei-notas/${encodeURIComponent(id)}/pdf-etiqueta`, { timeoutMs: 60000 });
+}
+
 /** Download do XML de uma nota. */
 export async function downloadNotaXml(id) {
   return apiClient.download(`/mei-notas/${encodeURIComponent(id)}/xml`, { timeoutMs: 60000 });

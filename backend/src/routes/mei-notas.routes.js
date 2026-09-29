@@ -76,6 +76,7 @@ router.put('/interestadual/taxas', requireAuth, requireMeiEnabled, controller.up
 router.patch('/:id', requireAuth, requireMeiEnabled, controller.atualizar);
 router.post('/:id/cancelar', requireAuth, requireMeiEnabled, controller.cancelar);
 router.post('/:id/arquivar', requireAuth, requireMeiEnabled, controller.arquivar);
+router.get('/:id/pdf-etiqueta', requireAuth, requireMeiEnabled, controller.downloadPdfEtiqueta);
 router.get('/:id/pdf', requireAuth, requireMeiEnabled, controller.downloadPdf);
 router.get('/:id/xml', requireAuth, requireMeiEnabled, controller.downloadXml);
 router.get('/:id', requireAuth, requireMeiEnabled, controller.detalhar);

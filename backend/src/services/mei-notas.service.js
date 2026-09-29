@@ -3799,6 +3799,18 @@ export const arquivarNota = async (userId, id, input = {}) => {
   });
 };
 
+export const baixarPdfEtiqueta = async (userId, id) => {
+  const record = await findRecord(userId, id);
+  const documentType = normalizeDocumentType(record?.document_type || DOCUMENT_TYPE_NFSE);
+  const { buildDanfeEtiquetaPdf } = await import('./danfe-etiqueta.js');
+  const buffer = buildDanfeEtiquetaPdf({ ...record, document_type: documentType });
+  return {
+    buffer,
+    contentType: 'application/pdf',
+    documentType,
+  };
+};
+
 export const baixarPdf = async (userId, id) => {
   const record = await findRecord(userId, id);
   const documentType = normalizeDocumentType(record?.document_type || DOCUMENT_TYPE_NFSE);

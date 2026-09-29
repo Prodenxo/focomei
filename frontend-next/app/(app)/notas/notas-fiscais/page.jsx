@@ -27,6 +27,7 @@ import {
   atualizarNota,
   cancelarNota,
   downloadNotaPdf,
+  downloadNotaEtiqueta,
   downloadNotaXml,
   fetchCatalogoClientes,
   fetchCatalogoProdutos,
@@ -436,6 +437,23 @@ export default function NotasFiscaisPage() {
       setActionMsg({
         type: 'error',
         text: err instanceof Error ? err.message : 'Falha no download do PDF.',
+      });
+    } finally {
+      setActing(null);
+    }
+  };
+
+  const handleDownloadEtiqueta = async (nota) => {
+    if (!nota?.id) return;
+    setActing(`etiqueta-${nota.id}`);
+    setActionMsg(null);
+    try {
+      const blob = await downloadNotaEtiqueta(nota.id);
+      downloadBlob(blob, `etiqueta-${nota.documento || nota.numero || nota.id}.pdf`);
+    } catch (err) {
+      setActionMsg({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Falha ao gerar a etiqueta.',
       });
     } finally {
       setActing(null);
@@ -968,6 +986,7 @@ export default function NotasFiscaisPage() {
           acting={acting}
           onClose={() => setSelected(null)}
           onDownloadPdf={() => handleDownloadPdf(selected)}
+          onDownloadEtiqueta={() => handleDownloadEtiqueta(selected)}
           onDownloadXml={() => handleDownloadXml(selected)}
           onArquivar={() => handleArquivar(selected)}
           onCancelar={() => handleCancelar(selected)}
@@ -1019,6 +1038,7 @@ function NotaDetailModal({
   acting,
   onClose,
   onDownloadPdf,
+  onDownloadEtiqueta,
   onDownloadXml,
   onArquivar,
   onCancelar,
@@ -1165,6 +1185,17 @@ function NotaDetailModal({
             {acting === `pdf-${nota.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <FileDown className="h-3.5 w-3.5" aria-hidden />}
             Baixar PDF
           </button>
+          {String(nota.tipo || nota.documentType || '').toUpperCase().replace(/[^A-Z]/g, '') === 'NFE' ? (
+            <button
+              type="button"
+              onClick={onDownloadEtiqueta}
+              disabled={acting === `etiqueta-${nota.id}`}
+              className="inline-flex h-9 items-center gap-1 rounded-[10px] border border-[var(--card-border)] bg-[var(--card-bg)] px-3 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--canvas)] disabled:opacity-60"
+            >
+              {acting === `etiqueta-${nota.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <FileDown className="h-3.5 w-3.5" aria-hidden />}
+              Imprimir etiqueta
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onDownloadXml}
