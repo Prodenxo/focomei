@@ -134,8 +134,10 @@ export const buildDanfeEtiquetaDados = (record) => {
   }
 
   const emitente = partyFrom(payload, 'emitente');
+  const cadastro = asObject(record?.emitenteCadastro) || {};
+  if (!emitente.nome) emitente.nome = firstText(cadastro.razaoSocial, cadastro.nomeFantasia);
   if (!emitente.documento) emitente.documento = chave.slice(6, 20);
-  if (!emitente.uf) emitente.uf = UF_POR_CODIGO[Number(chave.slice(0, 2))] || '';
+  if (!emitente.uf) emitente.uf = firstText(cadastro.uf, UF_POR_CODIGO[Number(chave.slice(0, 2))]);
   const destinatario = partyFrom(payload, 'destinatario');
   const serie = String(Number(chave.slice(22, 25)));
   const numero = String(Number(chave.slice(25, 34)));
@@ -193,39 +195,68 @@ const pdfText = (value) => String(value ?? '')
   .replace(/Ã/g, '\\303').replace(/Á/g, '\\301').replace(/É/g, '\\311')
   .replace(/Í/g, '\\315').replace(/Ó/g, '\\323').replace(/Ú/g, '\\332').replace(/Ç/g, '\\307');
 
-const line = (parts, dados) => {
-  const text = parts.filter(Boolean).join(' ');
-  return text || '';
+const wrapText = (text, size, maxWidth) => {
+  const maxChars = Math.max(8, Math.floor(maxWidth / (size * 0.52)));
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  const lines = [];
+  let current = '';
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (next.length > maxChars && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = next;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.length ? lines : [''];
 };
+
+const textRow = (text, { size = 8, bold = false, center = true, gap = 2 } = {}) => (
+  text ? { text, size, bold, center, gap } : null
+);
 
 export const buildDanfeEtiquetaPdf = (record) => {
   const dados = buildDanfeEtiquetaDados(record);
-  const pageWidth = 227;
-  const margin = 10;
+  const pageWidth = 226;
+  const margin = 12;
   const modules = code128Modules(dados.chave);
   const inner = pageWidth - margin * 2;
-  const moduleWidth = inner / (modules.length + 20);
+  const moduleWidth = inner / (modules.length + 16);
   const barcodeWidth = moduleWidth * modules.length;
   const barcodeX = margin + (inner - barcodeWidth) / 2;
-  const barcodeHeight = 42;
+  const barcodeHeight = 46;
+  const emitenteIe = dados.emitente.ie ? `IE ${dados.emitente.ie}` : 'IE ISENTO';
+  const destinatarioDoc = dados.destinatario.documento
+    ? `${dados.destinatario.documento.length > 11 ? 'CNPJ' : 'CPF'} ${formatDoc(dados.destinatario.documento)}`
+    : '';
 
   const rows = [
-    { text: 'DANFE SIMPLIFICADO - ETIQUETA', size: 8, bold: true, center: true },
+    textRow('DANFE SIMPLIFICADO', { size: 9, bold: true, gap: 1 }),
+    textRow('ETIQUETA', { size: 8, bold: true, gap: 4 }),
+    { rule: true },
     { barcode: true },
-    { text: formatChave(dados.chave), size: 6, center: true },
-    { text: dados.protocolo ? `Protocolo ${dados.protocolo}` : '', size: 7, center: true },
-    { text: 'EMITENTE', size: 7, bold: true },
-    { text: line([dados.emitente.nome, dados.emitente.uf]), size: 7 },
-    { text: `CNPJ ${formatDoc(dados.emitente.documento)}`, size: 7 },
-    { text: dados.emitente.ie ? `IE ${dados.emitente.ie}` : 'IE ISENTO', size: 7 },
-    { text: `NF-e ${dados.saida ? 'SAIDA' : 'ENTRADA'}  Serie ${dados.serie}  Numero ${dados.numero}`, size: 7 },
-    { text: dados.data ? `Emissao ${dados.data}` : '', size: 7 },
-    { text: 'DESTINATARIO', size: 7, bold: true },
-    { text: line([dados.destinatario.nome, dados.destinatario.uf]), size: 7 },
-    { text: dados.destinatario.documento ? `CPF/CNPJ ${formatDoc(dados.destinatario.documento)}` : '', size: 7 },
-    { text: dados.destinatario.ie ? `IE ${dados.destinatario.ie}` : '', size: 7 },
-    { text: dados.valor != null ? `Valor total ${formatMoney(dados.valor)}` : '', size: 8, bold: true },
-  ].filter((row) => row.barcode || row.text);
+    textRow(formatChave(dados.chave), { size: 6, gap: 1 }),
+    textRow(dados.protocolo ? `Protocolo ${dados.protocolo}` : '', { size: 7, gap: 4 }),
+    { rule: true },
+    ...wrapText(dados.emitente.nome, 9, inner).map((text, index, all) => (
+      textRow(text, { size: 9, bold: true, gap: index === all.length - 1 ? 1 : 0 })
+    )),
+    textRow([dados.emitente.uf, `CNPJ ${formatDoc(dados.emitente.documento)}`].filter(Boolean).join('  ·  '), { size: 7, gap: 1 }),
+    textRow(emitenteIe, { size: 7, gap: 4 }),
+    { rule: true },
+    textRow(`${dados.saida ? 'Saída' : 'Entrada'}   ·   Série ${dados.serie}   ·   Nº ${dados.numero}`, { size: 8, bold: true, gap: 1 }),
+    textRow(dados.data ? `Emissão ${dados.data}` : '', { size: 8, gap: 4 }),
+    { rule: true },
+    textRow('DESTINATÁRIO', { size: 6, gap: 1 }),
+    ...wrapText(dados.destinatario.nome, 9, inner).map((text) => textRow(text, { size: 9, bold: true, gap: 1 })),
+    textRow([dados.destinatario.uf, destinatarioDoc].filter(Boolean).join('  ·  '), { size: 7, gap: 1 }),
+    textRow(dados.destinatario.ie ? `IE ${dados.destinatario.ie}` : '', { size: 7, gap: 4 }),
+    { rule: true },
+    textRow(dados.valor != null ? 'VALOR TOTAL' : '', { size: 6, gap: 1 }),
+    textRow(dados.valor != null ? formatMoney(dados.valor) : '', { size: 12, bold: true, gap: 2 }),
+  ].filter(Boolean);
 
   let y = 14;
   const bars = [];
@@ -251,11 +282,22 @@ export const buildDanfeEtiquetaPdf = (record) => {
       y += barcodeHeight + 10;
       continue;
     }
-    y += row.size + 3;
+    if (row.rule) {
+      y += 5;
+      row.y = y;
+      y += 5;
+      continue;
+    }
+    y += row.size + (row.gap ?? 2);
     row.y = y;
   }
   const pageHeight = Math.max(y + 16, 240);
   const content = [
+    `0.6 w ${margin - 4} 8 ${pageWidth - (margin - 4) * 2} ${(pageHeight - 16).toFixed(2)} re S`,
+    ...rows.filter((row) => row.rule).map((row) => {
+      const pdfY = pageHeight - row.y;
+      return `${margin} ${pdfY.toFixed(2)} ${inner.toFixed(2)} 0.4 re f`;
+    }),
     ...bars.map((bar) => {
       const pdfY = pageHeight - bar.top - barcodeHeight;
       return `${bar.x.toFixed(2)} ${pdfY.toFixed(2)} ${bar.w.toFixed(2)} ${barcodeHeight} re f`;

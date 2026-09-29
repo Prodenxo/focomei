@@ -3802,8 +3802,13 @@ export const arquivarNota = async (userId, id, input = {}) => {
 export const baixarPdfEtiqueta = async (userId, id) => {
   const record = await findRecord(userId, id);
   const documentType = normalizeDocumentType(record?.document_type || DOCUMENT_TYPE_NFSE);
+  const emitenteCadastro = await getEmitenteNfseSnapshot(userId).catch(() => null);
   const { buildDanfeEtiquetaPdf } = await import('./danfe-etiqueta.js');
-  const buffer = buildDanfeEtiquetaPdf({ ...record, document_type: documentType });
+  const buffer = buildDanfeEtiquetaPdf({
+    ...record,
+    document_type: documentType,
+    emitenteCadastro,
+  });
   return {
     buffer,
     contentType: 'application/pdf',

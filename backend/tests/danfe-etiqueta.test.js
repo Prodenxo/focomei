@@ -8,8 +8,9 @@ const CHAVE = '33260965805583000173550010000000191123456780';
 test('etiqueta lê a chave autorizada e os dados da nota', () => {
   const dados = buildDanfeEtiquetaDados({
     document_type: 'NFE',
+    emitenteCadastro: { razaoSocial: 'Loja do Bairro', uf: 'RJ' },
     payload_json: {
-      emitente: { razaoSocial: 'Yasmim Ferreira', cpfCnpj: '65805583000173', inscricaoEstadual: '123', endereco: { estado: 'RJ' } },
+      emitente: { cpfCnpj: '65805583000173' },
       destinatario: { razaoSocial: 'Maria Silva', cpfCnpj: '12345678901', endereco: { uf: 'SP' } },
       itens: [{ valor: 12.5 }],
     },
@@ -23,6 +24,7 @@ test('etiqueta lê a chave autorizada e os dados da nota', () => {
   assert.equal(dados.numero, '19');
   assert.equal(dados.serie, '1');
   assert.equal(dados.emitente.uf, 'RJ');
+  assert.equal(dados.emitente.nome, 'Loja do Bairro');
   assert.equal(dados.destinatario.nome, 'Maria Silva');
   assert.equal(dados.data, '29/09/2026');
   assert.equal(dados.valor, 12.5);
@@ -42,5 +44,5 @@ test('código de barras da chave começa no padrão numérico e o PDF abre como 
     response_json: { chave: CHAVE, protocolo: '1' },
   });
   assert.equal(pdf.subarray(0, 5).toString(), '%PDF-');
-  assert.match(pdf.toString('latin1'), /DANFE SIMPLIFICADO - ETIQUETA/);
+  assert.match(pdf.toString('latin1'), /DANFE SIMPLIFICADO/);
 });
