@@ -13,7 +13,12 @@ import {
   atualizarCatalogoProduto,
   excluirCatalogoProduto,
 } from '@/lib/fiscalApi';
-import { catalogProdutoValorSugeridoInput } from '@/lib/catalogProdutoDisplay';
+import {
+  catalogProdutoCfopInput,
+  catalogProdutoNcmInput,
+  catalogProdutoNfeMetadata,
+  catalogProdutoValorSugeridoInput,
+} from '@/lib/catalogProdutoDisplay';
 import { maskMoney, parseMoney } from '@/lib/fiscalEmit';
 import {
   buildNfseCatalogProdutoMetadata,
@@ -45,9 +50,9 @@ export function ProdutoModal({ produto, catalogKind = 'nfse', onClose, onSuccess
     nome: produto?.nome || produto?.discriminacao || '',
     discriminacao: produto?.discriminacao || produto?.nome || '',
     descricao: produto?.descricao || '',
-    ncm: produto?.ncm || '',
+    ncm: catalogProdutoNcmInput(produto),
     cnae: produto?.cnae || '',
-    cfop: produto?.cfop || '5102',
+    cfop: catalogProdutoCfopInput(produto),
     valor_sugerido: catalogProdutoValorSugeridoInput(produto?.valor_sugerido),
     aliquota: produto?.aliquota ? String(produto.aliquota).replace('.', ',') : '',
     nfseReforma: initialNfseReforma,
@@ -86,7 +91,10 @@ export function ProdutoModal({ produto, catalogKind = 'nfse', onClose, onSuccess
           produto?.metadata_json,
           form.nfseReforma || emptyNfseCatalogProdutoFormFields(),
         )
-        : {};
+        : catalogProdutoNfeMetadata(produto?.metadata_json, {
+          ncm: form.ncm,
+          cfop: form.cfop,
+        });
       const baseFields = {
         codigo: form.codigo.trim(),
         nome: form.nome?.trim() || form.discriminacao?.trim(),
@@ -101,6 +109,7 @@ export function ProdutoModal({ produto, catalogKind = 'nfse', onClose, onSuccess
           : {
             ncm: form.ncm?.replace(/\D/g, '') || undefined,
             cfop: form.cfop?.replace(/\D/g, '') || '5102',
+            ...(Object.keys(metadata_json).length ? { metadata_json } : {}),
           }),
         ...(form.valor_sugerido ? { valor_sugerido: parseMoney(form.valor_sugerido) } : {}),
       };

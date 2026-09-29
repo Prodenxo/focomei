@@ -3401,6 +3401,27 @@ export const criarCatalogoProdutosFromCnaes = async (userId, body = {}) => {
 /**
  * POST catálogo produto/serviço — dedupe_key gerado como manual:{uuid}.
  */
+const onlyCatalogDigits = (value, max) => String(value ?? '').replace(/\D/g, '').slice(0, max);
+
+/**
+ * NCM e CFOP não têm coluna. Ficam em metadata_json. Sem isso, o cadastro da tela
+ * manda os dois e o servidor descarta.
+ */
+export const mergeCatalogProdutoNcmCfop = (metadata, body = {}) => {
+  const base = metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+    ? { ...metadata }
+    : {};
+  if (body.ncm !== undefined) base.ncm = onlyCatalogDigits(body.ncm, 8);
+  if (body.cfop !== undefined) base.cfop = onlyCatalogDigits(body.cfop, 4);
+  const cleaned = sanitizeMetadata(base);
+  return Object.keys(cleaned).length ? cleaned : null;
+};
+
+const metadataWithCatalogNcmCfop = (metadata, body = {}) => {
+  if (body.ncm === undefined && body.cfop === undefined) return metadata;
+  return mergeCatalogProdutoNcmCfop(metadata, body);
+};
+
 export const criarCatalogoProduto = async (userId, body = {}) => {
   const documentType = normalizeDocumentType(
     body.documentType || body.document_type || DOCUMENT_TYPE_NFSE
@@ -3439,13 +3460,13 @@ export const criarCatalogoProduto = async (userId, body = {}) => {
     last_used_at: now,
     updated_at: now
   };
-  if (body.metadata_json !== undefined) {
-    if (body.metadata_json === null) {
-      row.metadata_json = null;
-    } else {
+  if (body.metadata_json !== undefined || body.ncm !== undefined || body.cfop !== undefined) {
+    let fromBody = null;
+    if (body.metadata_json && typeof body.metadata_json === 'object' && !Array.isArray(body.metadata_json)) {
       const meta = sanitizeMetadata(body.metadata_json);
-      row.metadata_json = Object.keys(meta).length ? meta : null;
+      fromBody = Object.keys(meta).length ? meta : null;
     }
+    row.metadata_json = metadataWithCatalogNcmCfop(fromBody, body);
   }
 
   const dbClient = getDb();
@@ -3469,7 +3490,7 @@ export const atualizarCatalogoProduto = async (userId, id, body = {}) => {
     throw badRequest('Não é permitido alterar dedupe_key ou document_type');
   }
 
-  await findCatalogProduto(userId, recordId);
+  const existing = await findCatalogProduto(userId, recordId);
 
   const updates = {};
   if (body.codigo !== undefined) {
@@ -3496,6 +3517,12 @@ export const atualizarCatalogoProduto = async (userId, id, body = {}) => {
       const meta = sanitizeMetadata(body.metadata_json);
       updates.metadata_json = Object.keys(meta).length ? meta : null;
     }
+  }
+  if (body.ncm !== undefined || body.cfop !== undefined) {
+    const base = updates.metadata_json !== undefined
+      ? updates.metadata_json
+      : existing.metadata_json;
+    updates.metadata_json = metadataWithCatalogNcmCfop(base, body);
   }
   if (Object.keys(updates).length === 0) {
     throw badRequest('Informe ao menos um campo para atualizar');
