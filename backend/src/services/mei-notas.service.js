@@ -1,4 +1,5 @@
 import { createSupabaseClient } from '../config/supabase.js';
+import { query as queryPg } from '../config/pg.js';
 import { badRequest, forbidden, notFound } from '../utils/errors.js';
 import {
   cancelarNfse,
@@ -82,8 +83,10 @@ import {
   applyPlugnotasNfeEmitenteIeForXml,
   ensureMeiNfePlugnotasCadastroBeforeEmit,
   hydrateMeiNfeEmitenteIeFromEmpresa,
+  isPlugnotasNfeEmitenteIeNumericForXml,
   syncNumericIeToPlugnotasCadastroIfNeeded,
 } from './plugnotas/plugnotas-mei-nfe-emit-force.js';
+import { unwrapPlugnotasEmpresaRecord } from './mei-emitente-empresa-sync.js';
 import { applyInterestadualToNfePayload } from './nfe-interestadual.service.js';
 import { getEmitenteNfseSnapshot } from './mei-certificate-store.js';
 import {
@@ -3799,15 +3802,70 @@ export const arquivarNota = async (userId, id, input = {}) => {
   });
 };
 
+const inscricaoEstadualNumerica = (value) => (
+  isPlugnotasNfeEmitenteIeNumericForXml(value)
+    ? String(value).replace(/\D/g, '')
+    : ''
+);
+
+/**
+ * Notas puxadas do histórico chegam só com o CNPJ do emitente.
+ * A inscrição numérica, quando existe, está em outra nota do mesmo cadastro
+ * ou no cadastro da empresa no emissor.
+ */
+const resolveInscricaoEstadualEmitente = async (userId, record) => {
+  const daNota = inscricaoEstadualNumerica(record?.payload_json?.emitente?.inscricaoEstadual);
+  if (daNota) return daNota;
+
+  const cnpj = normalizeDoc(
+    record?.cnpj_prestador || record?.payload_json?.emitente?.cpfCnpj,
+  );
+  if (!userId || cnpj.length !== 14) return '';
+
+  try {
+    const stored = await queryPg(
+      `SELECT payload_json->'emitente'->>'inscricaoEstadual' AS ie
+       FROM mei_nfse
+       WHERE user_id = $1
+         AND document_type = 'NFE'
+         AND regexp_replace(coalesce(cnpj_prestador, payload_json->'emitente'->>'cpfCnpj', ''), '\\D', '', 'g') = $2
+         AND regexp_replace(coalesce(payload_json->'emitente'->>'inscricaoEstadual', ''), '\\D', '', 'g') ~ '^[0-9]{2,}$'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [userId, cnpj],
+    );
+    const daHistorico = inscricaoEstadualNumerica(stored.rows[0]?.ie);
+    if (daHistorico) return daHistorico;
+  } catch (error) {
+    console.warn('[danfe-etiqueta] não achou a inscrição estadual no histórico', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  try {
+    const empresa = unwrapPlugnotasEmpresaRecord(await consultarEmpresaPlugNotas(cnpj));
+    return inscricaoEstadualNumerica(empresa?.inscricaoEstadual);
+  } catch (error) {
+    console.warn('[danfe-etiqueta] não achou a inscrição estadual no cadastro', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return '';
+  }
+};
+
 export const baixarPdfEtiqueta = async (userId, id) => {
   const record = await findRecord(userId, id);
   const documentType = normalizeDocumentType(record?.document_type || DOCUMENT_TYPE_NFSE);
   const emitenteCadastro = await getEmitenteNfseSnapshot(userId).catch(() => null);
+  const inscricaoEstadual = await resolveInscricaoEstadualEmitente(userId, record);
   const { buildDanfeEtiquetaPdf } = await import('./danfe-etiqueta.js');
   const buffer = buildDanfeEtiquetaPdf({
     ...record,
     document_type: documentType,
-    emitenteCadastro,
+    emitenteCadastro: {
+      ...(emitenteCadastro || {}),
+      ...(inscricaoEstadual ? { inscricaoEstadual } : {}),
+    },
   });
   return {
     buffer,

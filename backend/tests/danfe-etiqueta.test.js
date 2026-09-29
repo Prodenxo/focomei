@@ -62,3 +62,30 @@ test('nome comprido quebra em linhas e nenhum texto passa da borda da etiqueta',
   }
   assert.match(pdf, /DIVA BARBARA/);
 });
+
+test('inscrição estadual numérica do cadastro aparece na etiqueta quando a nota não trouxe', () => {
+  const comNumero = buildDanfeEtiquetaPdf({
+    document_type: 'NFE',
+    emitenteCadastro: { razaoSocial: 'Loja do Bairro', uf: 'RJ', inscricaoEstadual: '16508705' },
+    payload_json: { emitente: { cpfCnpj: '67593254000131' }, destinatario: { razaoSocial: 'Cliente' } },
+    response_json: { chave: CHAVE },
+  }).toString('latin1');
+  assert.match(comNumero, /IE 16508705/);
+  assert.doesNotMatch(comNumero, /IE ISENTO/);
+
+  const semNumero = buildDanfeEtiquetaPdf({
+    document_type: 'NFE',
+    emitenteCadastro: { razaoSocial: 'Loja do Bairro', uf: 'RJ', inscricaoEstadual: 'ISENTO' },
+    payload_json: { emitente: { cpfCnpj: '67593254000131' }, destinatario: { razaoSocial: 'Cliente' } },
+    response_json: { chave: CHAVE },
+  }).toString('latin1');
+  assert.match(semNumero, /IE ISENTO/);
+
+  const isentoNaNota = buildDanfeEtiquetaPdf({
+    document_type: 'NFE',
+    emitenteCadastro: { razaoSocial: 'Loja do Bairro', uf: 'RJ', inscricaoEstadual: '16.508.705' },
+    payload_json: { emitente: { cpfCnpj: '67593254000131', inscricaoEstadual: 'ISENTO' }, destinatario: { razaoSocial: 'Cliente' } },
+    response_json: { chave: CHAVE },
+  }).toString('latin1');
+  assert.match(isentoNaNota, /IE 16508705/);
+});

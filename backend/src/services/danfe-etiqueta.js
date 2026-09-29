@@ -66,6 +66,14 @@ const formatDate = (value) => {
   return text.slice(0, 10);
 };
 
+/** IE de verdade é numérica. "ISENTO" é só o texto que a etiqueta usa quando não há número. */
+const inscricaoNumerica = (value) => {
+  const raw = String(value ?? '').trim();
+  if (!raw || /^isento$/i.test(raw)) return '';
+  const digits = raw.replace(/\D/g, '');
+  return digits.length >= 2 ? digits : '';
+};
+
 const chaveFromValue = (value) => {
   const digits = onlyDigits(value);
   return digits.length === 44 ? digits : '';
@@ -138,6 +146,10 @@ export const buildDanfeEtiquetaDados = (record) => {
   if (!emitente.nome) emitente.nome = firstText(cadastro.razaoSocial, cadastro.nomeFantasia);
   if (!emitente.documento) emitente.documento = chave.slice(6, 20);
   if (!emitente.uf) emitente.uf = firstText(cadastro.uf, UF_POR_CODIGO[Number(chave.slice(0, 2))]);
+  if (!inscricaoNumerica(emitente.ie)) {
+    const doCadastro = inscricaoNumerica(firstText(cadastro.inscricaoEstadual, cadastro.ie));
+    if (doCadastro) emitente.ie = doCadastro;
+  }
   const destinatario = partyFrom(payload, 'destinatario');
   const serie = String(Number(chave.slice(22, 25)));
   const numero = String(Number(chave.slice(25, 34)));
