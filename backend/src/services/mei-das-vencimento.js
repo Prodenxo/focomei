@@ -61,21 +61,23 @@ export const isDasCompetenciaVencida = (competencia, refDate = new Date()) => {
 };
 
 /**
- * Guia vencida e não paga seria buscada de novo na Receita para atualizar o valor.
- * No envio ao cliente, o PDF já guardado vale: a Receita fora do ar não pode impedir o envio.
+ * Guia vencida e não paga é buscada de novo na Receita para trazer o vencimento e o
+ * valor atualizados. A guia guardada só serve de reserva se a Receita estiver fora.
  */
 export const shouldRegenerateDasBeforeSend = ({
   forceRefresh = false,
   paid = false,
   competencia = null,
-  preferStored = false,
-  hasStored = false,
   refDate = new Date(),
-} = {}) => {
-  if (preferStored && hasStored && !forceRefresh) return false;
-  return Boolean(forceRefresh)
-    || (Boolean(competencia) && !paid && isDasCompetenciaVencida(competencia, refDate));
-};
+} = {}) => Boolean(forceRefresh)
+  || (Boolean(competencia) && !paid && isDasCompetenciaVencida(competencia, refDate));
+
+/**
+ * Quando a Receita está fora, a guia guardada pode ser enviada como reserva, com aviso.
+ * Sem PDF guardado ou com outro tipo de erro, a falha segue para o cliente.
+ */
+export const canFallbackToStoredDas = ({ serproUnavailable = false, hasStored = false } = {}) =>
+  Boolean(serproUnavailable && hasStored);
 
 /**
  * Enriquece item de período DAS com flags de vencimento.

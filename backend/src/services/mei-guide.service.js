@@ -58,6 +58,7 @@ import {
 } from './mei-guide-serpro-period-guard.js';
 import {
   enrichDasPeriodWithVencimento,
+  canFallbackToStoredDas,
   isDasCompetenciaVencida,
   shouldRegenerateDasBeforeSend,
 } from './mei-das-vencimento.js';
@@ -1995,11 +1996,18 @@ export const regenerateDasPdf = async (userId, payload) => {
 };
 
 /** Obtém PDF (cache → bucket → SERPRO). Usado pelo WhatsApp/OpenClaw e download.
- * Na app, guia vencida e não paga ainda é refeita na Receita para o valor com juros.
- * No WhatsApp (`preferStored`), a guia já guardada é enviada sem consultar a Receita.
+ * Guia vencida e não paga é refeita na Receita para trazer vencimento e valor atualizados.
+ * Com `fallbackToStored`, se a Receita estiver fora, a guia guardada vai como reserva
+ * (`stale: true`) em vez de deixar o cliente sem nada.
  */
 export const fetchDasPdfBase64ForUser = async (userId, payload = {}) => {
-  const { periodoApuracao, cnpj, contribuinte, forceRefresh = false, preferStored = false } = payload || {};
+  const {
+    periodoApuracao,
+    cnpj,
+    contribuinte,
+    forceRefresh = false,
+    fallbackToStored = false,
+  } = payload || {};
   const period = normalizePeriodoApuracao(periodoApuracao);
   if (!period) {
     throw badRequest('Período de apuração inválido');
@@ -2008,40 +2016,55 @@ export const fetchDasPdfBase64ForUser = async (userId, payload = {}) => {
   const label = competencia ? competencia.replace('-', '/') : period;
   const fileName = `DAS-${String(label).replace('/', '-')}.pdf`;
 
-  const storedFirst = preferStored && !forceRefresh && userId
-    ? await tryLoadLocalDasPdfBase64(userId, period)
-    : null;
-  if (storedFirst) {
-    return { pdfBase64: storedFirst, fileName, source: 'cache', refreshed: false };
-  }
-
   const paid = userId && competencia
     ? await isCompetenciaPaid({ userId, competencia })
     : false;
-  const shouldRefresh = shouldRegenerateDasBeforeSend({
-    forceRefresh,
-    paid,
-    competencia,
-    preferStored,
-    hasStored: false,
-  });
+  const shouldRefresh = shouldRegenerateDasBeforeSend({ forceRefresh, paid, competencia });
 
   if (shouldRefresh && userId) {
-    const guide = await regenerateDasPdf(userId, {
-      cnpj,
-      periodoApuracao: period,
-      contribuinte,
-    });
-    if (!guide?.pdfBase64) {
-      throw notFound(`SERPRO não devolveu PDF atualizado para ${label}.`);
+    // A regeneração apaga o PDF guardado antes de ir à Receita: guarda a cópia em memória.
+    const storedBackup = fallbackToStored ? await tryLoadLocalDasPdfBase64(userId, period) : null;
+    try {
+      const guide = await regenerateDasPdf(userId, {
+        cnpj,
+        periodoApuracao: period,
+        contribuinte,
+      });
+      if (!guide?.pdfBase64) {
+        throw notFound(`SERPRO não devolveu PDF atualizado para ${label}.`);
+      }
+      return {
+        pdfBase64: guide.pdfBase64,
+        fileName: guide.filename || fileName,
+        source: 'serpro_refresh',
+        refreshed: true,
+        vencida: isDasCompetenciaVencida(competencia),
+      };
+    } catch (error) {
+      const fallback = canFallbackToStoredDas({
+        serproUnavailable: isSerproUnavailableError(error),
+        hasStored: Boolean(storedBackup),
+      });
+      if (!fallback) throw error;
+      console.warn('[mei-guide] Receita fora do ar; enviando guia guardada como reserva', {
+        userId,
+        periodoApuracao: period,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      try {
+        await upsertDasBase64({ userId, periodoApuracao: period, pdfBase64: storedBackup });
+      } catch {
+        /* a cópia em memória já basta para este envio */
+      }
+      return {
+        pdfBase64: storedBackup,
+        fileName,
+        source: 'cache_stale',
+        refreshed: false,
+        stale: true,
+        vencida: isDasCompetenciaVencida(competencia),
+      };
     }
-    return {
-      pdfBase64: guide.pdfBase64,
-      fileName: guide.filename || fileName,
-      source: 'serpro_refresh',
-      refreshed: true,
-      vencida: isDasCompetenciaVencida(competencia),
-    };
   }
 
   const cached = userId ? await tryLoadLocalDasPdfBase64(userId, period) : null;

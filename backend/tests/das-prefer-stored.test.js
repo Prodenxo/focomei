@@ -1,37 +1,40 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { shouldRegenerateDasBeforeSend } from '../src/services/mei-das-vencimento.js';
+import {
+  canFallbackToStoredDas,
+  shouldRegenerateDasBeforeSend,
+} from '../src/services/mei-das-vencimento.js';
 
 const depoisDoVencimento = new Date('2026-09-29T12:00:00.000Z');
+const antesDoVencimento = new Date('2026-09-10T12:00:00.000Z');
 
-test('WhatsApp envia a guia guardada mesmo vencida e não paga', () => {
+test('guia vencida e não paga continua sendo buscada na Receita para atualizar vencimento e valor', () => {
   assert.equal(shouldRegenerateDasBeforeSend({
     competencia: '2026-08',
     paid: false,
-    preferStored: true,
-    hasStored: true,
+    refDate: depoisDoVencimento,
+  }), true);
+});
+
+test('guia dentro do prazo ou já paga não precisa ir na Receita', () => {
+  assert.equal(shouldRegenerateDasBeforeSend({
+    competencia: '2026-08',
+    paid: false,
+    refDate: antesDoVencimento,
+  }), false);
+  assert.equal(shouldRegenerateDasBeforeSend({
+    competencia: '2026-08',
+    paid: true,
     refDate: depoisDoVencimento,
   }), false);
 });
 
-test('sem guia guardada, a vencida ainda é buscada na Receita', () => {
-  assert.equal(shouldRegenerateDasBeforeSend({
-    competencia: '2026-08',
-    paid: false,
-    preferStored: true,
-    hasStored: false,
-    refDate: depoisDoVencimento,
-  }), true);
+test('com a Receita fora do ar, a guia guardada vai como reserva', () => {
+  assert.equal(canFallbackToStoredDas({ serproUnavailable: true, hasStored: true }), true);
 });
 
-test('pedido explícito de atualizar continua indo na Receita', () => {
-  assert.equal(shouldRegenerateDasBeforeSend({
-    competencia: '2026-08',
-    paid: false,
-    forceRefresh: true,
-    preferStored: true,
-    hasStored: true,
-    refDate: depoisDoVencimento,
-  }), true);
+test('sem guia guardada ou com outro tipo de erro, a falha segue para o cliente', () => {
+  assert.equal(canFallbackToStoredDas({ serproUnavailable: true, hasStored: false }), false);
+  assert.equal(canFallbackToStoredDas({ serproUnavailable: false, hasStored: true }), false);
 });

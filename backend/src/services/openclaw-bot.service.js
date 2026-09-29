@@ -1724,7 +1724,7 @@ export const runOpenclawAction = async (input) => {
         periodoApuracao: periodoDigits,
         cnpj: payload?.cnpj,
         contribuinte: payload?.contribuinte,
-        preferStored: true,
+        fallbackToStored: true,
       });
     } catch (err) {
       rethrowDasFetchErrorForBot(err, display);
@@ -1868,13 +1868,17 @@ export const runOpenclawAction = async (input) => {
         periodoApuracao: periodoDigits,
         cnpj: payload?.cnpj,
         contribuinte: payload?.contribuinte,
-        preferStored: true,
+        fallbackToStored: true,
       });
     } catch (err) {
       rethrowDasFetchErrorForBot(err, display);
     }
     const pdfBase64 = pdfResult.pdfBase64;
     const fileName = pdfResult.fileName || `DAS-${display.replace('/', '-')}.pdf`;
+    const stale = pdfResult.stale === true;
+    const staleAviso = stale
+      ? ` A Receita Federal está fora do ar agora, então enviei a guia que já estava guardada: ela pode estar com o vencimento e o valor antigos. Antes de pagar, peça a guia de novo mais tarde para vir atualizada.`
+      : '';
     const destinationPhone = resolveOpenclawWhatsappPhone(phoneDigits, matchedUserNumber);
     const whatsapp = await trySendDasWhatsappWebhook({
       userId: dasUserId,
@@ -1889,12 +1893,15 @@ export const runOpenclawAction = async (input) => {
     return {
       ok: true,
       message: sent
-        ? `PDF DAS ${display} enviado no WhatsApp (conta: ${owner}).`
+        ? `PDF DAS ${display} enviado no WhatsApp (conta: ${owner}).${staleAviso}`
         : `DAS ${display} de ${owner}; envio WhatsApp: ${whatsapp.whatsappStatus}. `
-          + (whatsapp.hint || `Use mf-das-send.sh ${destinationPhone} ${display}`),
+          + (whatsapp.hint || `Use mf-das-send.sh ${destinationPhone} ${display}`)
+          + staleAviso,
       data: {
         mes: display,
         fileName,
+        stale,
+        pdfSource: pdfResult.source ?? null,
         competenciaResolvida: dasComp.resolvedBy ?? null,
         vencimentoDisplay: dasComp.vencimentoDisplay ?? null,
         whatsappStatus: whatsapp.whatsappStatus,
@@ -1907,10 +1914,13 @@ export const runOpenclawAction = async (input) => {
         useOpenclawScript: sent
           ? null
           : `/home/node/.openclaw/workspace/mf-das-send.sh ${destinationPhone} ${display}`,
-        agentInstructions: sent
+        agentInstructions: (sent
           ? `Confirme só que o PDF da competência ${display} foi enviado.`
             + (dasComp.vencimentoDisplay ? ` Vencimento ${dasComp.vencimentoDisplay}.` : '')
-          : 'OBRIGATÓRIO exec mf-das-send.sh com telefone do PAINEL. Não diga que enviou sem whatsappStatus=sent.',
+          : 'OBRIGATÓRIO exec mf-das-send.sh com telefone do PAINEL. Não diga que enviou sem whatsappStatus=sent.')
+          + (stale
+            ? ' Guia enviada é a guardada (Receita fora do ar): AVISE que vencimento e valor podem estar antigos e que deve pedir de novo antes de pagar.'
+            : ''),
         actorContext,
         ...(dasSubject?.dataLinkDebug ?? linkDebug),
       },
