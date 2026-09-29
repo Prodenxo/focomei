@@ -59,6 +59,7 @@ import {
 import {
   enrichDasPeriodWithVencimento,
   isDasCompetenciaVencida,
+  shouldRegenerateDasBeforeSend,
 } from './mei-das-vencimento.js';
 
 import {
@@ -1994,10 +1995,11 @@ export const regenerateDasPdf = async (userId, payload) => {
 };
 
 /** Obtém PDF (cache → bucket → SERPRO). Usado pelo WhatsApp/OpenClaw e download.
- * Guias vencidas (após dia 20) e não pagas: regenera na Receita para valor atualizado.
+ * Na app, guia vencida e não paga ainda é refeita na Receita para o valor com juros.
+ * No WhatsApp (`preferStored`), a guia já guardada é enviada sem consultar a Receita.
  */
 export const fetchDasPdfBase64ForUser = async (userId, payload = {}) => {
-  const { periodoApuracao, cnpj, contribuinte, forceRefresh = false } = payload || {};
+  const { periodoApuracao, cnpj, contribuinte, forceRefresh = false, preferStored = false } = payload || {};
   const period = normalizePeriodoApuracao(periodoApuracao);
   if (!period) {
     throw badRequest('Período de apuração inválido');
@@ -2006,11 +2008,23 @@ export const fetchDasPdfBase64ForUser = async (userId, payload = {}) => {
   const label = competencia ? competencia.replace('-', '/') : period;
   const fileName = `DAS-${String(label).replace('/', '-')}.pdf`;
 
+  const storedFirst = preferStored && !forceRefresh && userId
+    ? await tryLoadLocalDasPdfBase64(userId, period)
+    : null;
+  if (storedFirst) {
+    return { pdfBase64: storedFirst, fileName, source: 'cache', refreshed: false };
+  }
+
   const paid = userId && competencia
     ? await isCompetenciaPaid({ userId, competencia })
     : false;
-  const shouldRefresh = Boolean(forceRefresh)
-    || (Boolean(competencia) && !paid && isDasCompetenciaVencida(competencia));
+  const shouldRefresh = shouldRegenerateDasBeforeSend({
+    forceRefresh,
+    paid,
+    competencia,
+    preferStored,
+    hasStored: false,
+  });
 
   if (shouldRefresh && userId) {
     const guide = await regenerateDasPdf(userId, {

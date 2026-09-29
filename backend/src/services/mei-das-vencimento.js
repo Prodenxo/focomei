@@ -61,6 +61,23 @@ export const isDasCompetenciaVencida = (competencia, refDate = new Date()) => {
 };
 
 /**
+ * Guia vencida e não paga seria buscada de novo na Receita para atualizar o valor.
+ * No envio ao cliente, o PDF já guardado vale: a Receita fora do ar não pode impedir o envio.
+ */
+export const shouldRegenerateDasBeforeSend = ({
+  forceRefresh = false,
+  paid = false,
+  competencia = null,
+  preferStored = false,
+  hasStored = false,
+  refDate = new Date(),
+} = {}) => {
+  if (preferStored && hasStored && !forceRefresh) return false;
+  return Boolean(forceRefresh)
+    || (Boolean(competencia) && !paid && isDasCompetenciaVencida(competencia, refDate));
+};
+
+/**
  * Enriquece item de período DAS com flags de vencimento.
  * @param {Record<string, unknown>} item
  * @param {Date} [refDate]

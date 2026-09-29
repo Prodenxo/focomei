@@ -1724,6 +1724,7 @@ export const runOpenclawAction = async (input) => {
         periodoApuracao: periodoDigits,
         cnpj: payload?.cnpj,
         contribuinte: payload?.contribuinte,
+        preferStored: true,
       });
     } catch (err) {
       rethrowDasFetchErrorForBot(err, display);
@@ -1867,6 +1868,7 @@ export const runOpenclawAction = async (input) => {
         periodoApuracao: periodoDigits,
         cnpj: payload?.cnpj,
         contribuinte: payload?.contribuinte,
+        preferStored: true,
       });
     } catch (err) {
       rethrowDasFetchErrorForBot(err, display);
