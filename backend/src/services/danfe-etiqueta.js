@@ -195,14 +195,49 @@ const pdfText = (value) => String(value ?? '')
   .replace(/Ã/g, '\\303').replace(/Á/g, '\\301').replace(/É/g, '\\311')
   .replace(/Í/g, '\\315').replace(/Ó/g, '\\323').replace(/Ú/g, '\\332').replace(/Ç/g, '\\307');
 
-const wrapText = (text, size, maxWidth) => {
-  const maxChars = Math.max(8, Math.floor(maxWidth / (size * 0.52)));
+/** Larguras oficiais (em milésimos do tamanho) da Helvetica, para centralizar de verdade. */
+const HELVETICA_WIDTHS = {
+  regular: [
+    278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278,
+    556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556,
+    1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778,
+    667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556,
+    333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556,
+    556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584,
+  ],
+  bold: [
+    278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 584, 278, 333, 278, 278,
+    556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 333, 333, 584, 584, 584, 611,
+    975, 722, 722, 722, 722, 667, 611, 778, 722, 278, 556, 722, 611, 833, 722, 778,
+    667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 333, 278, 333, 584, 556,
+    333, 556, 611, 556, 611, 556, 333, 611, 611, 278, 278, 556, 278, 889, 611, 611,
+    611, 611, 389, 556, 333, 611, 556, 778, 556, 556, 500, 389, 280, 389, 584,
+  ],
+};
+
+const charWidth = (char, bold) => {
+  const table = bold ? HELVETICA_WIDTHS.bold : HELVETICA_WIDTHS.regular;
+  if (char === 'º' || char === 'ª') return 365;
+  if (char === '·') return 278;
+  const base = char.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const code = base.charCodeAt(0);
+  if (code >= 32 && code <= 126) return table[code - 32];
+  return 556;
+};
+
+const textWidth = (text, size, bold) => {
+  let total = 0;
+  for (const char of String(text || '')) total += charWidth(char, bold);
+  return (total * size) / 1000;
+};
+
+const wrapText = (text, size, bold, maxWidth) => {
   const words = String(text || '').split(/\s+/).filter(Boolean);
   const lines = [];
   let current = '';
   for (const word of words) {
     const next = current ? `${current} ${word}` : word;
-    if (next.length > maxChars && current) {
+    if (current && textWidth(next, size, bold) > maxWidth) {
       lines.push(current);
       current = word;
     } else {
@@ -210,107 +245,132 @@ const wrapText = (text, size, maxWidth) => {
     }
   }
   if (current) lines.push(current);
-  return lines.length ? lines : [''];
+  return lines;
 };
 
-const textRow = (text, { size = 8, bold = false, center = true, gap = 2 } = {}) => (
-  text ? { text, size, bold, center, gap } : null
+/** Diminui a letra até caber na largura; texto que nunca cabe é quebrado em linhas. */
+const fitLines = (text, { size, bold, maxWidth, minSize = 6, maxLines = 2 }) => {
+  if (!text) return [];
+  for (let s = size; s >= minSize; s -= 0.5) {
+    const lines = wrapText(text, s, bold, maxWidth);
+    if (lines.length <= maxLines && lines.every((l) => textWidth(l, s, bold) <= maxWidth)) {
+      return lines.map((l) => ({ text: l, size: s, bold }));
+    }
+  }
+  return wrapText(text, minSize, bold, maxWidth).map((l) => ({ text: l, size: minSize, bold }));
+};
+
+/** Largura de 80 mm (226 pt), a mais comum nas impressoras de etiqueta e cupom. */
+const PAGE_WIDTH = 226;
+const FRAME = 6;
+const PADDING = 12;
+const CONTENT_WIDTH = PAGE_WIDTH - (FRAME + PADDING) * 2;
+const LABEL_GRAY = '0.42';
+
+const label = (text) => [{ text, size: 6, bold: false, gray: true }];
+
+const line = (text, size, bold = false, maxLines = 1) => (
+  fitLines(text, { size, bold, maxWidth: CONTENT_WIDTH, maxLines })
 );
 
 export const buildDanfeEtiquetaPdf = (record) => {
   const dados = buildDanfeEtiquetaDados(record);
-  const pageWidth = 226;
-  const margin = 12;
   const modules = code128Modules(dados.chave);
-  const inner = pageWidth - margin * 2;
-  const moduleWidth = inner / (modules.length + 16);
-  const barcodeWidth = moduleWidth * modules.length;
-  const barcodeX = margin + (inner - barcodeWidth) / 2;
-  const barcodeHeight = 46;
-  const emitenteIe = dados.emitente.ie ? `IE ${dados.emitente.ie}` : 'IE ISENTO';
+  const barcodeWidth = CONTENT_WIDTH;
+  const moduleWidth = barcodeWidth / modules.length;
+  const barcodeHeight = 44;
+  const barcodeX = FRAME + PADDING;
   const destinatarioDoc = dados.destinatario.documento
     ? `${dados.destinatario.documento.length > 11 ? 'CNPJ' : 'CPF'} ${formatDoc(dados.destinatario.documento)}`
     : '';
+  const juntar = (...parts) => parts.filter(Boolean).join('  ·  ');
 
-  const rows = [
-    textRow('DANFE SIMPLIFICADO', { size: 9, bold: true, gap: 1 }),
-    textRow('ETIQUETA', { size: 8, bold: true, gap: 4 }),
-    { rule: true },
-    { barcode: true },
-    textRow(formatChave(dados.chave), { size: 6, gap: 1 }),
-    textRow(dados.protocolo ? `Protocolo ${dados.protocolo}` : '', { size: 7, gap: 4 }),
-    { rule: true },
-    ...wrapText(dados.emitente.nome, 9, inner).map((text, index, all) => (
-      textRow(text, { size: 9, bold: true, gap: index === all.length - 1 ? 1 : 0 })
-    )),
-    textRow([dados.emitente.uf, `CNPJ ${formatDoc(dados.emitente.documento)}`].filter(Boolean).join('  ·  '), { size: 7, gap: 1 }),
-    textRow(emitenteIe, { size: 7, gap: 4 }),
-    { rule: true },
-    textRow(`${dados.saida ? 'Saída' : 'Entrada'}   ·   Série ${dados.serie}   ·   Nº ${dados.numero}`, { size: 8, bold: true, gap: 1 }),
-    textRow(dados.data ? `Emissão ${dados.data}` : '', { size: 8, gap: 4 }),
-    { rule: true },
-    textRow('DESTINATÁRIO', { size: 6, gap: 1 }),
-    ...wrapText(dados.destinatario.nome, 9, inner).map((text) => textRow(text, { size: 9, bold: true, gap: 1 })),
-    textRow([dados.destinatario.uf, destinatarioDoc].filter(Boolean).join('  ·  '), { size: 7, gap: 1 }),
-    textRow(dados.destinatario.ie ? `IE ${dados.destinatario.ie}` : '', { size: 7, gap: 4 }),
-    { rule: true },
-    textRow(dados.valor != null ? 'VALOR TOTAL' : '', { size: 6, gap: 1 }),
-    textRow(dados.valor != null ? formatMoney(dados.valor) : '', { size: 12, bold: true, gap: 2 }),
-  ].filter(Boolean);
+  /** Cada bloco é separado por uma linha, com o mesmo respiro em cima e embaixo. */
+  const blocks = [
+    [
+      ...line('DANFE SIMPLIFICADO', 10, true),
+      ...line('ETIQUETA', 7),
+    ],
+    [
+      { barcode: true },
+      ...line(formatChave(dados.chave), 6.5),
+      ...line(dados.protocolo ? `Protocolo ${dados.protocolo}` : '', 7),
+    ],
+    [
+      ...label('EMITENTE'),
+      ...line(dados.emitente.nome, 9, true, 2),
+      ...line(juntar(`CNPJ ${formatDoc(dados.emitente.documento)}`, dados.emitente.uf), 7),
+      ...line(dados.emitente.ie ? `IE ${dados.emitente.ie}` : 'IE ISENTO', 7),
+    ],
+    [
+      ...line(juntar(dados.saida ? 'SAÍDA' : 'ENTRADA', `SÉRIE ${dados.serie}`, `Nº ${dados.numero}`), 8.5, true),
+      ...line(dados.data ? `Emissão ${dados.data}` : '', 7.5),
+    ],
+    [
+      ...label('DESTINATÁRIO'),
+      ...line(dados.destinatario.nome, 9, true, 2),
+      ...line(juntar(destinatarioDoc, dados.destinatario.uf), 7),
+      ...line(dados.destinatario.ie ? `IE ${dados.destinatario.ie}` : '', 7),
+    ],
+    dados.valor != null
+      ? [...label('VALOR TOTAL'), ...line(formatMoney(dados.valor), 13, true)]
+      : [],
+  ].filter((block) => block.length);
 
-  let y = 14;
-  const bars = [];
-  for (const row of rows) {
-    if (row.barcode) {
-      y += 6;
-      row.barTop = y;
-      let x = barcodeX;
-      let drawing = false;
-      let start = x;
-      for (const bit of modules) {
-        if (bit && !drawing) {
-          start = x;
-          drawing = true;
-        } else if (!bit && drawing) {
-          bars.push({ x: start, w: x - start });
-          drawing = false;
+  const ops = [];
+  const texts = [];
+  const rules = [];
+  let y = FRAME + PADDING;
+  blocks.forEach((block, index) => {
+    if (index > 0) {
+      y += 7;
+      rules.push(y);
+      y += 8;
+    }
+    for (const item of block) {
+      if (item.barcode) {
+        let x = barcodeX;
+        let start = null;
+        for (const bit of modules) {
+          if (bit && start === null) start = x;
+          if (!bit && start !== null) {
+            ops.push({ kind: 'bar', x: start, w: x - start, top: y });
+            start = null;
+          }
+          x += moduleWidth;
         }
-        x += moduleWidth;
+        if (start !== null) ops.push({ kind: 'bar', x: start, w: x - start, top: y });
+        y += barcodeHeight + 5;
+        continue;
       }
-      if (drawing) bars.push({ x: start, w: x - start, top: y });
-      bars.forEach((bar) => { bar.top = y; });
-      y += barcodeHeight + 10;
-      continue;
+      const baseline = y + item.size * 0.78;
+      const width = textWidth(item.text, item.size, item.bold);
+      const x = FRAME + PADDING + (CONTENT_WIDTH - width) / 2;
+      texts.push({ ...item, x, baseline });
+      y += item.size * 1.32;
     }
-    if (row.rule) {
-      y += 5;
-      row.y = y;
-      y += 5;
-      continue;
-    }
-    y += row.size + (row.gap ?? 2);
-    row.y = y;
-  }
-  const pageHeight = Math.max(y + 16, 240);
+  });
+  const pageHeight = y + PADDING + FRAME;
+
   const content = [
-    `0.6 w ${margin - 4} 8 ${pageWidth - (margin - 4) * 2} ${(pageHeight - 16).toFixed(2)} re S`,
-    ...rows.filter((row) => row.rule).map((row) => {
-      const pdfY = pageHeight - row.y;
-      return `${margin} ${pdfY.toFixed(2)} ${inner.toFixed(2)} 0.4 re f`;
+    '0 g 0 G 0.7 w',
+    `${FRAME} ${FRAME} ${PAGE_WIDTH - FRAME * 2} ${(pageHeight - FRAME * 2).toFixed(2)} re S`,
+    '0.5 w',
+    ...rules.map((ry) => {
+      const pdfY = (pageHeight - ry).toFixed(2);
+      return `${FRAME} ${pdfY} m ${PAGE_WIDTH - FRAME} ${pdfY} l S`;
     }),
-    ...bars.map((bar) => {
+    ...ops.map((bar) => {
       const pdfY = pageHeight - bar.top - barcodeHeight;
-      return `${bar.x.toFixed(2)} ${pdfY.toFixed(2)} ${bar.w.toFixed(2)} ${barcodeHeight} re f`;
+      return `${bar.x.toFixed(3)} ${pdfY.toFixed(2)} ${bar.w.toFixed(3)} ${barcodeHeight} re f`;
     }),
-    ...rows.filter((row) => row.text).map((row) => {
-      const size = row.size;
-      const text = pdfText(row.text);
-      const approx = row.text.length * size * 0.5;
-      const x = row.center ? Math.max(margin, (pageWidth - approx) / 2) : margin;
-      const pdfY = pageHeight - row.y;
-      return `BT /F${row.bold ? '2' : '1'} ${size} Tf ${x.toFixed(2)} ${pdfY.toFixed(2)} Td (${text}) Tj ET`;
+    ...texts.map((t) => {
+      const color = t.gray ? `${LABEL_GRAY} g` : '0 g';
+      const pdfY = (pageHeight - t.baseline).toFixed(2);
+      return `BT ${color} /F${t.bold ? '2' : '1'} ${t.size} Tf ${t.x.toFixed(2)} ${pdfY} Td (${pdfText(t.text)}) Tj ET`;
     }),
   ].join('\n');
+  const pageWidth = PAGE_WIDTH;
 
   const objects = [];
   const add = (body) => {

@@ -46,3 +46,19 @@ test('código de barras da chave começa no padrão numérico e o PDF abre como 
   assert.equal(pdf.subarray(0, 5).toString(), '%PDF-');
   assert.match(pdf.toString('latin1'), /DANFE SIMPLIFICADO/);
 });
+
+test('nome comprido quebra em linhas e nenhum texto passa da borda da etiqueta', () => {
+  const pdf = buildDanfeEtiquetaPdf({
+    document_type: 'NFE',
+    emitenteCadastro: { razaoSocial: '67.593.254 DIVA BARBARA NEVES FERREIRA DOS SANTOS OLIVEIRA', uf: 'RJ' },
+    payload_json: { emitente: { cpfCnpj: '67593254000131' }, destinatario: { razaoSocial: 'Lucas Teixeira Silva', cpfCnpj: '09855702611' } },
+    response_json: { chave: CHAVE, protocolo: '233260457749463', emissao: '25/09/2026', valor: 261 },
+  }).toString('latin1');
+  const posicoes = [...pdf.matchAll(/\/F\d ([\d.]+) Tf ([\d.]+) [\d.]+ Td/g)].map((m) => Number(m[2]));
+  assert.ok(posicoes.length > 8);
+  for (const x of posicoes) {
+    assert.ok(x >= 18, `texto começa fora da margem: ${x}`);
+    assert.ok(x <= 113, `texto centralizado errado: ${x}`);
+  }
+  assert.match(pdf, /DIVA BARBARA/);
+});
