@@ -33,6 +33,23 @@ test('autorizado já informado pelo cliente é preservado', () => {
   assert.equal(next, comContador);
 });
 
+test('contador informado no cadastro vale em qualquer estado e ganha do padrão da Bahia', () => {
+  const rj = applyUfResponsavelAutorizado(basePayload, 'RJ', { contadorCnpj: '11.222.333/0001-81' });
+  assert.deepEqual(rj.responsavelAutorizado, [{ cpfCnpj: '11222333000181' }]);
+
+  const ba = applyUfResponsavelAutorizado(basePayload, 'BA', { contadorCnpj: '11222333000181' });
+  assert.deepEqual(ba.responsavelAutorizado, [{ cpfCnpj: '11222333000181' }]);
+
+  const invalido = applyUfResponsavelAutorizado(basePayload, 'BA', { contadorCnpj: '123' });
+  assert.deepEqual(invalido.responsavelAutorizado, [{ cpfCnpj: '13937073000156' }]);
+});
+
+test('contador igual ao destinatário não entra; na Bahia cai para o padrão', () => {
+  const mesmoDoc = applyUfResponsavelAutorizado(basePayload, 'BA', { contadorCnpj: '65446108000158' });
+  assert.deepEqual(mesmoDoc.responsavelAutorizado, [{ cpfCnpj: '13937073000156' }]);
+  assert.equal(applyUfResponsavelAutorizado(basePayload, 'SP', { contadorCnpj: '65446108000158' }), basePayload);
+});
+
 test('lista vazia ou inválida é tratada como ausente', () => {
   const vazio = { ...basePayload, responsavelAutorizado: [] };
   assert.deepEqual(applyUfResponsavelAutorizado(vazio, 'BA').responsavelAutorizado, [{ cpfCnpj: '13937073000156' }]);

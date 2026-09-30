@@ -204,6 +204,17 @@ export const normalizeEmitenteRowFragment = (raw, opts = {}) => {
     if (t || !omitEmpty) out.rps_serie = t || null;
   }
 
+  /**
+   * CNPJ do contador que vai no grupo de autorizados da NF-e. Chave presente com
+   * valor vazio significa "voltar a usar o padrão do estado", por isso grava null
+   * mesmo em update parcial.
+   */
+  const contador = get('contadorCnpj', 'contador_cnpj');
+  if (contador !== undefined && contador !== null) {
+    const d = digitsOnly(contador);
+    out.contador_cnpj = d.length === 14 ? d : null;
+  }
+
   return out;
 };
 
@@ -282,7 +293,11 @@ export const emitenteRowToApiShape = (row) => {
     rpsNumero: row.rps_numero != null ? Number.parseInt(String(row.rps_numero), 10) || 1 : 1,
     rpsSerie: row.rps_serie != null && String(row.rps_serie).trim() !== ''
       ? String(row.rps_serie).trim()
-      : '1'
+      : '1',
+    contadorCnpj: (() => {
+      const d = digitsOnly(row.contador_cnpj);
+      return d.length === 14 ? d : '';
+    })(),
   };
   const cd = row.cert_document;
   if (cd != null && String(cd).trim() !== '') {
@@ -392,7 +407,8 @@ export const getEmitenteNfseSnapshot = async (userId) => {
       optante_simples_nacional,
       rps_lote,
       rps_numero,
-      rps_serie
+      rps_serie,
+      contador_cnpj
     `)
     .eq('user_id', userId)
     .maybeSingle();

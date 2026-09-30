@@ -7,6 +7,8 @@ import {
   getInscricaoMunicipalFieldHint,
   PLUGNOTAS_REGIME_TRIBUTARIO_MEI,
   PLUGNOTAS_REGIME_TRIBUTARIO_OPTIONS,
+  UF_AUTORIZADO_XML_PADRAO,
+  ufExigeAutorizadoNfe,
 } from '@/lib/plugNotasEmpresaForm';
 import { AppSelect } from '@/components/ui/AppSelect';
 import { formatCnpj } from '@/lib/fiscalFormat';
@@ -195,6 +197,45 @@ export function EmpresaFiscalForm({
 
       {form.nfeAtivo ? (
         <section className="space-y-3 border-t border-[var(--card-border)] pt-4">
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">Contador na nota de produto (NF-e)</h3>
+          <p className="text-xs text-[var(--text-muted)]">
+            {ufExigeAutorizadoNfe(form.uf)
+              ? 'No seu estado a Secretaria da Fazenda exige na nota o CNPJ do escritório de contabilidade. Quem não tem contador usa o CNPJ da própria Fazenda.'
+              : 'Opcional. Com o CNPJ do contador na nota, ele consegue baixar o XML direto na Secretaria da Fazenda.'}
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <ChoiceCard
+              name="usaContador"
+              checked={!form.usaContador}
+              onSelect={() => onChange('usaContador', false)}
+              label="Não tenho contador"
+              hint={ufExigeAutorizadoNfe(form.uf)
+                ? `A nota sai com o CNPJ da Secretaria da Fazenda (${formatCnpj(UF_AUTORIZADO_XML_PADRAO[String(form.uf || '').toUpperCase()])}).`
+                : 'A nota sai sem contador informado.'}
+            />
+            <ChoiceCard
+              name="usaContador"
+              checked={Boolean(form.usaContador)}
+              onSelect={() => onChange('usaContador', true)}
+              label="Informar o CNPJ do contador"
+              hint="O CNPJ do escritório de contabilidade vai em todas as notas de produto."
+            />
+          </div>
+          {form.usaContador ? (
+            <Field
+              label="CNPJ do contador"
+              value={formatCnpj(form.contadorCnpj || '')}
+              onChange={(v) => onChange('contadorCnpj', String(v).replace(/\D/g, '').slice(0, 14))}
+              inputMode="numeric"
+              placeholder="00.000.000/0000-00"
+              required
+            />
+          ) : null}
+        </section>
+      ) : null}
+
+      {form.nfeAtivo ? (
+        <section className="space-y-3 border-t border-[var(--card-border)] pt-4">
           <h3 className="text-sm font-semibold text-[var(--text-primary)]">Tipo de operação (NF-e)</h3>
           <div className="grid gap-2 sm:grid-cols-2">
             {EMPRESA_BUSINESS_TYPE_OPTIONS.map((opt) => (
@@ -249,6 +290,24 @@ function Field({
         className={`h-10 rounded-[10px] border border-[var(--card-border)] bg-[var(--canvas)] px-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent)] focus:outline-none ${readOnly ? 'opacity-70' : ''}`}
       />
       {hint ? <span className="text-[11px] text-[var(--text-muted)]">{hint}</span> : null}
+    </label>
+  );
+}
+
+function ChoiceCard({ name, checked, onSelect, label, hint }) {
+  return (
+    <label
+      className={`flex cursor-pointer flex-col gap-1 rounded-[12px] border p-3 text-sm transition-colors ${
+        checked
+          ? 'border-[var(--accent)] bg-[var(--accent-soft)]/50'
+          : 'border-[var(--card-border)] hover:bg-[var(--canvas)]'
+      }`}
+    >
+      <span className="flex items-center gap-2 font-medium text-[var(--text-primary)]">
+        <input type="radio" name={name} checked={checked} onChange={onSelect} className="text-[var(--accent)]" />
+        {label}
+      </span>
+      <span className="text-xs text-[var(--text-muted)]">{hint}</span>
     </label>
   );
 }

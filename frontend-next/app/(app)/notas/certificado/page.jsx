@@ -20,6 +20,7 @@ import {
   fetchFiscalCompany,
   fetchNfsePrestadorPrefill,
   lookupCnpj,
+  patchCertificateEmitenteLocal,
   removeCertificate,
   setupEmitenteComposite,
   updateFiscalCompany,
@@ -27,7 +28,9 @@ import {
 } from '@/lib/fiscalApi';
 import { normalizeCnaeOptions } from '@/lib/fiscalPhase4';
 import {
+  applyContadorSnapshotToCompanyForm,
   applyDocumentosAtivosToCompanyForm,
+  buildContadorLocalPatch,
   buildEnrichedCertPageForm,
   buildPlugNotasEmpresaPayload,
   getPlugNotasCompanyValidationMessage,
@@ -138,7 +141,10 @@ export default function CertificadoPage() {
       lookupOnlyFillEmpty,
     });
     const docs = resolveDocumentosPermitidos(certStatus, empresaData);
-    return applyDocumentosAtivosToCompanyForm(enriched, docs);
+    return applyContadorSnapshotToCompanyForm(
+      applyDocumentosAtivosToCompanyForm(enriched, docs),
+      certStatus?.nfseEmitente,
+    );
   }, [certStatus, documento]);
 
   const loadCompany = useCallback(async () => {
@@ -351,9 +357,21 @@ export default function CertificadoPage() {
         ? await updateFiscalCompany(payload)
         : await cadastrarFiscalCompany(payload);
       setEmpresaRegistered(true);
+      // O contador fica só no Foco MEI (não é dado do emissor); grava separado.
+      const contadorPatch = buildContadorLocalPatch(companyForm);
+      try {
+        await patchCertificateEmitenteLocal(contadorPatch);
+      } catch (contadorErr) {
+        console.warn('Falha ao salvar o contador da NF-e:', contadorErr);
+      }
       const refreshedForm = await enrichCompanyForm(updated || companyForm);
       setCompany(updated || companyForm);
-      setCompanyForm(refreshedForm);
+      setCompanyForm({
+        ...refreshedForm,
+        usaContador: Boolean(contadorPatch.contadorCnpj),
+        contadorCnpj: contadorPatch.contadorCnpj,
+      });
+      void loadCert();
       setCompanyDirty(false);
       setCompanySavedAt(new Date());
       if (typeof window !== 'undefined') {

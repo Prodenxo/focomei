@@ -2478,7 +2478,9 @@ export const emitirNota = async (userId, input) => {
             || emitPayload?.emitente?.endereco?.estado
             || '',
         ).trim();
-        emitPayload = applyUfResponsavelAutorizado(emitPayload, emitenteUf);
+        emitPayload = applyUfResponsavelAutorizado(emitPayload, emitenteUf, {
+          contadorCnpj: emitenteSnap?.contadorCnpj,
+        });
       }
       emitPayload = applyMeiNfeEmitConfigFromEmpresa(emitPayload, empresaPlugnotasNfe);
       emitPayload = applyMeiNfeEmitForcePolicy(emitPayload);

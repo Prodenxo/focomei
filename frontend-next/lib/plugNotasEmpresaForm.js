@@ -82,7 +82,34 @@ export function getDefaultPlugNotasCompanyForm() {
     rpsLote: 1,
     rpsNumero: 1,
     rpsSerie: '1',
+    // Grupo de autorizados da NF-e: sem contador, o sistema usa o CNPJ da Fazenda do estado.
+    usaContador: false,
+    contadorCnpj: '',
   };
+}
+
+/** CNPJ da Secretaria da Fazenda usado quando o estado exige o grupo e o MEI não tem contador. */
+export const UF_AUTORIZADO_XML_PADRAO = Object.freeze({
+  BA: '13937073000156',
+});
+
+/** Estado do emitente exige o grupo de autorizados na NF-e? */
+export function ufExigeAutorizadoNfe(uf) {
+  return Boolean(UF_AUTORIZADO_XML_PADRAO[String(uf || '').trim().toUpperCase().slice(0, 2)]);
+}
+
+/** Traz o contador salvo no Foco MEI (`nfseEmitente.contadorCnpj`) para o formulário. */
+export function applyContadorSnapshotToCompanyForm(form, nfseEmitente) {
+  const base = form || getDefaultPlugNotasCompanyForm();
+  const contadorCnpj = normalizeDoc(nfseEmitente?.contadorCnpj || '');
+  if (contadorCnpj.length !== 14) return base;
+  return { ...base, usaContador: true, contadorCnpj };
+}
+
+/** Corpo do PATCH local do contador. Vazio = voltar a usar o padrão do estado. */
+export function buildContadorLocalPatch(form) {
+  const contadorCnpj = form?.usaContador ? normalizeDoc(form.contadorCnpj) : '';
+  return { contadorCnpj: contadorCnpj.length === 14 ? contadorCnpj : '' };
 }
 
 /**
@@ -372,6 +399,9 @@ export function getPlugNotasCompanyValidationMessage(form) {
     return 'Número inicial do RPS deve ser um inteiro maior ou igual a 1.';
   }
   if (!String(form.rpsSerie ?? '').trim()) return 'Informe a série do RPS (ex.: 1).';
+  if (form.nfeAtivo && form.usaContador && normalizeDoc(form.contadorCnpj).length !== 14) {
+    return 'Informe o CNPJ do contador com 14 dígitos ou escolha usar o CNPJ da Secretaria da Fazenda.';
+  }
   return null;
 }
 
@@ -499,6 +529,7 @@ export function companyFormToLocalEmitentePatch(form) {
     rpsLote: clampRpsInt(form.rpsLote, 1),
     rpsNumero: clampRpsInt(form.rpsNumero, 1),
     rpsSerie: String(form.rpsSerie ?? '1').trim() || '1',
+    ...buildContadorLocalPatch(form),
     documentosAtivos: {
       nfse: Boolean(form.nfseAtivo),
       nfe: Boolean(form.nfeAtivo),
