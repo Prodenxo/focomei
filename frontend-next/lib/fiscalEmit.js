@@ -255,9 +255,13 @@ export function validateNfseForm(form) {
   }
 
   const servico = form.servico || {};
-  if (!servico.codigo?.trim() || !servico.cnae?.trim() || !servico.discriminacao?.trim() || !servico.valorServico?.toString().trim()) {
-    return 'Preencha os campos obrigatórios do serviço.';
+  // Uma mensagem por campo: "campos obrigatórios" genérico não diz o que falta.
+  if (!servico.codigo?.trim()) return 'Informe o código do serviço (LC 116).';
+  if (onlyDigits(servico.cnae).length !== 7) {
+    return 'Informe o CNAE do serviço com 7 dígitos. É a atividade da sua empresa (está no seu CCMEI ou cartão CNPJ).';
   }
+  if (!servico.discriminacao?.trim()) return 'Descreva o serviço prestado.';
+  if (!servico.valorServico?.toString().trim()) return 'Informe o valor do serviço.';
   const codigoNorm = normalizeCodigoServico(servico.codigo);
   if (codigoNorm.length < NFSE_SERVICO_CODIGO_MIN_LENGTH) {
     return `Código do serviço deve ter pelo menos ${NFSE_SERVICO_CODIGO_MIN_LENGTH} dígitos (ex.: 17.19.01 → 171901).`;

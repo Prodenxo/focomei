@@ -44,6 +44,7 @@ import {
   NFSE_SERVICO_CODIGO_MIN_LENGTH,
 } from '@/lib/fiscalEmit';
 import { isCatalogProdutoUsableForNfeLike } from '@/lib/nfeCatalogProdutoMetadata';
+import { normalizeCnaeOptions } from '@/lib/fiscalPhase4';
 import { recalculateNfeItemsTax } from '@/lib/recalculateNfeItemsTax';
 import {
   aceitarTermoInterestadual,
@@ -232,6 +233,45 @@ export function EmitirNotaModal({
       loadProdutos();
     }
   }, [showProdutoList, step, documentType, loadProdutos]);
+
+  // CNAE da NFS-e: quem digita o serviço na mão (sem passar pelo catálogo) chegava no passo Itens
+  // sem CNAE e nem percebia, porque o campo só tinha um exemplo cinza de placeholder. Agora busca as
+  // atividades da empresa: uma só → preenche; várias → mostra como botões pra pessoa escolher
+  // (a principal pode ser comércio e o serviço bater com uma secundária).
+  const [cnaeOpcoesEmpresa, setCnaeOpcoesEmpresa] = useState([]);
+  const [cnaeAutoHint, setCnaeAutoHint] = useState(null);
+  const cnaeAutoTriedRef = useRef(false);
+  const prestadorCnpjDigits = String(nfseForm.prestadorCpfCnpj || '').replace(/\D/g, '');
+  const servicoCnaeVazio = !String(nfseForm.servico?.cnae || '').trim();
+  useEffect(() => {
+    if (documentType !== 'NFSE' || step !== 'itens') return;
+    if (!servicoCnaeVazio || prestadorCnpjDigits.length !== 14 || cnaeAutoTriedRef.current) return;
+    cnaeAutoTriedRef.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        const lookup = await lookupCnpj(prestadorCnpjDigits);
+        const options = normalizeCnaeOptions(lookup);
+        if (cancelled || options.length === 0) return;
+        setCnaeOpcoesEmpresa(options);
+        if (options.length === 1) {
+          const unica = options[0];
+          setNfseForm((prev) => {
+            if (String(prev.servico?.cnae || '').trim()) return prev;
+            return { ...prev, servico: { ...prev.servico, cnae: unica.codigo } };
+          });
+          setCnaeAutoHint(
+            `Preenchido com a atividade da sua empresa${unica.descricao ? ` (${unica.descricao})` : ''}.`,
+          );
+        }
+      } catch {
+        // sem sugestão: a pessoa preenche na mão, a validação avisa se faltar
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [documentType, step, servicoCnaeVazio, prestadorCnpjDigits]);
 
   const openProdutoCatalog = useCallback((itemIndex = 0) => {
     setNfeItemEditIndex(itemIndex);
@@ -916,6 +956,8 @@ export function EmitirNotaModal({
                   setProdutoSearch={setProdutoSearch}
                   produtos={produtos}
                   produtosLoading={produtosLoading || produtoApplying}
+                  cnaeAutoHint={cnaeAutoHint}
+                  cnaeOpcoesEmpresa={cnaeOpcoesEmpresa}
                   onApplyProduto={(p) => handleApplyProduto(p, 0)}
                   loadProdutos={loadProdutos}
                 />
@@ -1286,7 +1328,7 @@ function NfeDestinatarioForm({
   );
 }
 
-function NfseServicoForm({ form, setForm, showProdutoList, setShowProdutoList, produtoSearch, setProdutoSearch, produtos, produtosLoading, onApplyProduto, loadProdutos }) {
+function NfseServicoForm({ form, setForm, showProdutoList, setShowProdutoList, produtoSearch, setProdutoSearch, produtos, produtosLoading, onApplyProduto, loadProdutos, cnaeAutoHint = null, cnaeOpcoesEmpresa = [] }) {
   const handleChange = (field, value) => {
     setForm((prev) => ({ ...prev, servico: { ...prev.servico, [field]: value } }));
   };
@@ -1373,8 +1415,43 @@ function NfseServicoForm({ form, setForm, showProdutoList, setShowProdutoList, p
         )}
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Input label="Código do Serviço (LC 116)" value={form.servico.codigo} onChange={(v) => handleChange('codigo', v)} placeholder="171901" hint="Código sem pontos (mín. 6 dígitos)" />
-          <Input label="CNAE" value={form.servico.cnae} onChange={(v) => handleChange('cnae', v.replace(/\D/g, ''))} placeholder="4530701" />
+          <Input label="Código do Serviço (LC 116) *" value={form.servico.codigo} onChange={(v) => handleChange('codigo', v)} placeholder="Ex.: 171901" hint="Código sem pontos (mín. 6 dígitos)" />
+          <div>
+            <Input
+              label="CNAE *"
+              value={form.servico.cnae}
+              onChange={(v) => handleChange('cnae', v.replace(/\D/g, '').slice(0, 7))}
+              placeholder="7 dígitos"
+              hint={cnaeAutoHint || 'Atividade da sua empresa (está no CCMEI ou no cartão CNPJ). Puxe do catálogo para vir preenchido.'}
+            />
+            {cnaeOpcoesEmpresa.length > 1 ? (
+              <div className="mt-2">
+                <p className="mb-1 text-[11px] text-[var(--text-muted)]">Atividades da sua empresa. Toque na que combina com este serviço:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {cnaeOpcoesEmpresa.map((opt) => {
+                    const selected = String(form.servico.cnae || '') === opt.codigo;
+                    return (
+                      <button
+                        key={opt.codigo}
+                        type="button"
+                        onClick={() => handleChange('cnae', opt.codigo)}
+                        title={opt.descricao || opt.codigo}
+                        className={`max-w-full truncate rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                          selected
+                            ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+                            : 'border-[var(--card-border)] text-[var(--text-muted)] hover:border-[var(--accent)] hover:text-[var(--accent)]'
+                        }`}
+                      >
+                        {opt.codigo}
+                        {opt.descricao ? ` · ${opt.descricao}` : ''}
+                        {opt.principal ? ' (principal)' : ''}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+          </div>
           <div className="sm:col-span-2">
             <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Discriminação do Serviço *</label>
             <textarea
@@ -1385,7 +1462,7 @@ function NfseServicoForm({ form, setForm, showProdutoList, setShowProdutoList, p
               className="w-full rounded-[10px] border border-[var(--card-border)] bg-[var(--card-bg)] px-3 py-2 text-sm"
             />
           </div>
-          <Input label="Valor do Serviço (R$)" value={form.servico.valorServico} onChange={(v) => handleChange('valorServico', maskMoney(v))} placeholder="0,00" />
+          <Input label="Valor do Serviço (R$) *" value={form.servico.valorServico} onChange={(v) => handleChange('valorServico', maskMoney(v))} placeholder="0,00" />
           <Input label="Alíquota ISS (%)" value={form.servico.aliquota} onChange={(v) => handleChange('aliquota', v)} placeholder="5" />
           <Input label="NBS (opcional)" value={form.servico.codigoNbs} onChange={(v) => handleChange('codigoNbs', v.replace(/\D/g, '').slice(0, 9))} placeholder="9 dígitos" hint="Não é obrigatório para MEI. Deixe em branco para o sistema sugerir pelo código do serviço." />
           <Input label="cIndOp" value={form.servico.cIndOp} onChange={(v) => handleChange('cIndOp', v.replace(/\D/g, '').slice(0, 6))} placeholder="6 dígitos" hint="Indicador de operação (Reforma Tributária)" />
