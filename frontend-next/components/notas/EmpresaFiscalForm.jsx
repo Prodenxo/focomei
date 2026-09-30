@@ -195,13 +195,11 @@ export function EmpresaFiscalForm({
         </section>
       ) : null}
 
-      {form.nfeAtivo ? (
+      {form.nfeAtivo && ufExigeAutorizadoNfe(form.uf) ? (
         <section className="space-y-3 border-t border-[var(--card-border)] pt-4">
           <h3 className="text-sm font-semibold text-[var(--text-primary)]">Contador na nota de produto (NF-e)</h3>
           <p className="text-xs text-[var(--text-muted)]">
-            {ufExigeAutorizadoNfe(form.uf)
-              ? 'No seu estado a Secretaria da Fazenda exige na nota o CNPJ do escritório de contabilidade. Quem não tem contador usa o CNPJ da própria Fazenda.'
-              : 'Opcional. Com o CNPJ do contador na nota, ele consegue baixar o XML direto na Secretaria da Fazenda.'}
+            No seu estado a Secretaria da Fazenda exige na nota o CNPJ do escritório de contabilidade. Quem não tem contador usa o CNPJ da própria Fazenda.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
             <ChoiceCard
@@ -209,9 +207,7 @@ export function EmpresaFiscalForm({
               checked={!form.usaContador}
               onSelect={() => onChange('usaContador', false)}
               label="Não tenho contador"
-              hint={ufExigeAutorizadoNfe(form.uf)
-                ? `A nota sai com o CNPJ da Secretaria da Fazenda (${formatCnpj(UF_AUTORIZADO_XML_PADRAO[String(form.uf || '').toUpperCase()])}).`
-                : 'A nota sai sem contador informado.'}
+              hint={`A nota sai com o CNPJ da Secretaria da Fazenda (${formatCnpj(UF_AUTORIZADO_XML_PADRAO[String(form.uf || '').toUpperCase().slice(0, 2)])}).`}
             />
             <ChoiceCard
               name="usaContador"

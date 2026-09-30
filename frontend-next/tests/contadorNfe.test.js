@@ -50,3 +50,8 @@ test('só a Bahia exige o grupo de autorizados por enquanto', () => {
   assert.equal(ufExigeAutorizadoNfe('ba'), true);
   assert.equal(ufExigeAutorizadoNfe('RJ'), false);
 });
+
+test('fora da Bahia o CNPJ do contador não trava o salvar', () => {
+  const rj = { ...formValido(), uf: 'RJ', usaContador: true, contadorCnpj: '' };
+  assert.equal(getPlugNotasCompanyValidationMessage(rj), null);
+});

@@ -399,7 +399,7 @@ export function getPlugNotasCompanyValidationMessage(form) {
     return 'Número inicial do RPS deve ser um inteiro maior ou igual a 1.';
   }
   if (!String(form.rpsSerie ?? '').trim()) return 'Informe a série do RPS (ex.: 1).';
-  if (form.nfeAtivo && form.usaContador && normalizeDoc(form.contadorCnpj).length !== 14) {
+  if (form.nfeAtivo && ufExigeAutorizadoNfe(form.uf) && form.usaContador && normalizeDoc(form.contadorCnpj).length !== 14) {
     return 'Informe o CNPJ do contador com 14 dígitos ou escolha usar o CNPJ da Secretaria da Fazenda.';
   }
   return null;
