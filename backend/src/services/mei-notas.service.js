@@ -87,6 +87,7 @@ import {
   syncNumericIeToPlugnotasCadastroIfNeeded,
 } from './plugnotas/plugnotas-mei-nfe-emit-force.js';
 import { unwrapPlugnotasEmpresaRecord } from './mei-emitente-empresa-sync.js';
+import { applyUfResponsavelAutorizado } from './plugnotas/plugnotas-nfe-uf-autorizados.js';
 import { applyInterestadualToNfePayload } from './nfe-interestadual.service.js';
 import { getEmitenteNfseSnapshot } from './mei-certificate-store.js';
 import {
@@ -2470,6 +2471,14 @@ export const emitirNota = async (userId, input) => {
           metadata.interestadualUfDestino = applied.resolved.destinatarioUf;
           metadata.interestadualAliquotaIcms = applied.resolved.taxas?.aliquotaIcms ?? null;
         }
+        const emitenteUf = String(
+          emitenteSnap?.estado
+            || emitenteSnap?.uf
+            || empresaPlugnotasNfe?.endereco?.estado
+            || emitPayload?.emitente?.endereco?.estado
+            || '',
+        ).trim();
+        emitPayload = applyUfResponsavelAutorizado(emitPayload, emitenteUf);
       }
       emitPayload = applyMeiNfeEmitConfigFromEmpresa(emitPayload, empresaPlugnotasNfe);
       emitPayload = applyMeiNfeEmitForcePolicy(emitPayload);
