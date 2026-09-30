@@ -608,6 +608,9 @@ export function EmitirNotaModal({
       ...prev,
       itens: prev.itens.filter((_, i) => i !== index),
     }));
+    // O painel do catálogo fica preso ao item; se ele sair, fecha pra não apontar pra um item errado.
+    setShowProdutoList(false);
+    setNfeItemEditIndex(0);
   };
 
   const setNestedItemField = (item, path, value) => {
@@ -1470,11 +1473,10 @@ function NfeItensForm({
 }) {
   const total = computeNfeItemsTotal(form.itens);
 
-  return (
-    <div className="flex flex-col gap-5">
-      {/* Lista de produtos/catálogo flutuante */}
-      {showProdutoList && (
-        <div className="rounded-[12px] border border-[var(--card-border)] bg-[var(--canvas)] p-3">
+  // O painel do catálogo abre dentro do item que está sendo editado. Se ficasse fixo no topo,
+  // quem clica em "Buscar no catálogo" no Item 2 (rolado pra baixo) não vê o painel abrir.
+  const catalogPanel = showProdutoList ? (
+        <div className="mb-3 rounded-[12px] border border-[var(--card-border)] bg-[var(--canvas)] p-3">
           <p className="mb-2 text-xs font-medium text-[var(--text-muted)]">
             Selecionando produto para o Item {nfeItemEditIndex + 1}
           </p>
@@ -1515,25 +1517,27 @@ function NfeItensForm({
             <div className="py-2 text-center text-xs text-[var(--text-muted)]">Nenhum produto encontrado</div>
           )}
         </div>
-      )}
+  ) : null;
 
+  return (
+    <div className="flex flex-col gap-5">
       {/* Itens */}
-      {form.itens.map((item, idx) => (
+      {form.itens.map((item, idx) => {
+        const catalogOpenHere = showProdutoList && nfeItemEditIndex === idx;
+        return (
         <div
           key={idx}
           className={`relative rounded-[16px] border p-4 ${
-            showProdutoList && nfeItemEditIndex === idx
-              ? 'border-[var(--accent)]'
-              : 'border-[var(--card-border)]'
+            catalogOpenHere ? 'border-[var(--accent)]' : 'border-[var(--card-border)]'
           }`}
         >
           <div className="absolute right-2 top-2 flex items-center gap-1">
             <button
               type="button"
-              onClick={() => onOpenCatalog(idx)}
+              onClick={() => (catalogOpenHere ? setShowProdutoList(false) : onOpenCatalog(idx))}
               className="rounded-[8px] px-2 py-1 text-xs text-[var(--accent)] hover:bg-[var(--accent-soft)]"
             >
-              Buscar no catálogo
+              {catalogOpenHere ? 'Ocultar catálogo' : 'Buscar no catálogo'}
             </button>
             {form.itens.length > 1 && (
               <button
@@ -1546,6 +1550,7 @@ function NfeItensForm({
             )}
           </div>
           <h3 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">Item {idx + 1}</h3>
+          {catalogOpenHere ? catalogPanel : null}
           <div className="grid gap-3 sm:grid-cols-2">
             <Input label="Código" value={item.codigo} onChange={(v) => onItemChange(idx, 'codigo', v)} placeholder="Código do produto" />
             <Input label="NCM" value={item.ncm} onChange={(v) => onItemChange(idx, 'ncm', v.replace(/\D/g, '').slice(0, 8))} placeholder="00000000" hint="8 dígitos" />
@@ -1569,7 +1574,8 @@ function NfeItensForm({
             </div>
           </div>
         </div>
-      ))}
+        );
+      })}
 
       <button
         type="button"
