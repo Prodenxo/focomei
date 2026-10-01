@@ -16,6 +16,31 @@ const padZeros = (value, length) => {
   return str.padStart(length, '0').slice(-length);
 };
 
+/**
+ * O CEP manda no código da cidade. Cadastro com IBGE de outra cidade (ex.: o do prestador)
+ * faz a prefeitura recusar com E0240.
+ * @param {Record<string, unknown>|null|undefined} endereco
+ * @param {unknown} cepIbge
+ * @param {unknown} [cepCidade]
+ * @param {unknown} [cepUf]
+ */
+export const applyCepIbgeToEndereco = (endereco, cepIbge, cepCidade, cepUf) => {
+  const pruned = pruneEndereco(endereco);
+  if (!pruned) return pruned;
+  const ibge = padZeros(cepIbge, 7);
+  if (!/^[1-9]\d{6}$/.test(ibge)) return pruned;
+  const atual = padZeros(pruned.codigoCidade, 7);
+  if (atual === ibge) return pruned;
+  const cidade = String(cepCidade || '').trim();
+  const uf = String(cepUf || '').trim().toUpperCase().slice(0, 2);
+  return pruneEndereco({
+    ...pruned,
+    codigoCidade: ibge,
+    ...(cidade ? { descricaoCidade: cidade } : {}),
+    ...(uf.length === 2 ? { estado: uf } : {}),
+  });
+};
+
 const resolveIbgeFromCepPayload = (cidade, uf, brasilIbge, viaIbge) => {
   if (brasilIbge != null && String(brasilIbge).trim()) {
     return padZeros(brasilIbge, 7);
@@ -394,6 +419,24 @@ export const enrichCatalogClienteMetadataFromCep = async (metadata) => {
   };
 };
 
+/** Consulta o CEP e troca o código da cidade quando ele não é o daquele CEP. */
+export const alignEnderecoIbgeWithCep = async (endereco) => {
+  const pruned = pruneEndereco(endereco);
+  if (!pruned || normalizeDoc(pruned.cep).length !== 8) return pruned;
+
+  const fromCep = await enderecoFromCepLookupNfse(pruned.cep, {
+    ...pruned,
+    codigoCidade: '',
+  });
+  if (!fromCep?.codigoCidade) return pruned;
+  return applyCepIbgeToEndereco(
+    pruned,
+    fromCep.codigoCidade,
+    fromCep.descricaoCidade,
+    fromCep.estado,
+  );
+};
+
 const applyTomadorNumeroDefault = (endereco) => {
   const pruned = pruneEndereco(endereco);
   if (!pruned || String(pruned.numero || '').trim()) return pruned;
@@ -409,7 +452,7 @@ const applyTomadorNumeroDefault = (endereco) => {
  */
 export const resolveTomadorEmitEndereco = async (userId, tomadorDoc, payloadOrEndereco) => {
   const fromPayload = pruneEnderecoFromEmitArg(payloadOrEndereco);
-  if (hasCompleteTomadorEndereco(fromPayload)) return fromPayload;
+  if (hasCompleteTomadorEndereco(fromPayload)) return alignEnderecoIbgeWithCep(fromPayload);
 
   const catalogEndereco = await resolveCatalogClienteEndereco(userId, tomadorDoc);
 
@@ -439,12 +482,12 @@ export const resolveTomadorEmitEndereco = async (userId, tomadorDoc, payloadOrEn
 
   if (!hasCompleteTomadorEndereco(merged)) {
     const withNumero = applyTomadorNumeroDefault(merged);
-    if (hasCompleteTomadorEndereco(withNumero)) return withNumero;
+    if (hasCompleteTomadorEndereco(withNumero)) return alignEnderecoIbgeWithCep(withNumero);
   }
 
-  if (hasCompleteTomadorEndereco(merged)) return merged;
+  if (hasCompleteTomadorEndereco(merged)) return alignEnderecoIbgeWithCep(merged);
 
-  return merged || fromPayload;
+  return alignEnderecoIbgeWithCep(merged || fromPayload);
 };
 
 /**
