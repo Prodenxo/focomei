@@ -52,6 +52,17 @@ test('payload da NFS-e sai com todas as discriminações normalizadas', () => {
   assert.equal(result.servico[1].discriminacao, 'Consultoria');
 });
 
+test('informações complementares da NFS-e também trocam Enter por pipe', () => {
+  const payload = {
+    informacoesComplementares: 'Pedido 123\nEntrega na obra',
+    servico: [{ codigo: '140101', discriminacao: 'Limpeza' }],
+  };
+
+  const result = applyNfseDiscriminacaoLineBreaks(payload);
+
+  assert.equal(result.informacoesComplementares, 'Pedido 123|Entrega na obra');
+});
+
 test('payload sem serviço válido não quebra a montagem', () => {
   assert.deepEqual(applyNfseDiscriminacaoLineBreaks({}), {});
   assert.equal(applyNfseDiscriminacaoLineBreaks(null), null);

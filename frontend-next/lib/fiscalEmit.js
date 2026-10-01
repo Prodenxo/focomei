@@ -399,7 +399,8 @@ export function buildNfsePayload(form) {
     },
     servico,
     // Local da prestação (obra 07.xx) é montado no backend a partir do tomador — não enviar IBGE do prestador aqui.
-    informacoesComplementares: String(form.informacoesComplementares || '').trim() || undefined,
+    // O emissor da NFS-e também não aceita Enter nesse campo, só "|".
+    informacoesComplementares: normalizeNfeInformacoesComplementares(form.informacoesComplementares) || undefined,
     enviarEmail: Boolean(form.enviarEmail),
   };
 }

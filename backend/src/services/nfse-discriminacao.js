@@ -33,6 +33,14 @@ export const sanitizeNfseDiscriminacao = (value) => {
  */
 export const applyNfseDiscriminacaoLineBreaks = (payload) => {
   if (!payload || typeof payload !== 'object') return payload;
+
+  // O emissor recusa Enter em informacoesComplementares da NFS-e do mesmo jeito que na discriminação.
+  if (payload.informacoesComplementares !== undefined) {
+    const sanitized = sanitizeNfseDiscriminacao(payload.informacoesComplementares);
+    if (sanitized !== null) payload.informacoesComplementares = sanitized;
+    else delete payload.informacoesComplementares;
+  }
+
   if (!Array.isArray(payload.servico)) return payload;
 
   payload.servico.forEach((servico) => {
