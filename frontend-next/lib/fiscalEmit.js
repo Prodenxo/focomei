@@ -283,6 +283,17 @@ export function validateNfseForm(form) {
   return null;
 }
 
+/** Troca quebras de linha por " | " (regra do emissor para informações complementares da NF-e). */
+export function normalizeNfeInformacoesComplementares(value) {
+  const text = String(value ?? '').replace(/\r\n?/g, '\n').trim();
+  if (!text) return '';
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(' | ');
+}
+
 /** Validação do formulário NF-e/NFC-e. Retorna mensagem de erro ou null. */
 export function validateNfeLikeForm(form, documentType) {
   const label = documentType === 'NFE' ? 'NF-e' : 'NFC-e';
@@ -460,7 +471,8 @@ export function buildNfeLikePayload(form, documentType) {
     ...(!consumidorNaoIdentificado ? { destinatario } : {}),
     itens,
     ...(total > 0 ? { pagamentos: [{ meio: '99', valor: total, descricaoMeio: 'Outros' }] } : {}),
-    informacoesComplementares: form.informacoesComplementares.trim() || undefined,
+    // O emissor da NF-e não aceita Enter nesse campo, só " | " entre as linhas.
+    informacoesComplementares: normalizeNfeInformacoesComplementares(form.informacoesComplementares) || undefined,
     config: { producao: true },
     enviarEmail: Boolean(form.enviarEmail),
   };

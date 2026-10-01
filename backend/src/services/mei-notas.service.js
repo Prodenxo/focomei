@@ -631,6 +631,21 @@ export const buildPayloadFromInput = (input, userId) => {
   };
 };
 
+/**
+ * Na NF-e/NFC-e o emissor não aceita quebra de linha em `informacoesComplementares`
+ * ("Para quebra de linha, utilize o '|' (Pipe)"). Quem digita com Enter no site ou no WhatsApp
+ * não tem como saber disso, então convertemos aqui.
+ */
+export const normalizeNfeInformacoesComplementares = (value) => {
+  const text = String(value ?? '').replace(/\r\n?/g, '\n').trim();
+  if (!text) return '';
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(' | ');
+};
+
 const buildNfeLikePayloadFromInput = (input, userId, { defaultModel = '55' } = {}) => {
   const idIntegracao = input?.idIntegracao || `mei-${userId}-${Date.now()}`;
   const emitenteDoc = normalizeDoc(
@@ -681,12 +696,19 @@ const buildNfeLikePayloadFromInput = (input, userId, { defaultModel = '55' } = {
       ? { pagamentos: input.pagamentos }
       : {}),
     ...(input?.informacoesComplementares
-      ? { informacoesComplementares: String(input.informacoesComplementares).trim() }
+      ? { informacoesComplementares: normalizeNfeInformacoesComplementares(input.informacoesComplementares) }
       : {}),
     ...(input?.config && typeof input.config === 'object'
       ? { config: { ...input.config } }
       : {})
   }) || {};
+
+  // `input.payload` pode trazer o campo cru (bot/integrações); normaliza do mesmo jeito.
+  if (payload.informacoesComplementares !== undefined) {
+    const infCpl = normalizeNfeInformacoesComplementares(payload.informacoesComplementares);
+    if (infCpl) payload.informacoesComplementares = infCpl;
+    else delete payload.informacoesComplementares;
+  }
 
   // NF-e sem pagamentos costuma cair em "erro interno" genérico na Plugnotas.
   if (
@@ -950,6 +972,11 @@ const buildPayloadByDocumentType = (input, userId, documentType) => {
       normalizeNfeLikeModel(payloadBase, documentType);
       if (!String(payloadBase.natureza || '').trim()) {
         payloadBase.natureza = String(input?.natureza || input?.descricao || 'VENDA').trim() || 'VENDA';
+      }
+      if (payloadBase.informacoesComplementares !== undefined) {
+        const infCpl = normalizeNfeInformacoesComplementares(payloadBase.informacoesComplementares);
+        if (infCpl) payloadBase.informacoesComplementares = infCpl;
+        else delete payloadBase.informacoesComplementares;
       }
     }
     return {
