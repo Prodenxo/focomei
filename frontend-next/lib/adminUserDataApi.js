@@ -18,6 +18,7 @@ export function fetchAdminMeiCertificateStatus(userId) {
 export async function fetchAdminMeiPeriods(userId, cnpj) {
   const result = await apiClient.get(
     withQuery(`/admin/mei-guide/${encode(userId)}/periods`, { cnpj }),
+    { timeoutMs: 60000 },
   );
   return Array.isArray(result) ? result : [];
 }

@@ -180,7 +180,7 @@ export async function fetchDasPeriods(cnpj, ano, refresh = false) {
   }
   if (ano) params.set('ano', String(ano));
   if (refresh) params.set('refresh', 'true');
-  return apiClient.get(`/mei-guide/periods?${params.toString()}`);
+  return apiClient.get(`/mei-guide/periods?${params.toString()}`, { timeoutMs: 60000 });
 }
 
 /** Lista competências usando somente o CNPJ, conforme o contrato do PGMEI. */
@@ -189,7 +189,8 @@ export async function fetchDasPeriodsByCnpj(cnpj, refresh = false) {
     cnpj: String(cnpj || '').replace(/\D/g, ''),
   });
   if (refresh) params.set('refresh', 'true');
-  return apiClient.get(`/mei-guide/periods-by-cnpj?${params.toString()}`);
+  // A Receita costuma levar ~10s para listar as competências; o padrão de 8s cortava antes.
+  return apiClient.get(`/mei-guide/periods-by-cnpj?${params.toString()}`, { timeoutMs: 60000 });
 }
 
 /** Status da integração DAS. */
