@@ -39,6 +39,7 @@ export default function NotasInicioPage() {
   const [company, setCompany] = useState(null);
   const [notas, setNotas] = useState([]);
   const [dasPeriods, setDasPeriods] = useState([]);
+  const [dasErro, setDasErro] = useState(false);
   const [parcelamentos, setParcelamentos] = useState([]);
   const [limiteServidor, setLimiteServidor] = useState(null);
 
@@ -94,6 +95,7 @@ export default function NotasInicioPage() {
       setLoadingNotas(false);
     }
 
+    setDasErro(false);
     if (cnpjDigits) {
       try {
         const data = await fetchDasPeriodsByCnpj(cnpjDigits, false);
@@ -101,6 +103,7 @@ export default function NotasInicioPage() {
         setDasPeriods(list.filter((p) => p && p.status !== 'indisponivel'));
       } catch {
         setDasPeriods([]);
+        setDasErro(true);
       } finally {
         setLoadingDas(false);
       }
@@ -162,6 +165,9 @@ export default function NotasInicioPage() {
   );
 
   const dasMetric = useMemo(() => {
+    if (dasErro && !loadingDas) {
+      return { tudoEmDia: false, semDados: true, texto: '—' };
+    }
     const aguardando = hasCertificate && cnpj && dasPeriods.length === 0 && loadingDas;
     const tudoEmDia = dasEmAberto.length === 0
       && hasCertificate
@@ -172,7 +178,7 @@ export default function NotasInicioPage() {
       tudoEmDia,
       texto: aguardando ? '…' : tudoEmDia ? 'Tudo em dia' : String(dasEmAberto.length),
     };
-  }, [dasEmAberto.length, hasCertificate, cnpj, loadingDas, dasPeriods.length]);
+  }, [dasEmAberto.length, hasCertificate, cnpj, loadingDas, dasPeriods.length, dasErro]);
 
   const parcMetric = useMemo(() => {
     const ativos = parcelamentos.filter((p) => isParcelamentoEmAberto(p.situacao));
@@ -231,7 +237,7 @@ export default function NotasInicioPage() {
           description="Consulte, gere e baixe as guias mensais do MEI."
           metricLabel="Guias em aberto"
           metricValue={dasMetric.texto}
-          metricTone={dasMetric.tudoEmDia ? 'success' : 'warning'}
+          metricTone={dasMetric.tudoEmDia ? 'success' : dasMetric.semDados ? undefined : 'warning'}
           cta="Abrir guias →"
           loading={loadingDas}
         />
