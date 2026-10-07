@@ -556,10 +556,13 @@ export default function CertificadoPage() {
               A senha é usada apenas neste envio e não fica salva no navegador.
             </p>
 
-            <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
-              <label className="flex h-11 cursor-pointer items-center gap-2 rounded-[12px] border border-[var(--card-border)] bg-[var(--canvas)] px-3 text-sm">
-                <Upload className="h-4 w-4 text-[var(--text-muted)]" aria-hidden />
-                <span className="truncate text-[var(--text-primary)]">
+            <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <label
+                title={uploadFile?.name || undefined}
+                className="flex h-11 min-w-0 cursor-pointer items-center gap-2 rounded-[12px] border border-[var(--card-border)] bg-[var(--canvas)] px-3 text-sm"
+              >
+                <Upload className="h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden />
+                <span className="min-w-0 truncate text-[var(--text-primary)]">
                   {uploadFile ? uploadFile.name : 'Selecionar arquivo .pfx'}
                 </span>
                 <input
@@ -572,7 +575,7 @@ export default function CertificadoPage() {
               </label>
 
               <label className="flex h-11 items-center gap-2 rounded-[12px] border border-[var(--card-border)] bg-[var(--canvas)] px-3 text-sm">
-                <Lock className="h-4 w-4 text-[var(--text-muted)]" aria-hidden />
+                <Lock className="h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden />
                 <input
                   type="password"
                   value={uploadPassword}
