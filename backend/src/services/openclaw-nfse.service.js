@@ -675,6 +675,9 @@ const pickTomadorNomeFromPayload = (payload) =>
     payload?.cliente,
     payload?.nome,
     payload?.tomador,
+    payload?.clienteNome,
+    payload?.destinatarioNome,
+    payload?.destinatarioRazaoSocial,
   );
 
 /**
@@ -851,7 +854,9 @@ const resolveTomador = async (userId, payload) => {
       || payload?.cnpjTomador
       || payload?.cnpj
       || payload?.cpfCnpj
-      || payload?.documento,
+      || payload?.documento
+      || payload?.destinatarioCpfCnpj
+      || payload?.destinatarioDocumento,
   );
 
   let catalogo = null;
