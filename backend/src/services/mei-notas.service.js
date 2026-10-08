@@ -2102,6 +2102,29 @@ const upsertClienteCatalogo = async (userId, payload, { documentType = DOCUMENT_
   return entry;
 };
 
+/**
+ * NF-e/NFC-e: o produto cadastrado à mão guarda o NCM em metadata_json e a nota manda o NCM em `cnae`,
+ * então a chave de deduplicação nunca bate. Casa pelo código do produto (ou pela descrição, sem código).
+ */
+export const findCatalogoProdutoNfeExistente = (rows, entry) => {
+  const list = Array.isArray(rows) ? rows : [];
+  const codigo = normalizeText(entry?.codigo || '');
+  const ncm = String(entry?.cnae || '').replace(/\D/g, '');
+  const descricao = normalizeText(entry?.discriminacao || '');
+  const rowNcm = (row) => String(row?.metadata_json?.ncm || row?.cnae || '').replace(/\D/g, '');
+  const ncmCompativel = (row) => !ncm || !rowNcm(row) || rowNcm(row) === ncm;
+
+  if (codigo) {
+    return list.find((row) => normalizeText(row?.codigo || '') === codigo && ncmCompativel(row)) || null;
+  }
+  if (!descricao) return null;
+  return list.find((row) => (
+    !normalizeText(row?.codigo || '')
+    && normalizeText(row?.discriminacao || '') === descricao
+    && ncmCompativel(row)
+  )) || null;
+};
+
 const upsertProdutosCatalogo = async (userId, payload, { documentType = DOCUMENT_TYPE_NFSE } = {}) => {
   const normalizedType = normalizeDocumentType(documentType);
   const entries = buildProdutoCatalogEntries(payload, { documentType: normalizedType });
@@ -2111,13 +2134,19 @@ const upsertProdutosCatalogo = async (userId, payload, { documentType = DOCUMENT
   const dbClient = getDb();
   let upserted = 0;
 
+  const catalogRowsNfe = normalizedType === DOCUMENT_TYPE_NFSE
+    ? null
+    : await listarCatalogoProdutos(userId, { limit: 100, documentType: normalizedType });
+
   for (const entry of entries) {
-    const existing = await findCatalogoProdutoByCodigoCnae(
-      userId,
-      entry.codigo,
-      entry.cnae,
-      normalizedType,
-    );
+    const existing = catalogRowsNfe
+      ? findCatalogoProdutoNfeExistente(catalogRowsNfe, entry)
+      : await findCatalogoProdutoByCodigoCnae(
+        userId,
+        entry.codigo,
+        entry.cnae,
+        normalizedType,
+      );
     if (existing?.id) {
       const { error } = await dbClient
         .from(PRODUCTS_TABLE)
