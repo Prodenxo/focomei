@@ -692,16 +692,15 @@ export default function CertificadoPage() {
             <form onSubmit={handleSaveCompany} className="mt-4 space-y-4">
               {companyError ? (
                 <div className="rounded-[12px] border border-red-200 bg-red-50 p-3 dark:border-red-900/40 dark:bg-red-950/30">
+                  <p className="flex items-start gap-2 text-xs text-red-800 dark:text-red-200">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                    <span>{companyError}</span>
+                  </p>
                   {hasUserCert && !plugnotasCertLinked ? (
-                    <p className="text-xs text-amber-800 dark:text-amber-200">
-                      Vincule o certificado ao emissor (botão à esquerda) antes de cadastrar a empresa.
+                    <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+                      Se o erro falar do certificado, use &quot;Reenviar ao emissor&quot; (à esquerda) e tente salvar de novo.
                     </p>
-                  ) : (
-                    <p className="flex items-start gap-2 text-xs text-red-800 dark:text-red-200">
-                      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                      <span>{companyError}</span>
-                    </p>
-                  )}
+                  ) : null}
                 </div>
               ) : null}
 

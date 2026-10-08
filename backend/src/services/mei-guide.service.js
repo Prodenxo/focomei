@@ -1674,6 +1674,12 @@ export const getCertificateStatus = async (userId) => {
   } catch {
     documentosAtivos = null;
   }
+  let plugnotasCertId = null;
+  try {
+    plugnotasCertId = await getPlugNotasCertId(userId);
+  } catch {
+    plugnotasCertId = null;
+  }
   const docResolved = docFromCache || docFromDb || null;
   const hasCert = Boolean(userCert);
   return {
@@ -1683,7 +1689,8 @@ export const getCertificateStatus = async (userId) => {
     certValidFrom: certValidFrom || null,
     certValidTo: certValidTo || null,
     nfseEmitente,
-    documentosAtivos
+    documentosAtivos,
+    plugnotasCertificado: { linked: Boolean(plugnotasCertId) }
   };
 };
 
