@@ -369,8 +369,13 @@ export function ManageUsersPage() {
   const handleDeleteUser = async (user) => {
     setActing(user.id);
     try {
-      await deleteUser(user.id);
-      setMsg({ type: 'success', text: 'Usuário excluído.' });
+      const result = await deleteUser(user.id);
+      setMsg({
+        type: 'success',
+        text: result?.removedFromEmpresa
+          ? 'Usuário removido da sua empresa. Ele continua com acesso às outras empresas em que está cadastrado.'
+          : 'Usuário excluído.',
+      });
       await load();
     } catch (err) {
       setMsg({ type: 'error', text: err instanceof Error ? err.message : 'Falha ao excluir.' });
@@ -671,7 +676,7 @@ export function ManageUsersPage() {
                           disabled={acting === u.id}
                         />
                       ) : null}
-                      {actions.canDelete && isSuperadmin ? (
+                      {actions.canDelete ? (
                         <IconBtn label="Excluir" onClick={() => setConfirmDeleteUser(u)} icon={Trash2} destructive />
                       ) : null}
                     </div>
@@ -1121,7 +1126,7 @@ export function ManageUsersPage() {
       ) : null}
 
       <ConfirmDialog open={Boolean(confirmBan)} title="Bloquear usuário?" message={`Bloquear ${confirmBan?.displayName || confirmBan?.email}?`} confirmLabel="Bloquear" onConfirm={() => handleBanToggle(confirmBan)} onCancel={() => setConfirmBan(null)} loading={acting === confirmBan?.id} destructive />
-      <ConfirmDialog open={Boolean(confirmDeleteUser)} title="Excluir usuário?" message="Esta ação não pode ser desfeita." confirmLabel="Excluir" onConfirm={() => handleDeleteUser(confirmDeleteUser)} onCancel={() => setConfirmDeleteUser(null)} loading={acting === confirmDeleteUser?.id} destructive />
+      <ConfirmDialog open={Boolean(confirmDeleteUser)} title="Excluir usuário?" message={`Excluir ${confirmDeleteUser?.displayName || confirmDeleteUser?.email || 'este usuário'}? A conta e os dados dele serão apagados. Esta ação não pode ser desfeita.`} confirmLabel="Excluir" onConfirm={() => handleDeleteUser(confirmDeleteUser)} onCancel={() => setConfirmDeleteUser(null)} loading={acting === confirmDeleteUser?.id} destructive />
       <ConfirmDialog open={Boolean(confirmDeleteEmpresa)} title="Excluir empresa?" message={`Excluir ${confirmDeleteEmpresa?.empresa}?`} confirmLabel="Excluir" onConfirm={() => handleDeleteEmpresa(confirmDeleteEmpresa)} onCancel={() => setConfirmDeleteEmpresa(null)} loading={acting === confirmDeleteEmpresa?.id} destructive />
       <ConfirmDialog open={Boolean(impersonateTarget)} title="Acessar como usuário?" message={`Entrar na conta de ${impersonateTarget?.displayName || impersonateTarget?.email}?`} confirmLabel="Acessar" onConfirm={handleImpersonate} onCancel={() => setImpersonateTarget(null)} loading={acting === 'impersonate'} />
     </div>

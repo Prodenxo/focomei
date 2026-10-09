@@ -2334,6 +2334,21 @@ export const deleteUser = async (accessToken, userId) => {
       throw forbidden();
     }
 
+    if (requester.role === 'admin') {
+      const { rows: otherLinks } = await query(
+        `SELECT 1 FROM public.role_x_user_x_empresa
+         WHERE user_id = $1 AND empresas_id IS DISTINCT FROM $2 LIMIT 1`,
+        [userId, requester.empresaId],
+      );
+      if (otherLinks.length) {
+        await query(
+          `DELETE FROM public.role_x_user_x_empresa WHERE user_id = $1 AND empresas_id = $2`,
+          [userId, requester.empresaId],
+        );
+        return { userId, deleted: false, removedFromEmpresa: true };
+      }
+    }
+
     await query(`DELETE FROM public.role_x_user_x_empresa WHERE user_id = $1`, [userId]);
     await query(`DELETE FROM public.profiles WHERE id = $1`, [userId]);
     await query(
@@ -2374,6 +2389,26 @@ export const deleteUser = async (accessToken, userId) => {
 
     if (requester.role === 'superadmin') {
       if (!ROLE_UPDATE_ALLOWED_SUPERADMIN.has(targetRole)) throw forbidden();
+    }
+  }
+
+  // Admin não pode apagar a conta de quem também pertence a outra empresa: só tira da empresa dele.
+  if (requester.role === 'admin') {
+    const { data: otherLinks, error: otherLinksError } = await adminClient
+      .from('role_x_user_x_empresa')
+      .select('empresas_id')
+      .eq('user_id', userId)
+      .neq('empresas_id', requester.empresaId)
+      .limit(1);
+    if (otherLinksError) throw badRequest(otherLinksError.message);
+    if ((otherLinks || []).length) {
+      const { error: unlinkError } = await adminClient
+        .from('role_x_user_x_empresa')
+        .delete()
+        .eq('user_id', userId)
+        .eq('empresas_id', requester.empresaId);
+      if (unlinkError) throw badRequest(unlinkError.message);
+      return { userId, orphan: false, removedFromEmpresa: true };
     }
   }
 
